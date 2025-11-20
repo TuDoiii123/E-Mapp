@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Upload, Camera, FileText, CheckCircle, Info, Plus, ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -10,6 +10,7 @@ import { Textarea } from './ui/textarea';
 import { Checkbox } from './ui/checkbox';
 import { Progress } from './ui/progress';
 import React from 'react';
+
 interface SubmitDocumentScreenProps {
   onNavigate: (screen: string) => void;
 }
@@ -18,7 +19,11 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedService, setSelectedService] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
+  const [fileObjects, setFileObjects] = useState<Record<string, File | null>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const fileInputsRef = useRef<Record<string, HTMLInputElement | null>>({});
   const [agreed, setAgreed] = useState(false);
+  const [notes, setNotes] = useState('');
 
   const services = [
     {
@@ -57,9 +62,17 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
     'Xác nhận & ký số'
   ];
 
-  const handleFileUpload = (fileName: string) => {
-    if (!uploadedFiles.includes(fileName)) {
-      setUploadedFiles([...uploadedFiles, fileName]);
+  const handleFilePick = (docKey: string) => {
+    // trigger hidden file input
+    const input = fileInputsRef.current[docKey];
+    if (input) input.click();
+  };
+
+  const onFileChange = (docKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+    setFileObjects(prev => ({ ...prev, [docKey]: f }));
+    if (f) {
+      setUploadedFiles(prev => prev.includes(docKey) ? prev : [...prev, docKey]);
     }
   };
 
@@ -215,34 +228,43 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3>{doc}</h3>
-                    {uploadedFiles.includes(doc) ? (
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                    ) : (
-                      <Badge variant="outline">Bắt buộc</Badge>
-                    )}
+                      {uploadedFiles.includes(doc) ? (
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      ) : (
+                        <Badge variant="outline">Bắt buộc</Badge>
+                      )}
                   </div>
                   
                   {uploadedFiles.includes(doc) ? (
                     <div className="bg-green-50 p-3 rounded-lg">
-                      <p className="text-sm text-green-700">✓ Đã upload thành công</p>
+                      <p className="text-sm text-green-700">✓ File đã chọn</p>
+                      <p className="text-xs text-gray-600">{fileObjects[doc]?.name}</p>
                     </div>
                   ) : (
                     <div className="space-y-2">
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf,text/plain"
+                        capture="environment"
+                        style={{ display: 'none' }}
+                        ref={el => { fileInputsRef.current[doc] = el; }}
+                        onChange={(e) => onFileChange(doc, e)}
+                      />
                       <Button 
                         variant="outline" 
                         className="w-full"
-                        onClick={() => handleFileUpload(doc)}
+                        onClick={() => handleFilePick(doc)}
                       >
                         <Upload className="w-4 h-4 mr-2" />
-                        Chọn file
+                        Chọn file từ máy
                       </Button>
                       <Button 
                         variant="outline" 
                         className="w-full"
-                        onClick={() => handleFileUpload(doc)}
+                        onClick={() => handleFilePick(doc)}
                       >
                         <Camera className="w-4 h-4 mr-2" />
-                        Chụp ảnh
+                        Chụp ảnh (máy)
                       </Button>
                     </div>
                   )}
@@ -250,13 +272,16 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
               </Card>
             ))}
 
-            <Button 
-              onClick={handleNext}
-              disabled={uploadedFiles.length !== requiredDocuments.length}
-              className="w-full"
-            >
-              Tiếp tục
-            </Button>
+            <div className="space-y-2">
+              <Button 
+                onClick={handleNext}
+                disabled={uploadedFiles.length !== requiredDocuments.length}
+                className="w-full"
+              >
+                Tiếp tục
+              </Button>
+              <p className="text-xs text-gray-500">Hoặc bạn có thể upload tất cả file tại bước cuối cùng.</p>
+            </div>
           </div>
         )}
 
@@ -292,6 +317,8 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                 <Textarea 
                   placeholder="Nhập ghi chú nếu có (không bắt buộc)"
                   rows={3}
+                  value={notes}
+                  onChange={(e: any) => setNotes(e.target.value)}
                 />
               </CardContent>
             </Card>
@@ -313,11 +340,51 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
 
             <div className="space-y-2">
               <Button 
-                onClick={handleSubmit}
-                disabled={!agreed}
+                onClick={async () => {
+                  if (!agreed) return;
+                  // perform multipart upload to backend
+                  try {
+                    setSubmitting(true);
+                    const API_BASE = import.meta.env.VITE_API_URL || 'http://192.168.1.231:8888/api';
+                    const form = new FormData();
+                    form.append('serviceId', selectedService);
+                    const payloadData = { notes };
+                    form.append('data', JSON.stringify(payloadData));
+
+                    // append all chosen files
+                    const fileKeys = Object.keys(fileObjects).filter(k => fileObjects[k]);
+                    if (fileKeys.length === 0) {
+                      alert('Vui lòng chọn ít nhất 1 file/ảnh trước khi nộp hồ sơ');
+                      setSubmitting(false);
+                      return;
+                    }
+                    fileKeys.forEach(key => {
+                      const f = fileObjects[key];
+                      if (f) form.append('files', f, f.name);
+                    });
+
+                    const token = localStorage.getItem('auth_token');
+                    const resp = await fetch(`${API_BASE}/applications/create`, {
+                      method: 'POST',
+                      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                      body: form
+                    });
+
+                    const data = await resp.json();
+                    if (!resp.ok) throw new Error(data.message || 'Lỗi khi nộp hồ sơ');
+
+                    alert('Nộp hồ sơ thành công!');
+                    onNavigate('home');
+                  } catch (err: any) {
+                    alert('Lỗi khi nộp hồ sơ: ' + (err.message || err));
+                  } finally {
+                    setSubmitting(false);
+                  }
+                }}
+                disabled={!agreed || submitting}
                 className="w-full"
               >
-                Ký số & Nộp hồ sơ
+                {submitting ? 'Đang gửi...' : 'Ký số & Nộp hồ sơ'}
               </Button>
               <p className="text-xs text-gray-600 text-center">
                 Hồ sơ sẽ được xử lý trong vòng {services.find(s => s.id === selectedService)?.time}
