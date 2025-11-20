@@ -9,7 +9,7 @@ declare global {
 }
 
 // Try to use the configured IP, fallback to localhost for development
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.231:8888/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888/api';
 const API_BASE_URL_FALLBACK = 'http://localhost:8888/api';
 
 export interface LoginRequest {

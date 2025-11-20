@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models.public_service import PublicService
 from models.service_category import ServiceCategory
-from ..services.distance import find_nearby, calculate_distance
+from services.distance import find_nearby, calculate_distance
 
 services_bp = Blueprint('services', __name__, url_prefix='/api/services')
 
