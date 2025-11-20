@@ -345,7 +345,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                   // perform multipart upload to backend
                   try {
                     setSubmitting(true);
-                    const API_BASE = import.meta.env.VITE_API_URL || 'http://192.168.1.231:8888/api';
+                    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8888/api';
                     const form = new FormData();
                     form.append('serviceId', selectedService);
                     const payloadData = { notes };
