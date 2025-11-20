@@ -1,3 +1,13 @@
+// Provide type declarations for Vite's import.meta.env so TypeScript recognizes it
+declare global {
+  interface ImportMetaEnv {
+    readonly VITE_API_URL?: string;
+  }
+  interface ImportMeta {
+    readonly env: ImportMetaEnv;
+  }
+}
+
 // Try to use the configured IP, fallback to localhost for development
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.1.231:8888/api';
 const API_BASE_URL_FALLBACK = 'http://localhost:8888/api';
@@ -70,9 +80,11 @@ async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = getToken();
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers instanceof Headers
+      ? Object.fromEntries(options.headers.entries())
+      : (options.headers as Record<string, string> | undefined)),
   };
 
   if (token) {

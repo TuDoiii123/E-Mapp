@@ -28,107 +28,116 @@ Hoặc sử dụng file `start-server.bat` trên Windows.
 
 ### Authentication
 
-- `POST /api/auth/register` - Đăng ký tài khoản mới
-- `POST /api/auth/login` - Đăng nhập
-- `POST /api/auth/logout` - Đăng xuất
-- `GET /api/auth/profile` - Lấy thông tin người dùng (yêu cầu authentication)
-- `PUT /api/auth/profile` - Cập nhật thông tin người dùng (yêu cầu authentication)
+# Public Services Backend
 
-### Health Check
+This folder contains two possible backend implementations for the demo Public Services application:
 
-- `GET /api/health` - Kiểm tra trạng thái server
+- Original Node.js/Express implementation (legacy, kept for compatibility)
+- New Python/Flask implementation (migration in-progress)
 
-## Cấu trúc dự án
+This README documents how to run either implementation, how to seed demo data, and important runtime notes.
 
-```
-Backend/
-├── server.js              # Entry point
-├── routes/
-│   └── auth.js           # Auth routes
-├── middleware/
-│   └── auth.js            # JWT authentication & role-based middleware
-├── models/
-│   └── User.js            # User model với file-based storage
-├── services/
-│   └── vneid.js           # VNeID mock service
-└── data/
-    └── users.json         # User database (tự động tạo)
+---
+
+## Quick Start — Node (existing)
+
+1. Install Node dependencies:
+
+```powershell
+cd "c:\\Users\\ADMIN\\Downloads\\E-Map\\Backend"
+npm install
 ```
 
-## Tính năng
+2. Create `.env` (example):
 
-### Authentication
-- JWT-based authentication
-- Password hashing với bcrypt
-- Token expiration (mặc định 7 ngày)
-
-### User Roles
-- `citizen`: Người dân
-- `admin`: Cán bộ hành chính
-
-### Middleware
-- `authenticateToken`: Xác thực JWT token
-- `requireRole(...roles)`: Kiểm tra quyền truy cập theo role
-- `requireAdmin`: Yêu cầu quyền admin
-- `requireCitizen`: Yêu cầu quyền citizen
-
-### VNeID Integration
-- Mock VNeID service cho demo
-- Có thể tích hợp với VNeID API thật trong production
-
-## Tài khoản mặc định
-
-Khi server khởi động lần đầu, sẽ tự động tạo tài khoản admin:
-- Email: `admin@publicservices.gov.vn`
-- CCCD: `000000000000`
-- Password: `admin123`
-
-## Ví dụ sử dụng
-
-### Đăng ký
-```bash
-POST /api/auth/register
-Content-Type: application/json
-
-{
-  "cccdNumber": "123456789012",
-  "fullName": "Nguyễn Văn A",
-  "dateOfBirth": "1990-01-01",
-  "phone": "0123456789",
-  "email": "user@example.com",
-  "password": "Password123!",
-  "confirmPassword": "Password123!",
-  "otp": "123456"
-}
+```text
+PORT=8888
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_EXPIRES_IN=7d
+NODE_ENV=development
 ```
 
-### Đăng nhập
-```bash
-POST /api/auth/login
-Content-Type: application/json
+3. Start dev server (uses `nodemon`):
 
-{
-  "cccdNumber": "123456789012",
-  "password": "Password123!"
-}
+```powershell
+npm run dev
 ```
 
-### Lấy profile (yêu cầu token)
-```bash
-GET /api/auth/profile
-Authorization: Bearer <token>
+Or run once:
+
+```powershell
+npm start
 ```
 
-## Bảo mật
+To seed demo data with the Node script (if you still have the Node scripts):
 
-- Passwords được hash với bcrypt (10 rounds)
-- JWT tokens với expiration
-- Input validation với express-validator
-- CORS enabled (cấu hình trong production)
+```powershell
+npm run seed
+```
 
-## Lưu ý
+---
 
-- Database sử dụng file JSON cho demo. Trong production nên dùng database thật (MongoDB, PostgreSQL, etc.)
-- VNeID service hiện tại là mock. Cần tích hợp với API thật trong production
-- OTP verification hiện chấp nhận mã `123456` cho demo. Cần tích hợp SMS service thật trong production
+## Quick Start — Python/Flask (recommended for migration)
+
+1. Create and activate a virtual environment, then install minimal deps:
+
+```powershell
+cd "c:\\Users\\ADMIN\\Downloads\\E-Map\\Backend"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+# if requirements.txt is missing, at minimum install:
+pip install flask flask-cors pyjwt
+```
+
+2. Run the Flask server:
+
+```powershell
+python server.py
+```
+
+The Python routes mirror the original Express routes and are located in `routes/*.py`.
+
+---
+
+## Seeding demo data
+
+- Python seed script: `python scripts/seed_data.py` (creates categories and sample public services).
+- Node seed script (legacy): `npm run seed` (if present).
+
+---
+
+## Important behavior notes
+
+- Submitting an application requires at least 1 uploaded file/photo. The API will return 400 if no files are included on create.
+- Multipart form field name for files is `files` (multiple allowed).
+- Uploaded files are stored under `Backend/uploads/` (local file storage used for demo).
+- Document processing is a light-weight placeholder: only `.txt` files are read for text extraction by default. Integrate OCR libraries (`pytesseract`, `pdfminer.six`, `PyMuPDF`) to extract text from images/PDFs.
+
+---
+
+## Environment variables
+
+- `PORT` — HTTP port (default 8888)
+- `JWT_SECRET` — Secret used to sign JWTs (change for production)
+- `JWT_EXPIRES_IN` — Token expiry (e.g. `7d`)
+- `NODE_ENV` / `FLASK_ENV` — environment
+
+---
+
+## Where to look next
+
+- Python routes: `routes/*.py`
+- Python models: `models/*.py` (file-based JSON storage in `data/`)
+- Document processor: `services/document_processor.py` (current placeholder)
+
+If you want, I can:
+
+- Add OCR/PDF extraction to `services/document_processor.py` and update `requirements.txt`.
+- Create a `requirements.txt` with pinned versions.
+- Commit the Python migration and remove legacy Node start scripts.
+
+---
+
+If anything should be adjusted for your preferred workflow (Node vs Python), tell me which and I will update the README and scripts accordingly.
 
