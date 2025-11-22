@@ -180,14 +180,12 @@ export const authAPI = {
   },
 
   getProfile: async (): Promise<ProfileResponse> => {
-    return await apiRequest<ProfileResponse>('/auth/profile');
+    // Temporarily disabled. Callers should avoid using this until re-enabled.
+    return Promise.reject(new Error('getProfile temporarily disabled'));
   },
 
   updateProfile: async (updates: Partial<User>): Promise<ProfileResponse> => {
-    return await apiRequest<ProfileResponse>('/auth/profile', {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
+    return Promise.reject(new Error('updateProfile temporarily disabled'));
   },
 };
 

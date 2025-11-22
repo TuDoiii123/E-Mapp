@@ -35,7 +35,7 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
         })
         .finally(() => setLoading(false));
     } else {
-      fetch(`${API_BASE_URL}/services/${encodeURIComponent(serviceId)}`)
+      fetch(`${API_BASE_URL}/services/${encodeURIComponent(String(serviceId))}`)
         .then((r) => r.json())
         .then((d) => {
           if (d && d.success && d.data && d.data.service) setService(d.data.service);

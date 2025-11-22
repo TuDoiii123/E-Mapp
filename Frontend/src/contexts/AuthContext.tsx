@@ -34,17 +34,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const checkAuth = async () => {
       const token = getToken();
       if (token) {
-        try {
-          const response = await authAPI.getProfile();
-          if (response.success) {
-            setUser(response.data.user);
-          } else {
-            removeToken();
-          }
-        } catch (error) {
-          console.error('Auth check failed:', error);
-          removeToken();
-        }
+        // Temporarily skip fetching profile from server.
+        // We keep the token and treat presence of token as authenticated
+        // for now; user details will be null until a profile endpoint
+        // is re-enabled.
+        setUser(null);
       }
       setIsLoading(false);
     };
@@ -90,19 +84,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const refreshProfile = async () => {
-    try {
-      const response = await authAPI.getProfile();
-      if (response.success) {
-        setUser(response.data.user);
-      }
-    } catch (error) {
-      console.error('Refresh profile error:', error);
-    }
+    // Temporarily disabled while profile endpoints are removed
+    console.warn('refreshProfile is temporarily disabled');
+    return;
   };
 
   const value: AuthContextType = {
     user,
-    isAuthenticated: !!user,
+    // Consider token presence as authentication while profile fetch is disabled
+    isAuthenticated: !!user || !!getToken(),
     isLoading,
     login,
     register,
