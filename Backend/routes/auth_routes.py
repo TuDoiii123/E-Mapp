@@ -265,9 +265,12 @@ def logout():
 def get_profile():
     """Get current user profile"""
     try:
-        user_id = request.user_id  # Set by middleware
+        # request.user_id is set by middleware; handle missing token gracefully
+        user_id = getattr(request, 'user_id', None)
+        if not user_id:
+            return jsonify({'success': False, 'message': 'Chưa xác thực'}), 401
+
         user = User.find_by_id(user_id)
-        
         if not user:
             return jsonify({
                 'success': False,

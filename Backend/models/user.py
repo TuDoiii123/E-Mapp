@@ -3,6 +3,18 @@ from pathlib import Path
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
+
+# Try to detect SQLAlchemy DB from models.db
+try:
+    from models.db import db
+    from sqlalchemy import text
+    HAS_DB = True
+except Exception:
+    db = None
+    text = None
+    HAS_DB = False
+
+
 class FileStorage:
     """Utility class for file-based JSON storage"""
     
@@ -39,7 +51,7 @@ class FileStorage:
 
 
 class User:
-    """User model - file-based storage"""
+    """User model - file-based storage with optional Postgres backing"""
     
     def __init__(self, data):
         self.id = data.get('id', str(int(datetime.now().timestamp() * 1000)))
@@ -76,7 +88,33 @@ class User:
     
     @staticmethod
     def find_by_cccd(cccd_number):
-        """Find user by CCCD"""
+        """Find user by CCCD. Use DB if available, otherwise file storage."""
+        if HAS_DB and db is not None:
+            try:
+                res = db.session.execute(
+                    text("SELECT * FROM users WHERE cccd_number = :cccd LIMIT 1"),
+                    {'cccd': cccd_number}
+                ).mappings().first()
+                if res:
+                    row = dict(res)
+                    # map DB columns to expected keys
+                    return {
+                        'id': row.get('id'),
+                        'cccdNumber': row.get('cccd_number'),
+                        'fullName': row.get('full_name'),
+                        'dateOfBirth': row.get('date_of_birth'),
+                        'phone': row.get('phone'),
+                        'email': row.get('email'),
+                        'password': row.get('password'),
+                        'role': row.get('role'),
+                        'isVNeIDVerified': row.get('is_vneid_verified'),
+                        'vneidId': row.get('vneid_id'),
+                        'createdAt': row.get('created_at'),
+                        'updatedAt': row.get('updated_at')
+                    }
+            except Exception:
+                pass
+
         users = FileStorage.read_json('users.json')
         for u in users:
             if u.get('cccdNumber') == cccd_number:
@@ -85,7 +123,33 @@ class User:
     
     @staticmethod
     def find_by_id(user_id):
-        """Find user by ID"""
+        """Find user by ID. Use DB if available, otherwise file storage."""
+        if HAS_DB and db is not None:
+            try:
+                res = db.session.execute(
+                    text("SELECT * FROM users WHERE id = :id LIMIT 1"),
+                    {'id': user_id}
+                ).mappings().first()
+                if res:
+                    row = dict(res)
+                    # sanitize
+                    row.pop('password', None)
+                    return {
+                        'id': row.get('id'),
+                        'cccdNumber': row.get('cccd_number'),
+                        'fullName': row.get('full_name'),
+                        'dateOfBirth': row.get('date_of_birth'),
+                        'phone': row.get('phone'),
+                        'email': row.get('email'),
+                        'role': row.get('role'),
+                        'isVNeIDVerified': row.get('is_vneid_verified'),
+                        'vneidId': row.get('vneid_id'),
+                        'createdAt': row.get('created_at'),
+                        'updatedAt': row.get('updated_at')
+                    }
+            except Exception:
+                pass
+
         users = FileStorage.read_json('users.json')
         for u in users:
             if u.get('id') == user_id:
@@ -98,7 +162,18 @@ class User:
     
     @staticmethod
     def find_by_email(email):
-        """Find user by email"""
+        """Find user by email. Use DB if available, otherwise file storage."""
+        if HAS_DB and db is not None:
+            try:
+                res = db.session.execute(
+                    text("SELECT * FROM users WHERE email = :email LIMIT 1"),
+                    {'email': email}
+                ).mappings().first()
+                if res:
+                    return dict(res)
+            except Exception:
+                pass
+
         users = FileStorage.read_json('users.json')
         for u in users:
             if u.get('email') == email:
@@ -107,7 +182,60 @@ class User:
     
     @staticmethod
     def create(user_data):
-        """Create new user"""
+        """Create new user. Writes to DB if available, otherwise file storage."""
+        # Use DB if available
+        if HAS_DB and db is not None:
+            try:
+                # check existing
+                exists = db.session.execute(
+                    text("SELECT id FROM users WHERE cccd_number = :cccd OR email = :email LIMIT 1"),
+                    {'cccd': user_data.get('cccdNumber'), 'email': user_data.get('email')}
+                ).first()
+                if exists:
+                    raise ValueError('CCCD hoặc Email đã được đăng ký')
+
+                hashed = generate_password_hash(user_data.get('password', ''), method='pbkdf2:sha256')
+                now = datetime.utcnow().isoformat()
+                ins = db.session.execute(
+                    text('''INSERT INTO users (id, cccd_number, full_name, date_of_birth, phone, email, password, role, is_vneid_verified, vneid_id, created_at, updated_at)
+                                  VALUES (:id, :cccd, :full_name, :dob, :phone, :email, :password, :role, :is_vneid, :vneid_id, :created_at, :updated_at)'''),
+                    {
+                        'id': user_data.get('id', str(int(datetime.now().timestamp() * 1000))),
+                        'cccd': user_data.get('cccdNumber'),
+                        'full_name': user_data.get('fullName'),
+                        'dob': user_data.get('dateOfBirth'),
+                        'phone': user_data.get('phone'),
+                        'email': user_data.get('email'),
+                        'password': hashed,
+                        'role': user_data.get('role', 'citizen'),
+                        'is_vneid': bool(user_data.get('isVNeIDVerified', False)),
+                        'vneid_id': user_data.get('vneidId'),
+                        'created_at': now,
+                        'updated_at': now
+                    }
+                )
+                db.session.commit()
+                return {
+                    'id': user_data.get('id'),
+                    'cccdNumber': user_data.get('cccdNumber'),
+                    'fullName': user_data.get('fullName'),
+                    'dateOfBirth': user_data.get('dateOfBirth'),
+                    'phone': user_data.get('phone'),
+                    'email': user_data.get('email'),
+                    'role': user_data.get('role', 'citizen'),
+                    'isVNeIDVerified': bool(user_data.get('isVNeIDVerified', False)),
+                    'vneidId': user_data.get('vneidId'),
+                    'createdAt': now,
+                    'updatedAt': now
+                }
+            except ValueError:
+                raise
+            except Exception as e:
+                # If DB is available but insert fails, surface the error
+                # so caller (route) can decide. Do NOT silently fallback to file.
+                print('DB user create failed:', e)
+                raise
+
         users = FileStorage.read_json('users.json')
         
         # Check if CCCD exists
@@ -130,6 +258,35 @@ class User:
     @staticmethod
     def update(user_id, updates):
         """Update user by id (static)"""
+        # Try DB update
+        if HAS_DB and db is not None:
+            try:
+                # build set clauses
+                set_parts = []
+                params = {'id': user_id}
+                for k, v in updates.items():
+                    col = k
+                    # map camelCase to snake_case
+                    if k == 'fullName':
+                        col = 'full_name'
+                    elif k == 'dateOfBirth':
+                        col = 'date_of_birth'
+                    elif k == 'isVNeIDVerified':
+                        col = 'is_vneid_verified'
+                    elif k == 'vneidId':
+                        col = 'vneid_id'
+                    params[col] = v
+                    set_parts.append(f"{col} = :{col}")
+
+                if set_parts:
+                    sql = text(f"UPDATE users SET {', '.join(set_parts)}, updated_at = :updated_at WHERE id = :id")
+                    params['updated_at'] = datetime.utcnow().isoformat()
+                    db.session.execute(sql, params)
+                    db.session.commit()
+                    return User.find_by_id(user_id)
+            except Exception as e:
+                print('DB user update failed, falling back to file:', e)
+
         users = FileStorage.read_json('users.json')
 
         for i, u in enumerate(users):

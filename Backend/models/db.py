@@ -4,6 +4,7 @@ Database connection and configuration for PostgreSQL backend
 import os
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.pool import NullPool
+from sqlalchemy import text
 
 db = SQLAlchemy()
 
@@ -31,8 +32,38 @@ def init_db(app):
     db.init_app(app)
     
     with app.app_context():
-        db.create_all()
-    
+        # Create any SQLAlchemy models (if defined) and ensure 'users' table exists
+        try:
+            db.create_all()
+        except Exception as e:
+            # non-fatal: continue to ensure users table via raw SQL
+            print('Warning: db.create_all() failed:', e)
+
+        # Run explicit DDL to ensure users table exists for raw SQL access
+        try:
+            users_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.users (
+              id VARCHAR(80) PRIMARY KEY,
+              cccd_number VARCHAR(50) UNIQUE,
+              full_name VARCHAR(255),
+              date_of_birth VARCHAR(50),
+              phone VARCHAR(50),
+              email VARCHAR(255) UNIQUE,
+              password VARCHAR(255),
+              role VARCHAR(50) NOT NULL DEFAULT 'citizen',
+              is_vneid_verified BOOLEAN NOT NULL DEFAULT FALSE,
+              vneid_id VARCHAR(255),
+              created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
+            CREATE INDEX IF NOT EXISTS idx_users_cccd ON public.users(cccd_number);
+            ''')
+            db.session.execute(users_ddl)
+            db.session.commit()
+        except Exception as e:
+            print('Warning: ensuring users table failed:', e)
+
     return db
 
 

@@ -38,6 +38,13 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
       color: 'bg-red-700',
       description: 'Góp ý chất lượng dịch vụ'
     }
+    ,{
+      id: 'document-catalog',
+      title: 'Tổng hợp giấy tờ',
+      icon: FileText,
+      color: 'bg-indigo-600',
+      description: 'Xem các loại giấy tờ và tìm kiếm'
+    }
   ];
 
   return (
