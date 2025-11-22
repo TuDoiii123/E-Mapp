@@ -12,11 +12,14 @@ import { SettingsScreen } from './components/SettingsScreen';
 import { ForgotPasswordScreen } from './components/ForgotPasswordScreen';
 import { RegisterScreen } from './components/RegisterScreen';
 import { AccountDetailScreen } from './components/AccountDetailScreen';
+import { DocumentCatalogScreen } from './components/DocumentCatalogScreen';
+import { DocumentDetailScreen } from './components/DocumentDetailScreen';
 import { BottomNavigation } from './components/BottomNavigation';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 function AppContent() {
   const [currentScreen, setCurrentScreen] = useState('login');
+  const [screenParams, setScreenParams] = useState<any>(null);
   const { isAuthenticated, isLoading, logout } = useAuth();
 
   useEffect(() => {
@@ -39,6 +42,16 @@ function AppContent() {
       logout();
     }
     setCurrentScreen(screen);
+    setScreenParams(null);
+  };
+
+  // enhanced navigate with params support
+  const handleNavigateWithParams = (screen: string, params?: any) => {
+    if (screen === 'login') {
+      logout();
+    }
+    setCurrentScreen(screen);
+    setScreenParams(params || null);
   };
 
   const renderScreen = () => {
@@ -70,7 +83,7 @@ function AppContent() {
       case 'register':
         return <RegisterScreen onNavigate={handleNavigate} />;
       case 'home':
-        return <HomeScreen onNavigate={handleNavigate} />;
+        return <HomeScreen onNavigate={handleNavigateWithParams} />;
       case 'map':
         return <MapScreen onNavigate={handleNavigate} />;
       case 'search':
@@ -81,6 +94,10 @@ function AppContent() {
         return <NotificationScreen onNavigate={handleNavigate} />;
       case 'evaluation':
         return <EvaluationScreen onNavigate={handleNavigate} />;
+      case 'document-catalog':
+        return <DocumentCatalogScreen onNavigate={handleNavigateWithParams} />;
+      case 'document-detail':
+        return <DocumentDetailScreen onNavigate={handleNavigateWithParams} serviceId={screenParams?.id} params={screenParams} />;
       case 'analytics':
         return <AnalyticsScreen onNavigate={handleNavigate} />;
       case 'chatbot':
