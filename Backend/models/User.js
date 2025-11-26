@@ -1,6 +1,5 @@
 const fs = require('fs').promises;
 const path = require('path');
-const bcrypt = require('bcryptjs');
 
 const DATA_FILE = path.join(__dirname, '../data/users.json');
 
@@ -94,32 +93,25 @@ class User {
 
   // Create new user
   static async create(userData) {
-    const users = await getUsers();
+    const users = await this.findAll();
     
-    // Check if CCCD already exists
+    // Kiểm tra user đã tồn tại
     const existingUser = users.find(u => u.cccdNumber === userData.cccdNumber);
     if (existingUser) {
-      throw new Error('Số CCCD đã được đăng ký');
+      throw new Error('Người dùng với số CCCD này đã tồn tại');
     }
 
-    // Check if email already exists
-    const existingEmail = users.find(u => u.email === userData.email);
-    if (existingEmail) {
-      throw new Error('Email đã được đăng ký');
-    }
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(userData.password, 10);
-
-    const newUser = new User({
+    const newUser = {
+      id: `USR-${Date.now()}`,
       ...userData,
-      password: hashedPassword
-    });
+      password: userData.password, // LƯU TRỰC TIẾP, KHÔNG HASH
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
     users.push(newUser);
-    await saveUsers(users);
-
-    return newUser;
+    await writeData(userFilePath, users);
+    return new User(newUser);
   }
 
   // Update user
@@ -148,15 +140,7 @@ class User {
 
   // Verify password
   async verifyPassword(password) {
-    if (!password || !this.password) {
-      return false;
-    }
-    try {
-      return await bcrypt.compare(password, this.password);
-    } catch (error) {
-      console.error('Password verification error:', error);
-      return false;
-    }
+    return password === this.password; // SO SÁNH TRỰC TIẾP
   }
 
   // Initialize with default admin user (for demo)

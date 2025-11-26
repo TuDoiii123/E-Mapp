@@ -4,6 +4,7 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { authenticateToken } = require('../middleware/auth');
 const { verifyVNeID } = require('../services/vneid');
+const Appointment = require('../models/Appointment'); // Thêm model Appointment
 
 const router = express.Router();
 
@@ -328,6 +329,64 @@ router.put('/profile', [
     });
   }
 });
+
+// @route   GET /api/auth/application-status/:id
+// @desc    Get application/appointment status by its ID
+// @access  Public
+router.get('/application-status/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // For this demo, we assume the ID is for an appointment.
+    // In a real app, you might check across different types of applications.
+    const appointment = await Appointment.findById(id);
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy hồ sơ hoặc lịch hẹn với mã này.'
+      });
+    }
+
+    // Mocking timeline based on status
+    const timeline = [
+      { status: 'Tiếp nhận', date: appointment.createdAt, isCompleted: true },
+    ];
+
+    if (appointment.status === 'accepted' || appointment.status === 'completed' || appointment.status === 'missing_documents') {
+        timeline.push({ status: 'Đang xử lý', date: new Date(new Date(appointment.createdAt).getTime() + 86400000).toISOString(), isCompleted: true });
+    }
+    if (appointment.status === 'missing_documents') {
+        timeline.push({ status: 'Yêu cầu bổ sung', date: new Date(new Date(appointment.createdAt).getTime() + 172800000).toISOString(), isCompleted: false });
+    }
+    if (appointment.status === 'completed') {
+        timeline.push({ status: 'Hoàn tất', date: new Date(new Date(appointment.createdAt).getTime() + 345600000).toISOString(), isCompleted: true });
+    }
+     if (appointment.status === 'rejected') {
+        timeline.push({ status: 'Từ chối', date: new Date(new Date(appointment.createdAt).getTime() + 172800000).toISOString(), isCompleted: false });
+    }
+
+
+    res.json({
+      success: true,
+      data: {
+        id: appointment.id,
+        name: `Lịch hẹn: ${appointment.serviceCode}`,
+        submittedDate: appointment.createdAt,
+        agency: appointment.agencyId, // Should be populated with agency name
+        status: appointment.status,
+        timeline: timeline
+      }
+    });
+
+  } catch (error) {
+    console.error('Get application status error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi khi tra cứu trạng thái hồ sơ'
+    });
+  }
+});
+
 
 module.exports = router;
 

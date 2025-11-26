@@ -1,11 +1,11 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-// Authenticate JWT token
+// Middleware kiểm tra token
 const authenticateToken = async (req, res, next) => {
   try {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+    const token = authHeader && authHeader.split(' ')[1]; // Lấy token sau "Bearer"
 
     if (!token) {
       return res.status(401).json({
@@ -15,38 +15,37 @@ const authenticateToken = async (req, res, next) => {
     }
 
     const secret = process.env.JWT_SECRET || 'default-secret-key-change-in-production';
-    const decoded = jwt.verify(token, secret);
-    
-    // Get user from database
-    const user = await User.findById(decoded.userId);
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Người dùng không tồn tại'
-      });
-    }
 
-    req.user = user.toJSON();
-    req.userId = decoded.userId;
-    next();
+    jwt.verify(token, secret, async (err, decoded) => {
+      if (err) {
+        console.error('JWT lỗi:', err);
+        return res.status(401).json({
+          success: false,
+          message: err.name === 'TokenExpiredError' 
+            ? 'Token đã hết hạn. Vui lòng đăng nhập lại.' 
+            : 'Token không hợp lệ. Vui lòng đăng nhập lại.'
+        });
+      }
+
+      // Get user from database
+      const user = await User.findById(decoded.userId);
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Người dùng không tồn tại'
+        });
+      }
+
+      req.user = user.toJSON();
+      req.userId = decoded.userId;
+      req.role = decoded.role; // Gắn role để kiểm tra quyền
+      next();
+    });
   } catch (error) {
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token đã hết hạn. Vui lòng đăng nhập lại.'
-      });
-    }
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token không hợp lệ'
-      });
-    }
-
-    return res.status(500).json({
+    console.error('Lỗi xác thực token:', error);
+    res.status(500).json({
       success: false,
-      message: 'Lỗi xác thực'
+      message: 'Lỗi xác thực. Vui lòng thử lại.'
     });
   }
 };
@@ -78,10 +77,24 @@ const requireAdmin = requireRole('admin');
 // Check if user is citizen
 const requireCitizen = requireRole('citizen');
 
+// HÀM MỚI: Middleware để phân quyền dựa trên vai trò
+const authorizeRole = (allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.role || !allowedRoles.includes(req.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Không có quyền truy cập tài nguyên này'
+      });
+    }
+    next();
+  };
+};
+
 module.exports = {
   authenticateToken,
   requireRole,
   requireAdmin,
-  requireCitizen
+  requireCitizen,
+  authorizeRole // Export hàm mới
 };
 
