@@ -1,0 +1,8 @@
+{
+    "connection": {
+        "server": "103.141.144.235",
+        "database": "Chatbot",
+        "username": "admin",
+        "password": "123456"
+    }
+} 
