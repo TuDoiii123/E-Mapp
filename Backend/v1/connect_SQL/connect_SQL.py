@@ -4,7 +4,7 @@ import os
 
 def connect_sql():
 
-    config_path = "D:/Chatbot_Data4Life/v1/connect_SQL/config.json"
+    config_path = "C:/Users/ADMIN/E-Map/Backend/v1/connect_SQL/config.json"
 
     with open(config_path, "r") as f:
         config = json.load(f)
