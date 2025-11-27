@@ -15,7 +15,7 @@ def user_input(state: MultiRoleAgentState ) -> str:
 
 
 def _load_base_prompt(state: MultiRoleAgentState ) -> str:
-    path = f"D:/Chatbot_Data4Life/v1/prompt/General_Prompt.docx"
+    path = f"C:/Users/ADMIN/E-Map/Backend/v1/prompt/General_Prompt.docx"
     doc = Document(path)
     prompt_text = "/n".join([p.text for p in doc.paragraphs if p.text.strip()])
     return prompt_text
@@ -35,7 +35,7 @@ def _load_tool_for_role() -> List[Dict[str, Any]]:
         returns: "Danh sách bản ghi phù hợp"
     """
 
-    path = f"D:/Chatbot_Data4Life/v1/prompt/tool.yaml"
+    path = f"C:/Users/ADMIN/E-Map/Backend/v1/prompt/tool.yaml"
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}

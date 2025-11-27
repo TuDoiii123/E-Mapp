@@ -143,7 +143,7 @@ def clean_retrieved_docs(raw_text):
 
 
 st.set_page_config(page_title="Chatbot hỗ trợ", layout="wide")
-local_css("D:/Chatbot_Data4Life/v1/style.css")
+local_css("C:/Users/ADMIN/E-Map/Backend/v1/style.css")
 
 with st.sidebar:
     st.title("🤖 Chatbot hỗ trợ")

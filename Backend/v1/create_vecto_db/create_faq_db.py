@@ -6,18 +6,17 @@ import json
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 import chromadb
-import unicodedata
 import time
 
 # ==============================================================================
-# PHẦN 1: CÁC HÀM TIỆN ÍCH (TƯƠNG TỰ CODE MẪU CỦA BẠN)
+# PHẦN 1: LOGGER
 # ==============================================================================
 
-def setup_logger(log_dir: str = r"D:/Chatbot_Data4Life/v1/create_vecto_db/logs/logs"):
-    """Khởi tạo logger để ghi lại quá trình xử lý."""
+def setup_logger(log_dir: str = r"C:/Users/ADMIN/E-Map/Backend/v1/create_vecto_db/logs"):
+    """Khởi tạo logger."""
     os.makedirs(log_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = os.path.join(log_dir, f"create_faq_db_log_{timestamp}.log")
+    log_filename = os.path.join(log_dir, f"vector_db_log_{timestamp}.log")
 
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
@@ -27,187 +26,172 @@ def setup_logger(log_dir: str = r"D:/Chatbot_Data4Life/v1/create_vecto_db/logs/l
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
             logging.FileHandler(log_filename, encoding="utf-8"),
-            logging.StreamHandler() 
+            logging.StreamHandler()
         ]
     )
     logging.info("=== Logger initialized ===")
     return logging
 
+
+# ==============================================================================
+# PHẦN 2: LOAD MODEL
+# ==============================================================================
+
 def load_embedding_model(model_path: str) -> SentenceTransformer:
-    """Tải mô hình embedding từ một đường dẫn local."""
     try:
-        logging.info(f"Đang tải mô hình embedding từ: {model_path}...")
-        model_path = r"D:/Chatbot_Data4Life/v1/models/Vietnamese_Embedding"
+        logging.info(f"Đang tải mô hình embedding: {model_path}")
         model = SentenceTransformer(model_path)
-        logging.info("Tải mô hình embedding thành công.")
+        logging.info("Tải mô hình embedding thành công")
         return model
     except Exception as e:
-        logging.error(f"Lỗi khi tải mô hình embedding: {e}")
+        logging.error(f"Lỗi tải mô hình embedding: {e}")
         raise
-
-def clear_chroma_db_folder(db_path: str, db_folder: str):
-    """Xóa toàn bộ nội dung trong thư mục ChromaDB để tạo mới."""
-    full_path = os.path.join(db_path, db_folder)
-    if os.path.exists(full_path):
-        try:
-            shutil.rmtree(full_path)
-            logging.info(f"Đã xóa thành công thư mục DB cũ: {full_path}")
-        except Exception as e:
-            logging.error(f"Không thể xóa thư mục DB {full_path}: {e}")
-    os.makedirs(full_path, exist_ok=True)
-    logging.info(f"Đã tạo thư mục DB mới: {full_path}")
 
 
 # ==============================================================================
-# PHẦN 2: CÁC HÀM XỬ LÝ DỮ LIỆU FAQ
+# PHẦN 3: XÓA DB CŨ
+# ==============================================================================
+
+def clear_chroma_db_folder(db_path: str):
+    if os.path.exists(db_path):
+        shutil.rmtree(db_path)
+        logging.info(f"Đã xoá DB cũ: {db_path}")
+    os.makedirs(db_path, exist_ok=True)
+
+
+# ==============================================================================
+# PHẦN 4: XỬ LÝ DỮ LIỆU
 # ==============================================================================
 
 def load_and_prepare_faq_data(csv_path: str) -> pd.DataFrame:
-    """Đọc file CSV và chuẩn bị dữ liệu."""
     try:
-        logging.info(f"Đang đọc dữ liệu từ: {csv_path}")
+        logging.info(f"Đang đọc dữ liệu CSV: {csv_path}")
         df = pd.read_csv(csv_path)
 
-        # --- Tiền xử lý dữ liệu ---
-        # 1. Kiểm tra các cột cần thiết
-        required_columns = ['id', 'title', 'answer_text']
-        if not all(col in df.columns for col in required_columns):
-            logging.error(f"File CSV thiếu các cột bắt buộc: {required_columns}")
-            return pd.DataFrame() 
+        required = ["id", "title", "answer_text"]
+        if not all(c in df.columns for c in required):
+            logging.error(f"Thiếu các cột bắt buộc: {required}")
+            return pd.DataFrame()
 
-        # 2. Loại bỏ các dòng có giá trị null ở các cột quan trọng
-        df.dropna(subset=required_columns, inplace=True)
+        df.dropna(subset=required, inplace=True)
 
-        # 3. Đảm bảo cột 'id' là duy nhất và là kiểu string
-        if df['id'].duplicated().any():
-            logging.warning("Phát hiện các ID trùng lặp. Giữ lại bản ghi đầu tiên.")
-            df.drop_duplicates(subset=['id'], keep='first', inplace=True)
-        df['id'] = df['id'].astype(str)
+        # Xử lý ID
+        df.drop_duplicates(subset=["id"], keep="first", inplace=True)
+        df["id"] = df["id"].astype(str)
 
-        # 4. Điền giá trị 'N/A' cho các cột metadata không bắt buộc nếu chúng bị thiếu
-        optional_metadata_cols = ['answer_html', 'source_url']
-        for col in optional_metadata_cols:
+        # Metadata optional
+        for col in ["source_url", "answer_html"]:
             if col in df.columns:
-                df[col].fillna('N/A', inplace=True)
+                df[col].fillna("N/A", inplace=True)
 
-        logging.info(f"Đọc và chuẩn bị thành công {len(df)} bản ghi FAQ.")
+        logging.info(f"Đã load {len(df)} FAQ.")
         return df
 
-    except FileNotFoundError:
-        logging.error(f"Không tìm thấy file CSV tại đường dẫn: {csv_path}")
-        return pd.DataFrame()
     except Exception as e:
-        logging.error(f"Lỗi khi đọc file CSV: {e}")
+        logging.error(f"Lỗi đọc CSV: {e}")
         return pd.DataFrame()
 
+
+# ==============================================================================
+# PHẦN 5: TẠO EMBEDDINGS
+# ==============================================================================
 
 def create_faq_embeddings(model: SentenceTransformer, texts: list[str]) -> list[list[float]]:
-    """Tạo embeddings cho một danh sách các văn bản (tiêu đề FAQ)."""
-    if not texts:
-        logging.warning("Không có văn bản nào để tạo embedding.")
-        return []
     try:
-        logging.info(f"Bắt đầu tạo embedding cho {len(texts)} tiêu đề...")
+        logging.info(f"Tạo embedding cho {len(texts)} câu hỏi...")
         t1 = time.time()
-        # Sử dụng batch processing để tăng tốc độ
         embeddings = model.encode(texts, show_progress_bar=True)
         t2 = time.time()
-        logging.info(f"Hoàn thành tạo embedding trong {t2 - t1:.2f} giây.")
+        logging.info(f"Tạo embeddings xong trong {t2 - t1:.2f}s")
         return embeddings.tolist()
     except Exception as e:
-        logging.error(f"Lỗi trong quá trình tạo embedding: {e}")
+        logging.error(f"Lỗi tạo embedding: {e}")
         return []
 
+
+# ==============================================================================
+# PHẦN 6: LƯU VÀO CHROMADB (CÓ CHIA BATCH)
+# ==============================================================================
 
 def store_in_chromadb(
     db_path: str,
-    db_folder: str,
     collection_name: str,
     faq_df: pd.DataFrame,
-    embeddings: list[list[float]]
+    embeddings: list[list[float]],
+    batch_size: int = 4000
 ):
-    """Lưu trữ dữ liệu và embeddings vào ChromaDB."""
     try:
-        full_db_path = os.path.join(db_path, db_folder)
-        client = chromadb.PersistentClient(path=full_db_path)
+        client = chromadb.PersistentClient(path=db_path)
 
-        # Sử dụng get_or_create để tránh lỗi nếu collection đã tồn tại
         collection = client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"} # cosine similarity phù hợp cho text
+            metadata={"hnsw:space": "cosine"}
         )
-        logging.info(f"Sử dụng/Tạo collection '{collection_name}' tại '{full_db_path}'")
+        logging.info(f"Dùng collection: {collection_name}")
 
-        # Chuẩn bị dữ liệu cho ChromaDB
         ids = faq_df["id"].tolist()
-        documents = faq_df["title"].tolist() # Nội dung được embed
-        metadatas = faq_df.to_dict(orient='records') # Metadata là toàn bộ thông tin của dòng
+        docs = faq_df["title"].tolist()
+        metas = faq_df.to_dict(orient="records")
 
-        # Sử dụng upsert để thêm mới hoặc cập nhật nếu ID đã tồn tại
-        collection.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=documents,
-            metadatas=metadatas
-        )
+        total = len(ids)
+        logging.info(f"Upsert {total} items (batch={batch_size})")
 
-        logging.info(f"Đã thêm/cập nhật thành công {len(ids)} bản ghi vào collection.")
-        logging.info(f"Tổng số bản ghi trong collection hiện tại: {collection.count()}")
+        for i in range(0, total, batch_size):
+            batch_ids = ids[i:i+batch_size]
+            batch_docs = docs[i:i+batch_size]
+            batch_meta = metas[i:i+batch_size]
+            batch_emb = embeddings[i:i+batch_size]
+
+            logging.info(f"Upsert batch {i} → {i+len(batch_ids)}")
+
+            collection.upsert(
+                ids=batch_ids,
+                embeddings=batch_emb,
+                documents=batch_docs,
+                metadatas=batch_meta
+            )
+
+        logging.info(f"Upsert xong. Tổng số record: {collection.count()}")
 
     except Exception as e:
-        logging.error(f"Lỗi khi lưu trữ vào ChromaDB: {e}")
+        logging.error(f"Lỗi ChromaDB: {e}")
 
 
 # ==============================================================================
-# PHẦN 3: LUỒNG THỰC THI CHÍNH
+# PHẦN 7: MAIN
 # ==============================================================================
 
 if __name__ == "__main__":
-    # Khởi tạo logger
     logger = setup_logger()
 
-    # Tải cấu hình
     try:
-        CONFIG_PATH = "D:/Chatbot_Data4Life/v1/create_vecto_db/config.json"
+        CONFIG_PATH = r"C:/Users/ADMIN/E-Map/Backend/v1/create_vecto_db/config.json"
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             config = json.load(f)
-    except FileNotFoundError:
-        logger.error(f"Không tìm thấy file config.json. Vui lòng tạo file này.")
+    except:
+        logger.error("Không tìm thấy config.json")
         exit()
 
-    # Lấy các giá trị từ config
-    FAQ_CSV_PATH = config["faq_csv_path"]
-    DB_PATH = config["db_path"]
-    DB_FOLDER = config["db_folder"]
-    COLLECTION_NAME = config["collection_name"]
-    LOCAL_MODEL_PATH = config["local_model_path"]
+    CSV_PATH = config["faq_csv_path"]
+    DB_PATH = os.path.join(config["db_path"], config["db_folder"])
+    MODEL_PATH = config["local_model_path"]
+    COLLECTION = config["collection_name"]
 
-    # --- Tùy chọn: Xóa DB cũ trước khi tạo mới ---
-    # Bỏ comment dòng dưới nếu bạn muốn tạo lại DB từ đầu mỗi lần chạy
-    # clear_chroma_db_folder(DB_PATH, DB_FOLDER)
+    # Xóa DB cũ (nếu muốn chạy lại từ đầu)
+    # clear_chroma_db_folder(DB_PATH)
 
-    # 1. Tải dữ liệu từ CSV
-    faq_dataframe = load_and_prepare_faq_data(FAQ_CSV_PATH)
+    df = load_and_prepare_faq_data(CSV_PATH)
+    if df.empty:
+        logger.error("Không có dữ liệu để xử lý.")
+        exit()
 
-    if faq_dataframe.empty:
-        logger.error("Không có dữ liệu để xử lý. Dừng chương trình.")
+    model = load_embedding_model(MODEL_PATH)
+
+    titles = df["title"].tolist()
+    embeds = create_faq_embeddings(model, titles)
+
+    if embeds:
+        store_in_chromadb(DB_PATH, COLLECTION, df, embeds, batch_size=4000)
+        logger.info("=== Hoàn tất tạo VectorDB ===")
     else:
-        # 2. Tải mô hình embedding
-        model = load_embedding_model(LOCAL_MODEL_PATH)
-
-        # 3. Tạo embeddings từ cột 'title'
-        titles_to_embed = faq_dataframe['title'].tolist()
-        faq_embeddings = create_faq_embeddings(model, titles_to_embed)
-
-        if faq_embeddings:
-            # 4. Lưu trữ vào ChromaDB
-            store_in_chromadb(
-                db_path=DB_PATH,
-                db_folder=DB_FOLDER,
-                collection_name=COLLECTION_NAME,
-                faq_df=faq_dataframe,
-                embeddings=faq_embeddings
-            )
-            logger.info("=== QUÁ TRÌNH TẠO VECTOR DB HOÀN TẤT ===")
-        else:
-            logger.error("Không thể tạo embeddings. Dừng quá trình lưu vào DB.")
+        logger.error("Không thể tạo embeddings! Dừng tiến trình.")
