@@ -1,0 +1,7 @@
+{
+  "faq_csv_path": "D:/Chatbot_Data4Life/v1/create_vecto_db/faqs.csv",
+  "db_path": "D:/Chatbot_Data4Life/v1/chroma_db",
+  "db_folder": "chroma_db_faqs",
+  "collection_name": "faqs_collection",
+  "local_model_path": "D:/Chatbot_Data4Life/v1/models/Vietnamese_Embedding"
+}
