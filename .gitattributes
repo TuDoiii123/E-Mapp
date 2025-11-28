@@ -1,0 +1,2 @@
+Backend/RAG/chroma_db/chroma_db_faqs/chroma.sqlite3 filter=lfs diff=lfs merge=lfs -text
+*.sqlite3 filter=lfs diff=lfs merge=lfs -text
