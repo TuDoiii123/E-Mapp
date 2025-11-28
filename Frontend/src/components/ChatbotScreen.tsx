@@ -340,7 +340,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
 
       {/* Chatbot framed container with limited width */}
-      <div className="mx-auto mb-4 w-full max-w-5xl lg:max-w-6xl flex-1 min-h-0 flex flex-col border border-gray-200 rounded-xl shadow-sm overflow-hidden bg-white">
+      <div className="mx-auto mb-4 w-full max-w-5xl lg:max-w-6xl flex-1 min-h-0 flex flex-col border border-gray-200 rounded-xl shadow-sm overflow-hidden bg-white relative">
 
       <div className="bg-white border-b border-gray-200 px-4 py-4 flex items-center gap-3">
         <Button
@@ -364,11 +364,12 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
           <MoreVertical className="w-5 h-5" />
         </Button>
       </div>
+          <div className="horizontal-divider" aria-hidden="true" />
 
       <div className="flex flex-2 min-h-0 gap-0">
         {/* Sidebar: Lịch sử chat (10 cuộc trò chuyện gần nhất) */}
-        <aside className="hidden md:flex md:w-56 lg:w-64 flex-col border-r bg-white min-h-0">
-          <div className="px-4 py-3 border-b sticky top-0 bg-white z-10">
+        <aside className="hidden md:flex md:w-56 lg:w-64 flex-col bg-gray min-h-0 relative">
+          <div className="px-4 py-3 sticky top-0 bg-white z-10">
             {/* Actions placed ABOVE both the title and the history list (inside sticky header) */}
             <div className="space-y-2">
               <Button variant="ghost" className="w-full justify-start gap-3 mx-2 border-0 shadow-none hover:bg-gray-50" onClick={startNewConversation}>
@@ -393,6 +394,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                 <h2 className="text-base font-semibold text-gray-900 truncate">Lịch sử chat</h2>
               </div>
             </div>
+            <div className="horizontal-divider mt-2" aria-hidden="true" />
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto chat-sidebar-scroll">
             <ul className="divide-y">
@@ -509,6 +511,9 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             </ul>
           </div>
         </aside>
+
+        {/* Vertical divider between history and chat */}
+        <div className="hidden md:block vertical-divider" aria-hidden="true" />
 
         {/* Main chat area */}
         <div className="flex-1 flex flex-col min-h-0">

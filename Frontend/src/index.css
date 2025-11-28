@@ -1,3 +1,28 @@
+/* Vertical divider utility for two-column layouts */
+.vertical-divider {
+  width: 2px; /* thickness */
+  background-color: #e5e7eb; /* gray-200 */
+  flex-shrink: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .vertical-divider {
+    background-color: #e5e7eb; /* gray-200 in dark mode per request */
+  }
+}
+
+/* Horizontal divider utility for sections */
+.horizontal-divider {
+  height: 2px; /* thickness */
+  background-color: #e5e7eb; /* gray-200 */
+  flex-shrink: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .horizontal-divider {
+    background-color: #e5e7eb; /* gray-200 in dark mode per request */
+  }
+}
 /*! tailwindcss v4.1.3 | MIT License | https://tailwindcss.com */
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
