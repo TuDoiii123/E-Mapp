@@ -85,8 +85,6 @@ export function SearchDocumentScreen({ onNavigate }: SearchDocumentScreenProps) 
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* iOS Status Bar Space */}
-      <div className="h-11 bg-white"></div>
       
       {/* iOS Header */}
       <div className="bg-white border-b border-gray-200">

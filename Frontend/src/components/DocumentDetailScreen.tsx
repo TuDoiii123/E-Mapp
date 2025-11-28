@@ -48,7 +48,6 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="h-11 bg-white"></div>
       <div className="bg-white border-b border-gray-200">
         <div className="px-4 py-4 flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => onNavigate('document-catalog')} className="w-10 h-10">
