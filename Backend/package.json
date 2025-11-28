@@ -5,9 +5,13 @@ printf("");{
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "dev": "nodemon server.js",
     "start": "node server.js",
-    "seed": "node scripts/seedData.js"
+    "dev": "nodemon server.js",
+    "seed": "node scripts/seedData.js",
+    "generate": "node scripts/generateReviews.js",
+    "simulate": "node scripts/realtimeSimulation.js",
+    "dev:full": "concurrently \"npm run dev\" \"npm run simulate\"",
+    "setup": "npm run generate && npm run dev:full"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -15,11 +19,18 @@ printf("");{
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-validator": "^7.3.0",
+<<<<<<< HEAD
     "jsonwebtoken": "^9.0.2"
     ,"multer": "^1.4.5-lts.1",
     "uuid": "^9.0.0"
+=======
+    "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^3.3.2",
+    "uuid": "^13.0.0"
+>>>>>>> origin/BimBiip
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "nodemon": "^3.0.1"
   }
 }
