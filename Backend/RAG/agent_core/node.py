@@ -1,12 +1,16 @@
-from agent_core.state import MultiRoleAgentState
+from .state import MultiRoleAgentState
 from docx import Document
 from typing import List, Dict, Any
-from utils.llm_wrapper import GeminiSynthesizerLLM, GeminiAnalyzerLLM, GeminiChatParagraphSummarizer
-from tools.tool_registry import TOOL_REGISTRY
+from ..utils.llm_wrapper import (
+    GeminiSynthesizerLLM,
+    GeminiAnalyzerLLM,
+    GeminiChatParagraphSummarizer,
+)
+from ..tools.tool_registry import TOOL_REGISTRY
 import yaml
 import re
 import json
-from connect_SQL.connect_SQL import connect_sql
+from ..connect_SQL.connect_SQL import connect_sql
 from sqlalchemy import text
 
 

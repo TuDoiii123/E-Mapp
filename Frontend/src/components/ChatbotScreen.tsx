@@ -1,16 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, type KeyboardEvent } from 'react';
 import { Send, Bot, User, Paperclip, Mic, MoreVertical, ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import React from 'react';
+import { Avatar, AvatarFallback } from './ui/avatar';
+import { chatbotAPI } from '../services/api';
 interface ChatbotScreenProps {
   onNavigate: (screen: string) => void;
 }
 
 interface Message {
-  id: number;
+  id: string;
   text: string;
   isBot: boolean;
   timestamp: Date;
@@ -18,134 +18,120 @@ interface Message {
 }
 
 export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 1,
-      text: 'Xin chào! Tôi là trợ lý AI của Dịch vụ công số. Tôi có thể giúp bạn:',
-      isBot: true,
-      timestamp: new Date(),
-      actions: [
-        { label: 'Tra cứu hồ sơ', action: () => onNavigate('search') },
-        { label: 'Hướng dẫn nộp hồ sơ', action: () => addBotMessage('Để nộp hồ sơ trực tuyến, bạn cần chuẩn bị các giấy tờ sau...') },
-        { label: 'Tìm cơ quan gần nhất', action: () => onNavigate('map') }
-      ]
-    }
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const createMessageId = useCallback((prefix: string) => {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }, []);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const addBotMessage = (text: string, actions?: { label: string; action: () => void }[]) => {
-    setIsTyping(true);
-    setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: Date.now(),
+  const appendBotMessage = useCallback((text: string, actions?: Message['actions']) => {
+    setMessages(prev => [
+      ...prev,
+      {
+        id: createMessageId('bot'),
         text,
         isBot: true,
         timestamp: new Date(),
-        actions
-      }]);
+        actions,
+      },
+    ]);
+  }, [createMessageId]);
+
+  const appendUserMessage = useCallback((text: string) => {
+    setMessages(prev => [
+      ...prev,
+      {
+        id: createMessageId('user'),
+        text,
+        isBot: false,
+        timestamp: new Date(),
+      },
+    ]);
+  }, [createMessageId]);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      return;
+    }
+
+    appendBotMessage('Xin chào! Tôi là trợ lý AI của Dịch vụ công số. Tôi có thể giúp bạn:', [
+      { label: 'Tra cứu hồ sơ', action: () => onNavigate('search') },
+      {
+        label: 'Hướng dẫn nộp hồ sơ',
+        action: () => appendBotMessage('Để nộp hồ sơ trực tuyến, bạn cần chuẩn bị các giấy tờ sau...'),
+      },
+      { label: 'Tìm cơ quan gần nhất', action: () => onNavigate('map') },
+    ]);
+  }, [appendBotMessage, messages.length, onNavigate]);
+
+  const handleSend = useCallback(async () => {
+    const trimmed = inputText.trim();
+    if (!trimmed || isTyping) {
+      return;
+    }
+
+    setInputText('');
+    appendUserMessage(trimmed);
+    setIsTyping(true);
+
+    try {
+      const response = await chatbotAPI.sendMessage({
+        message: trimmed,
+        sessionId: sessionId ?? undefined,
+      });
+
+      if (response.warnings?.length) {
+        console.warn('[chatbotAPI]', response.warnings.join(' | '));
+      }
+
+      const nextSessionId = response.data?.sessionId ?? sessionId;
+      const normalizedSessionId = nextSessionId && nextSessionId.trim().length > 0 ? nextSessionId : null;
+      setSessionId(normalizedSessionId);
+
+      const responseText = response.data?.response ?? 'Xin lỗi, hệ thống chưa có phản hồi phù hợp.';
+      appendBotMessage(responseText);
+    } catch (error) {
+      console.error('Chatbot sendMessage failed:', error);
+      const fallbackText =
+        error instanceof Error
+          ? error.message
+          : 'Rất tiếc, chatbot đang gặp sự cố. Vui lòng thử lại sau.';
+      appendBotMessage(fallbackText);
+    } finally {
       setIsTyping(false);
-    }, 1000);
-  };
-
-  const addUserMessage = (text: string) => {
-    const userMessage: Message = {
-      id: Date.now(),
-      text,
-      isBot: false,
-      timestamp: new Date()
-    };
-    
-    setMessages(prev => [...prev, userMessage]);
-    
-    // Simulate bot response
-    setTimeout(() => {
-      handleBotResponse(text);
-    }, 500);
-  };
-
-  const handleBotResponse = (userText: string) => {
-    const lowerText = userText.toLowerCase();
-    
-    if (lowerText.includes('hồ sơ') || lowerText.includes('tra cứu')) {
-      addBotMessage(
-        'Tôi có thể giúp bạn tra cứu hồ sơ. Bạn có thể cung cấp số CCCD hoặc mã hồ sơ không?',
-        [
-          { label: 'Tra cứu ngay', action: () => onNavigate('search') }
-        ]
-      );
-    } else if (lowerText.includes('nộp') || lowerText.includes('đăng ký')) {
-      addBotMessage(
-        'Tôi sẽ hướng dẫn bạn nộp hồ sơ trực tuyến. Bạn muốn nộp loại hồ sơ nào?',
-        [
-          { label: 'Đăng ký kết hôn', action: () => addBotMessage('Để đăng ký kết hôn, bạn cần: CCCD gốc 2 bên, đơn đăng ký, giấy khám sức khỏe...') },
-          { label: 'Giấy phép kinh doanh', action: () => addBotMessage('Để xin giấy phép kinh doanh, bạn cần: CCCD gốc, đơn đăng ký, giấy thuê mặt bằng...') },
-          { label: 'Nộp hồ sơ ngay', action: () => onNavigate('submit') }
-        ]
-      );
-    } else if (lowerText.includes('bản đồ') || lowerText.includes('cơ quan') || lowerText.includes('địa chỉ')) {
-      addBotMessage(
-        'Tôi có thể giúp bạn tìm cơ quan gần nhất và thông tin chi tiết.',
-        [
-          { label: 'Xem bản đồ', action: () => onNavigate('map') }
-        ]
-      );
-    } else if (lowerText.includes('thời gian') || lowerText.includes('bao lâu')) {
-      addBotMessage(
-        'Thời gian xử lý phụ thuộc vào loại hồ sơ:\n• Hộ tịch: 5-7 ngày\n• Đất đai: 15-20 ngày\n• Kinh doanh: 10-15 ngày\n• Tư pháp: 7-10 ngày'
-      );
-    } else if (lowerText.includes('phí') || lowerText.includes('tiền')) {
-      addBotMessage(
-        'Lệ phí dịch vụ công:\n• Hộ tịch: Miễn phí\n• CCCD: 50,000 VNĐ\n• Giấy phép kinh doanh: 100,000 VNĐ\n• Thủ tục đất đai: 100,000-500,000 VNĐ'
-      );
-    } else {
-      addBotMessage(
-        'Tôi hiểu bạn đang cần hỗ trợ. Dưới đây là một số câu hỏi phổ biến:',
-        [
-          { label: 'Tra cứu hồ sơ', action: () => addBotMessage('Để tra cứu hồ sơ, bạn cần số CCCD hoặc mã hồ sơ...') },
-          { label: 'Thời gian xử lý', action: () => addBotMessage('Thời gian xử lý trung bình từ 5-20 ngày tùy loại hồ sơ...') },
-          { label: 'Lệ phí dịch vụ', action: () => addBotMessage('Lệ phí được quy định theo từng loại dịch vụ...') },
-          { label: 'Liên hệ hotline', action: () => addBotMessage('Hotline hỗ trợ: 1900 1234 (24/7)') }
-        ]
-      );
     }
-  };
+  }, [appendBotMessage, appendUserMessage, inputText, isTyping, sessionId]);
 
-  const handleSend = () => {
-    if (inputText.trim()) {
-      addUserMessage(inputText);
-      setInputText('');
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      handleSend();
+      e.preventDefault();
+      void handleSend();
     }
   };
 
   const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('vi-VN', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleTimeString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
     });
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* iOS Status Bar Space */}
       <div className="h-11 bg-white"></div>
-      
-      {/* iOS Header */}
+
       <div className="bg-white border-b border-gray-200 px-4 py-4 flex items-center gap-3">
         <Button
           variant="ghost"
@@ -169,7 +155,6 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
         </Button>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message) => (
           <div
@@ -183,12 +168,12 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                 </AvatarFallback>
               </Avatar>
             )}
-            
+
             <div className={`max-w-[70%] ${message.isBot ? '' : 'order-first'}`}>
               <Card className={message.isBot ? 'bg-white' : 'bg-blue-600 text-white'}>
                 <CardContent className="p-3">
                   <p className="whitespace-pre-line">{message.text}</p>
-                  
+
                   {message.actions && (
                     <div className="mt-3 space-y-2">
                       {message.actions.map((action, index) => (
@@ -206,7 +191,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                   )}
                 </CardContent>
               </Card>
-              
+
               <p className={`text-xs text-gray-500 mt-1 ${
                 message.isBot ? 'text-left' : 'text-right'
               }`}>
@@ -223,7 +208,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             )}
           </div>
         ))}
-        
+
         {isTyping && (
           <div className="flex gap-3">
             <Avatar className="w-8 h-8">
@@ -242,30 +227,30 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             </Card>
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <div className="bg-white border-t p-4">
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm">
+          <Button variant="ghost" size="sm" disabled={isTyping}>
             <Paperclip className="w-5 h-5" />
           </Button>
-          
+
           <Input
             placeholder="Nhập tin nhắn..."
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyPress={handleKeyPress}
             className="flex-1"
+            disabled={isTyping}
           />
-          
-          <Button variant="ghost" size="sm">
+
+          <Button variant="ghost" size="sm" disabled={isTyping}>
             <Mic className="w-5 h-5" />
           </Button>
-          
-          <Button onClick={handleSend} disabled={!inputText.trim()}>
+
+          <Button onClick={handleSend} disabled={!inputText.trim() || isTyping}>
             <Send className="w-4 h-4" />
           </Button>
         </div>

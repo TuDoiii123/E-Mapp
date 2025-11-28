@@ -189,3 +189,64 @@ export const authAPI = {
   },
 };
 
+export interface ChatRequestPayload {
+  message: string;
+  sessionId?: string;
+}
+
+export interface ChatResponsePayload {
+  success: boolean;
+  data: {
+    sessionId?: string | null;
+    response: string;
+    analysis?: unknown;
+    toolResults?: unknown;
+    latencyMs?: number;
+  };
+  warnings?: string[];
+  message?: string;
+}
+
+export interface ChatSessionSummary {
+  sessionId: string;
+  summary: string;
+  createdAt?: string | null;
+}
+
+export interface ChatSessionsResponse {
+  success: boolean;
+  data: {
+    sessions: ChatSessionSummary[];
+  };
+}
+
+export interface ChatSessionMessagesResponse {
+  success: boolean;
+  data: {
+    sessionId: string;
+    messages: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp?: string | null;
+    }>;
+  };
+}
+
+export const chatbotAPI = {
+  sendMessage: async (payload: ChatRequestPayload): Promise<ChatResponsePayload> => {
+    return apiRequest<ChatResponsePayload>('/rag/chat', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getRecentSessions: async (limit = 5): Promise<ChatSessionsResponse> => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return apiRequest<ChatSessionsResponse>(`/rag/sessions?${params.toString()}`);
+  },
+
+  getSessionMessages: async (sessionId: string): Promise<ChatSessionMessagesResponse> => {
+    return apiRequest<ChatSessionMessagesResponse>(`/rag/sessions/${encodeURIComponent(sessionId)}`);
+  },
+};
+
