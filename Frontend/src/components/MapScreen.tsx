@@ -348,8 +348,6 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* iOS Status Bar Space */}
-      <div className="h-11 bg-white"></div>
       
       {/* iOS Header */}
       <div className="bg-white border-b border-gray-200">
