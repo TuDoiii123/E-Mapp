@@ -337,10 +337,10 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
   }, [saveConversations]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="chatbot-screen-wrapper bg-gray-50">
 
-      {/* Chatbot framed container with limited width */}
-      <div className="mx-auto mb-4 w-full max-w-5xl lg:max-w-6xl flex-1 min-h-0 flex flex-col border border-gray-200 rounded-xl shadow-sm overflow-hidden bg-white relative">
+      {/* Chatbot framed container centered with fixed size (scrollable) */}
+      <div className="chatbot-frame mb-4 border border-gray-200 rounded-xl shadow-sm bg-white relative flex flex-col">
 
       <div className="bg-white border-b border-gray-200 px-4 py-4 flex items-center gap-3">
         <Button
@@ -368,7 +368,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
 
       <div className="flex flex-2 min-h-0 gap-0">
         {/* Sidebar: Lịch sử chat (10 cuộc trò chuyện gần nhất) */}
-        <aside className="hidden md:flex md:w-56 lg:w-64 flex-col bg-gray min-h-0 relative">
+        <aside className="hidden md:flex md:w-56 lg:w-64 flex-col bg-gray min-h-0 relative overflow-y-auto">
           <div className="px-4 py-3 sticky top-0 bg-white z-10">
             {/* Actions placed ABOVE both the title and the history list (inside sticky header) */}
             <div className="space-y-2">
@@ -396,7 +396,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             </div>
             <div className="horizontal-divider mt-2" aria-hidden="true" />
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto chat-sidebar-scroll">
+          <div className="flex-1 min-h-0">
             <ul className="divide-y">
               {/* Loading skeletons */}
               {loadingSessions && recentSessions.length === 0 && (
@@ -517,7 +517,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
 
         {/* Main chat area */}
         <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 p-4 pb-24 space-y-4 chat-messages-scroll">
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -594,7 +594,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="bg-white border-t p-4">
+          <div className="bg-white border-t p-4 chat-input-bar">
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" disabled={isTyping}>
                 <Paperclip className="w-5 h-5" />
