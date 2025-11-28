@@ -178,7 +178,7 @@ if __name__ == "__main__":
     COLLECTION = config["collection_name"]
 
     # Xóa DB cũ (nếu muốn chạy lại từ đầu)
-    # clear_chroma_db_folder(DB_PATH)
+    clear_chroma_db_folder(DB_PATH)
 
     df = load_and_prepare_faq_data(CSV_PATH)
     if df.empty:
