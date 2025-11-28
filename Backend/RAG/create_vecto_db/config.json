@@ -1,0 +1,7 @@
+{
+  "faq_csv_path": "C:/Users/ADMIN/E-Map/Backend/RAG/create_vecto_db/faqs.csv",
+  "db_path": "C:/Users/ADMIN/E-Map/Backend/RAG/chroma_db",
+  "db_folder": "chroma_db_faqs",
+  "collection_name": "faqs_collection",
+  "local_model_path": "C:/Users/ADMIN/E-Map/Backend/RAG/models/Vietnamese_Embedding"
+}
