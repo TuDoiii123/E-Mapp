@@ -2,8 +2,8 @@ import uuid
 from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from agent_core.state import MultiRoleAgentState
-from agent_core.node import (
+from .state import MultiRoleAgentState
+from .node import (
     user_input,
     role_manager,
     task_analyzer,
@@ -19,7 +19,7 @@ class MultiRoleAgentGraph:
         # ------------------------------------------
         # 🧩 Thêm các node
         # ------------------------------------------
-        self.graph.add_node("user_input", self._wrap_node(user_input))
+        self.graph.add_node("user_input_node", self._wrap_node(user_input))
         self.graph.add_node("role_manager", self._wrap_node(role_manager))
         self.graph.add_node("task_analyzer", self._wrap_node(task_analyzer))
         self.graph.add_node("tool_executor", self._wrap_node(tool_executor))
@@ -28,8 +28,8 @@ class MultiRoleAgentGraph:
         # ------------------------------------------
         # 🔗 Định nghĩa luồng chuyển tiếp
         # ------------------------------------------
-        self.graph.set_entry_point("user_input")
-        self.graph.add_edge("user_input", "role_manager")
+        self.graph.set_entry_point("user_input_node")
+        self.graph.add_edge("user_input_node", "role_manager")
         self.graph.add_edge("role_manager", "task_analyzer")
         self.graph.add_edge("task_analyzer", "tool_executor")
         self.graph.add_edge("tool_executor", "llm_response")
