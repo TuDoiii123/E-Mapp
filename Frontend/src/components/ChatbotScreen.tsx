@@ -29,6 +29,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [mode, setMode] = useState<'default' | 'administrative_qa' | 'document_suggestion' | 'booking'>('default');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -133,6 +134,8 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
     });
   }, [createMessageId, activeConversationId, saveConversations]);
 
+  // Ensure CSS class for pre-wrap in container (added inline style later in JSX)
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -150,12 +153,18 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
     if (recentSessions.length > 0 || conversations.length > 0) return;
 
     appendBotMessage('Xin chào! Tôi là trợ lý AI của Dịch vụ công số. Tôi có thể giúp bạn:', [
-      { label: 'Tra cứu hồ sơ', action: () => onNavigate('search') },
       {
-        label: 'Hướng dẫn nộp hồ sơ',
-        action: () => appendBotMessage('Để nộp hồ sơ trực tuyến, bạn cần chuẩn bị các giấy tờ sau...'),
+        label: 'Hỏi đáp hành chính',
+        action: () => appendBotMessage('Bạn có thể hỏi tôi về thủ tục, thời hạn, lệ phí hoặc cơ quan phụ trách. Hãy nhập câu hỏi cụ thể.'),
       },
-      { label: 'Tìm cơ quan gần nhất', action: () => onNavigate('map') },
+      {
+        label: 'Gợi ý các giấy tờ liên quan',
+        action: () => appendBotMessage('Vui lòng cho biết loại thủ tục hoặc mục đích (ví dụ: đăng ký kinh doanh, cấp lại CMND...) để tôi gợi ý bộ giấy tờ cần chuẩn bị.'),
+      },
+      {
+        label: 'Đặt lịch',
+        action: () => appendBotMessage('Để đặt lịch, vui lòng cho tôi biết loại dịch vụ và khoảng thời gian mong muốn. Tôi sẽ hỗ trợ bạn tạo yêu cầu.'),
+      },
     ]);
   }, [appendBotMessage, messages.length, onNavigate, recentSessions.length, conversations.length]);
 
@@ -204,17 +213,66 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
     setIsTyping(true);
 
     try {
-      const response = await chatbotAPI.sendMessage({
-        message: trimmed,
-        sessionId: sessionId ?? undefined,
-      });
+      if (mode === 'document_suggestion') {
+        const resp = await chatbotAPI.suggestProcedure(trimmed, { topK: 4, threshold: 0.5, sessionId: sessionId ?? undefined });
+        if (resp.success && resp.data) {
+          const { explanation, suggestions, sessionId: newSid } = resp.data;
+          const normalizedSessionId = newSid && newSid.trim().length > 0 ? newSid : sessionId;
+          if (!sessionId && normalizedSessionId) {
+            // migrate local conversation id similar to RAG branch
+            setConversations((prev) => {
+              const localId = '__local__';
+              const idxLocal = prev.findIndex((c) => c.id === localId);
+              let next = [...prev];
+              if (idxLocal !== -1) {
+                const idxTarget = next.findIndex((c) => c.id === normalizedSessionId!);
+                if (idxTarget === -1) {
+                  next[idxLocal] = { ...next[idxLocal], id: normalizedSessionId!, lastUpdated: Date.now() };
+                } else {
+                  next[idxTarget] = {
+                    ...next[idxTarget],
+                    lastUpdated: Math.max(next[idxTarget].lastUpdated, next[idxLocal].lastUpdated),
+                    messages: [...next[idxTarget].messages, ...next[idxLocal].messages],
+                  };
+                  next = next.filter((c, i) => i !== idxLocal);
+                }
+                saveConversations(next);
+              }
+              return next;
+            });
+          }
+          setSessionId(normalizedSessionId ?? null);
+          const explanation = explanation || 'Các thủ tục liên quan được đề xuất gồm:';
+          if (suggestions && suggestions.length > 0) {
+            const header = 'Các thủ tục liên quan được đề xuất gồm:';
+            const block = suggestions.map((s, idx) => {
+              let name = s.procedure_name || 'Không rõ tên thủ tục';
+              name = name.trim();
+              if (!/[\.?!…]$/.test(name)) {
+                name = name + '.'; // đảm bảo dấu chấm cuối câu
+              }
+              return ` ${idx + 1}. ${name}`; // một khoảng trắng đầu dòng như yêu cầu mẫu
+            }).join('\n');
+            appendBotMessage(`${header}\n${block}`);
+          } else {
+            appendBotMessage('Không tìm thấy thủ tục phù hợp.');
+          }
+        } else {
+          appendBotMessage(resp.message || 'Không thể lấy gợi ý giấy tờ.');
+        }
+      } else {
+        const response = await chatbotAPI.sendMessage({
+          message: trimmed,
+          sessionId: sessionId ?? undefined,
+          intent: mode === 'administrative_qa' ? 'administrative_qa' : undefined,
+        });
 
       if (response.warnings?.length) {
         console.warn('[chatbotAPI]', response.warnings.join(' | '));
       }
 
-      const nextSessionId = response.data?.sessionId ?? sessionId;
-      const normalizedSessionId = nextSessionId && nextSessionId.trim().length > 0 ? nextSessionId : null;
+        const nextSessionId = response.data?.sessionId ?? sessionId;
+        const normalizedSessionId = nextSessionId && nextSessionId.trim().length > 0 ? nextSessionId : null;
 
       // If session just got assigned, migrate '__local__' conversation to real id
       if (sessionId == null && normalizedSessionId) {
@@ -241,10 +299,11 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
         });
       }
 
-      setSessionId(normalizedSessionId);
+        setSessionId(normalizedSessionId);
 
-      const responseText = response.data?.response ?? 'Xin lỗi, hệ thống chưa có phản hồi phù hợp.';
-      appendBotMessage(responseText);
+        const responseText = response.data?.response ?? 'Xin lỗi, hệ thống chưa có phản hồi phù hợp.';
+        appendBotMessage(responseText);
+      }
     } catch (error) {
       console.error('Chatbot sendMessage failed:', error);
       const fallbackText =
@@ -255,7 +314,31 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
     } finally {
       setIsTyping(false);
     }
-  }, [appendBotMessage, appendUserMessage, inputText, isTyping, sessionId]);
+  }, [appendBotMessage, appendUserMessage, inputText, isTyping, sessionId, mode]);
+
+  const startNewConversation = useCallback(() => {
+    setSessionId(null);
+    setMessages([]);
+    setConversations((prev) => {
+      let next = [...prev];
+      const now = Date.now();
+      const idxLocal = next.findIndex((c) => c.id === '__local__');
+      if (idxLocal !== -1 && next[idxLocal].messages.length > 0) {
+        // Preserve old local by renaming it to a unique id
+        const preservedId = `draft-${now}`;
+        next[idxLocal] = { ...next[idxLocal], id: preservedId, lastUpdated: now };
+        // Insert a fresh empty local conversation at the front for visibility
+        next.unshift({ id: '__local__', lastUpdated: now, messages: [] });
+      } else if (idxLocal === -1) {
+        next.unshift({ id: '__local__', lastUpdated: now, messages: [] });
+      } else {
+        // Existing local is empty, just update its timestamp
+        next[idxLocal] = { ...next[idxLocal], lastUpdated: now, messages: [] };
+      }
+      saveConversations(next);
+      return next;
+    });
+  }, [saveConversations]);
 
   const handleKeyPress = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -312,29 +395,33 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
     }
   }, [conversations, createMessageId, saveConversations]);
 
-  const startNewConversation = useCallback(() => {
-    setSessionId(null);
-    setMessages([]);
-    setConversations((prev) => {
-      let next = [...prev];
-      const now = Date.now();
-      const idxLocal = next.findIndex((c) => c.id === '__local__');
-      if (idxLocal !== -1 && next[idxLocal].messages.length > 0) {
-        // Preserve old local by renaming it to a unique id
-        const preservedId = `draft-${now}`;
-        next[idxLocal] = { ...next[idxLocal], id: preservedId, lastUpdated: now };
-        // Insert a fresh empty local conversation at the front for visibility
-        next.unshift({ id: '__local__', lastUpdated: now, messages: [] });
-      } else if (idxLocal === -1) {
-        next.unshift({ id: '__local__', lastUpdated: now, messages: [] });
-      } else {
-        // Existing local is empty, just update its timestamp
-        next[idxLocal] = { ...next[idxLocal], lastUpdated: now, messages: [] };
-      }
-      saveConversations(next);
-      return next;
-    });
-  }, [saveConversations]);
+  const startModeConversation = useCallback((newMode: 'administrative_qa' | 'document_suggestion' | 'booking', greeting: string) => {
+    // Kết thúc cuộc trò chuyện hiện tại và bắt đầu cuộc trò chuyện mới với mode tương ứng
+    startNewConversation();
+    setMode(newMode);
+    appendBotMessage(greeting);
+  }, [appendBotMessage, startNewConversation]);
+
+  const startAdministrativeQA = useCallback(() => {
+    startModeConversation(
+      'administrative_qa',
+      'Chào bạn, tôi là Trợ lý hành chính của E-Map. Bạn hãy nhập câu hỏi về thủ tục, lệ phí, thời hạn xử lý hoặc cơ quan phụ trách để tôi hỗ trợ.'
+    );
+  }, [startModeConversation]);
+
+  const startDocumentSuggestion = useCallback(() => {
+    startModeConversation(
+      'document_suggestion',
+      'Chào bạn, tôi sẽ gợi ý các giấy tờ liên quan. Vui lòng nhập loại thủ tục hoặc mục đích (ví dụ: đăng ký kinh doanh, cấp lại CMND, chuyển hộ khẩu...) để tôi liệt kê giấy tờ cần chuẩn bị.'
+    );
+  }, [startModeConversation]);
+
+  const startBooking = useCallback(() => {
+    startModeConversation(
+      'booking',
+      'Bạn đang bắt đầu yêu cầu Đặt lịch. Vui lòng nhập loại dịch vụ và thời điểm mong muốn (ví dụ: “Đặt lịch nộp hồ sơ cấp CCCD vào sáng thứ 3 tuần sau”).'
+    );
+  }, [startModeConversation]);
 
   return (
     <div className="chatbot-screen-wrapper bg-gray-50">
@@ -518,6 +605,33 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
         {/* Main chat area */}
         <div className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 p-4 pb-24 space-y-4 chat-messages-scroll">
+            {/* Quick action buttons always visible at top */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-2">
+              <Button
+                variant={mode === 'administrative_qa' ? 'default' : 'outline'}
+                size="sm"
+                className="justify-start"
+                onClick={startAdministrativeQA}
+              >
+                Hỏi đáp hành chính
+              </Button>
+              <Button
+                variant={mode === 'document_suggestion' ? 'default' : 'outline'}
+                size="sm"
+                className="justify-start"
+                onClick={startDocumentSuggestion}
+              >
+                Gợi ý các giấy tờ liên quan
+              </Button>
+              <Button
+                variant={mode === 'booking' ? 'default' : 'outline'}
+                size="sm"
+                className="justify-start"
+                onClick={startBooking}
+              >
+                Đặt lịch
+              </Button>
+            </div>
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -535,7 +649,17 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                 <div className={`max-w-[70%] ${message.isBot ? '' : 'order-first'}`}>
                   <Card className={message.isBot ? 'bg-white' : 'bg-blue-600 text-white'}>
                     <CardContent className="p-3">
-                      <p className="whitespace-pre-line">{message.text}</p>
+                      {message.text.includes('\n') ? (
+                        <div className="leading-relaxed text-sm whitespace-pre-wrap">
+                          {message.text.split(/\n/).map((line, i) => (
+                            <p key={i} className="m-0">
+                              {line.trim() === '' ? '\u00A0' : line}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="leading-relaxed text-sm whitespace-pre-wrap">{message.text}</p>
+                      )}
 
                       {message.actions && (
                         <div className="mt-3 space-y-2">

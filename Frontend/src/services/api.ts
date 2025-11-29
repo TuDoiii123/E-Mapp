@@ -192,6 +192,7 @@ export const authAPI = {
 export interface ChatRequestPayload {
   message: string;
   sessionId?: string;
+  intent?: string; // optional intent e.g. 'administrative_qa'
 }
 
 export interface ChatResponsePayload {
@@ -247,6 +248,26 @@ export const chatbotAPI = {
 
   getSessionMessages: async (sessionId: string): Promise<ChatSessionMessagesResponse> => {
     return apiRequest<ChatSessionMessagesResponse>(`/rag/sessions/${encodeURIComponent(sessionId)}`);
+  },
+
+  suggestProcedure: async (
+    query: string,
+    options?: { topK?: number; threshold?: number; sessionId?: string }
+  ): Promise<{
+    success: boolean;
+    data?: { suggestions: Array<{ procedure_internal_id: number; procedure_name: string; procedure_code?: string | null; label?: number | null; similarity_score: number; source?: string; link?: string }>; explanation: string; totalCandidates: number; latencyMs: number; sessionId?: string };
+    message?: string;
+    error?: string;
+  }> => {
+    return apiRequest('/suggest-procedure', {
+      method: 'POST',
+      body: JSON.stringify({
+        query,
+        topK: options?.topK ?? 4,
+        threshold: options?.threshold ?? 0.5,
+        sessionId: options?.sessionId,
+      }),
+    });
   },
 };
 
