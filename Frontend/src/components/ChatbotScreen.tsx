@@ -242,9 +242,9 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             });
           }
           setSessionId(normalizedSessionId ?? null);
-          const explanation = explanation || 'Các thủ tục liên quan được đề xuất gồm:';
+          const explanationText = explanation || 'Các thủ tục liên quan được đề xuất gồm:';
           if (suggestions && suggestions.length > 0) {
-            const header = 'Các thủ tục liên quan được đề xuất gồm:';
+            const header = explanationText;
             const block = suggestions.map((s, idx) => {
               let name = s.procedure_name || 'Không rõ tên thủ tục';
               name = name.trim();
