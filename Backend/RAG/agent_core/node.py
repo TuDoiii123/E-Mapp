@@ -11,6 +11,7 @@ import yaml
 import re
 import json
 from ..connect_SQL.connect_SQL import connect_sql
+import os
 from sqlalchemy import text
 
 
@@ -20,9 +21,13 @@ def user_input(state: MultiRoleAgentState ) -> str:
 
 def _load_base_prompt(state: MultiRoleAgentState ) -> str:
     path = f"C:/Users/ADMIN/E-Map/Backend/RAG/prompt/General_Prompt.docx"
-    doc = Document(path)
-    prompt_text = "/n".join([p.text for p in doc.paragraphs if p.text.strip()])
-    return prompt_text
+    try:
+        doc = Document(path)
+        prompt_text = "/n".join([p.text for p in doc.paragraphs if p.text.strip()])
+        return prompt_text
+    except Exception:
+        # Fallback prompt if document cannot be loaded
+        return "Bạn là trợ lý hành chính, hỗ trợ người dân với câu trả lời rõ ràng và súc tích."
 
 def _load_tool_for_role() -> List[Dict[str, Any]]:
     """
@@ -41,12 +46,19 @@ def _load_tool_for_role() -> List[Dict[str, Any]]:
 
     path = f"C:/Users/ADMIN/E-Map/Backend/RAG/prompt/tool.yaml"
     try:
+        if not os.path.isfile(path):
+            # Gracefully return empty tools if file missing
+            return []
         with open(path, "r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
+            content = f.read()
+        if not content.strip():
+            return []
+        data = yaml.safe_load(content) or {}
 
         tools = data.get("tools", [])
         if not isinstance(tools, list):
-            raise ValueError(f"⚠️ File YAML của role '{tool}' không đúng định dạng (tools phải là list).")
+            # Invalid schema, return empty to avoid crashing
+            return []
 
         # Chuẩn hóa thông tin
         normalized_tools = []
@@ -59,10 +71,9 @@ def _load_tool_for_role() -> List[Dict[str, Any]]:
             })
         return normalized_tools
 
-    except FileNotFoundError:
-        raise FileNotFoundError(f"❌ Không tìm thấy file YAML cho role")
-    except Exception as e:
-        raise RuntimeError(f"❌ Lỗi khi load tool cho role ")
+    except Exception:
+        # Any parsing error -> return empty tools to keep the system running
+        return []
 
 def _load_memory(session_id: str ) -> list:
     if not session_id:
