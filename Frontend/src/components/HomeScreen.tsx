@@ -28,7 +28,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
       id: 'appointment',
       title: 'Đặt lịch hẹn',
       icon: Calendar,
-      color: 'bg-emerald-600',
+      color: 'bg-red-600',
       description: 'Chọn ngày giờ làm thủ tục'
     },
     {
