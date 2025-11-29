@@ -1,4 +1,4 @@
-import { Search, FileText, Plus, MapPin, Star, Bell } from 'lucide-react';
+import { Search, FileText, Plus, MapPin, Star, Bell, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -23,6 +23,13 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
       icon: Plus,
       color: 'bg-red-600',
       description: 'Nộp hồ sơ trực tuyến'
+    },
+    {
+      id: 'appointment',
+      title: 'Đặt lịch hẹn',
+      icon: Calendar,
+      color: 'bg-emerald-600',
+      description: 'Chọn ngày giờ làm thủ tục'
     },
     {
       id: 'map',

@@ -12,16 +12,31 @@ class Appointment {
     this.date = data.date;
     this.time = data.time;
     this.status = data.status;
+    this.fullName = data.fullName || data.full_name || '';
+    this.phone = data.phone || '';
+    this.info = data.info || data.details || '';
     this.createdAt = data.createdAt || data.created_at || new Date().toISOString();
   }
 
   static async readData() {
     try {
+      const dir = path.dirname(DATA_FILE);
+      await fs.mkdir(dir, { recursive: true }).catch(() => {});
       const data = await fs.readFile(DATA_FILE, 'utf8');
-      return JSON.parse(data);
+      try {
+        return JSON.parse(data);
+      } catch (parseErr) {
+        // If corrupted, backup and reset
+        const backupPath = path.join(dir, `appointments_corrupted_${Date.now()}.json`);
+        await fs.writeFile(backupPath, data, 'utf8').catch(() => {});
+        await fs.writeFile(DATA_FILE, '[]', 'utf8');
+        return [];
+      }
     } catch (error) {
       if (error.code === 'ENOENT') {
         // File doesn't exist, create it
+        const dir = path.dirname(DATA_FILE);
+        await fs.mkdir(dir, { recursive: true }).catch(() => {});
         await fs.writeFile(DATA_FILE, '[]', 'utf8');
         return [];
       }
@@ -30,7 +45,13 @@ class Appointment {
   }
 
   static async writeData(data) {
-    await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+    const dir = path.dirname(DATA_FILE);
+    await fs.mkdir(dir, { recursive: true }).catch(() => {});
+    const tmpPath = path.join(dir, `appointments_${Date.now()}.tmp`);
+    const json = JSON.stringify(data, null, 2);
+    await fs.writeFile(tmpPath, json, 'utf8');
+    // Atomic replace
+    await fs.rename(tmpPath, DATA_FILE);
   }
 
   static async findAll() {
@@ -71,6 +92,9 @@ class Appointment {
         date: appointmentData.date,
         time: appointmentData.time,
         status: appointmentData.status || 'pending',
+        fullName: appointmentData.fullName || '',
+        phone: appointmentData.phone || '',
+        info: appointmentData.info || '',
         createdAt: new Date().toISOString()
       };
 

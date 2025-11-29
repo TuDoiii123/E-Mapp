@@ -16,6 +16,7 @@ import { DocumentCatalogScreen } from './components/DocumentCatalogScreen';
 import { DocumentDetailScreen } from './components/DocumentDetailScreen';
 import { BottomNavigation } from './components/BottomNavigation';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AppointmentCalendarScreen } from './components/AppointmentCalendarScreen';
 
 function AppContent() {
   const [currentScreen, setCurrentScreen] = useState('login');
@@ -84,6 +85,8 @@ function AppContent() {
         return <RegisterScreen onNavigate={handleNavigate} />;
       case 'home':
         return <HomeScreen onNavigate={handleNavigateWithParams} />;
+      case 'appointment':
+        return <AppointmentCalendarScreen onNavigate={handleNavigateWithParams} />;
       case 'map':
         return <MapScreen onNavigate={handleNavigate} />;
       case 'search':

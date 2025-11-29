@@ -10,9 +10,20 @@ const PORT = 8888;
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
-  credentials: true
+  origin: (origin, callback) => {
+    const allowed = ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:3001'];
+    if (!origin || allowed.includes(origin)) return callback(null, true);
+    // Allow all localhost ports for dev convenience
+    if (/^http:\/\/localhost:\d{2,5}$/.test(origin)) return callback(null, true);
+    return callback(null, true); // fallback to allow for demo
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204
 }));
+// Global preflight handler
+app.options('*', cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
