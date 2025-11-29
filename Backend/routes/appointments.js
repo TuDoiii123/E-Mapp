@@ -1,4 +1,5 @@
 const express = require('express');
+const cors = require('cors');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, authorizeRole } = require('../middleware/auth');
 const Appointment = require('../models/Appointment');
@@ -7,12 +8,59 @@ const Procedure = require('../models/Procedure');
 
 const router = express.Router();
 
+// Router-level CORS to ensure consistent headers for all endpoints
+router.use(cors({
+  origin: (origin, callback) => {
+    const allowed = ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:3001'];
+    if (!origin || allowed.includes(origin)) return callback(null, true);
+    if (/^http:\/\/localhost:\d{2,5}$/.test(origin)) return callback(null, true);
+    return callback(null, true);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 204,
+}));
+
+// Ensure all responses include CORS headers
+router.use((req, res, next) => {
+  const origin = req.headers.origin || 'http://localhost:3001';
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Vary', 'Origin');
+  next();
+});
+
+// Explicit CORS preflight handler for this router (OPTIONS /api/appointments)
+router.options('/', (req, res) => {
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return res.sendStatus(204);
+});
+
+// Allow preflight for any sub-path (e.g. /api/appointments/by-date)
+router.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return res.sendStatus(204);
+});
+
+// Specific preflight for upcoming endpoint
+router.options('/upcoming', (req, res) => {
+  res.header('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  return res.sendStatus(204);
+});
+
 // @route   POST /api/appointments
 // @desc    Create a new appointment (Citizen) - DEMO MODE (No Auth Required)
 // @access  Public
 router.post('/', [
+  body('fullName').trim().isLength({ min: 2 }).withMessage('Họ tên phải >= 2 ký tự'),
+  body('phone').matches(/^(0[0-9]{9,10})$/).withMessage('Số điện thoại không hợp lệ'),
   body('agencyId').notEmpty().withMessage('Cơ quan là bắt buộc'),
   body('serviceCode').notEmpty().withMessage('Dịch vụ là bắt buộc'),
+  body('info').optional().isLength({ max: 500 }).withMessage('Thông tin cuộc hẹn quá dài'),
   body('date').isISO8601().withMessage('Ngày không hợp lệ'),
   body('time').matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Thời gian không hợp lệ (HH:mm)'),
 ], async (req, res) => {
@@ -26,7 +74,7 @@ router.post('/', [
       });
     }
 
-    const { agencyId, serviceCode, date, time } = req.body;
+    const { agencyId, serviceCode, date, time, fullName, phone, info } = req.body;
     
     const appointmentDate = new Date(`${date}T${time}`);
     if (appointmentDate < new Date()) {
@@ -44,6 +92,9 @@ router.post('/', [
       serviceCode,
       date,
       time,
+      fullName,
+      phone,
+      info,
       status: 'pending'
     });
 
@@ -348,6 +399,28 @@ router.get('/user/:userId', async (req, res) => {
       message: 'Lỗi khi lấy danh sách lịch hẹn',
       data: { appointments: [] }
     });
+  }
+});
+
+// NEW: Upcoming sorted future appointments
+router.get('/upcoming', async (req, res) => {
+  try {
+    const all = await Appointment.findAll();
+    const now = new Date();
+    const upcoming = all
+      .filter(a => {
+        if (!a.date || !a.time) return false;
+        const dt = new Date(`${a.date}T${a.time}`);
+        return !isNaN(dt.getTime()) && dt >= now;
+      })
+      .sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
+    res.json({
+      success: true,
+      message: 'Danh sách lịch hẹn sắp tới',
+      data: { appointments: upcoming }
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy lịch hẹn sắp tới' });
   }
 });
 
