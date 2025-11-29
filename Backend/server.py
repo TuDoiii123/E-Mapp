@@ -38,6 +38,7 @@ agent_graph: Optional[MultiRoleAgentGraph] = None
 db_engine = None
 VN_TZ = timezone(timedelta(hours=7))
 
+<<<<<<< HEAD
 # Initialize Flask app early to allow route decorators below
 app = Flask(__name__)
 # CORS for frontend origins (include common Vite ports)
@@ -47,6 +48,8 @@ CORS(
     supports_credentials=True,
 )
 
+=======
+>>>>>>> b987ac4cb42fba70ca4c873903c6791243695de2
 # Globals for document suggestion mode
 _doc_model: Optional[SentenceTransformer] = None  # type: ignore
 _doc_df: Optional['pd.DataFrame'] = None  # type: ignore

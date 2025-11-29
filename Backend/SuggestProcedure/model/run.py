@@ -5,9 +5,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 import pandas as pd
 # Load the fine-tuned model
 
-df_root = pd.read_csv("dichvucong_QuangNinh - dichvucong_QuangNinh.csv")
+df_root = pd.read_csv("C:/Users/ADMIN/E-Map/Backend/SuggestProcedure/data/dichvucong_QuangNinh - dichvucong_QuangNinh.csv")
 
-model = SentenceTransformer("fine_tuned_model")
+model = SentenceTransformer("C:/Users/ADMIN/E-Map/Backend/SuggestProcedure/model/fine_tuned_model")
 
 query = input("Nhập câu hỏi của bạn: ")
 query_embedding = model.encode(query, convert_to_tensor=True)
