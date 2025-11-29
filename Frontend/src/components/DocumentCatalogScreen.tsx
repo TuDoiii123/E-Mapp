@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { API_BASE_URL } from '../services/api';
-import { ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeft, Search, FileText } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -55,15 +55,16 @@ export function DocumentCatalogScreen({ onNavigate }: DocumentCatalogProps) {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200">
-        <div className="px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => onNavigate('home')} className="w-10 h-10">
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <div>
-              <h1 className="text-xl font-semibold">Tổng hợp giấy tờ</h1>
-              <p className="text-sm text-gray-600">Tìm và xem các loại giấy tờ thủ tục</p>
+        <div className="px-4 py-6 relative">
+          <Button variant="ghost" size="icon" onClick={() => onNavigate('home')} className="w-10 h-10 absolute left-4 top-4">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center">
+              <FileText className="w-7 h-7 text-white" />
             </div>
+            <h1 className="text-xl font-semibold">Tổng hợp giấy tờ</h1>
+            <p className="text-sm text-gray-600">Tìm và xem các loại giấy tờ thủ tục</p>
           </div>
         </div>
 
@@ -94,9 +95,14 @@ export function DocumentCatalogScreen({ onNavigate }: DocumentCatalogProps) {
             {categories.map((c) => (
               <Card key={c.id} className="border-0 shadow-sm bg-white cursor-pointer" onClick={() => onNavigate('document-detail', { categoryId: c.id, categoryName: c.name })}>
                 <CardContent className="p-4 flex items-center justify-between">
-                  <div>
-                    <div className="font-medium text-gray-900">{c.name}</div>
-                    <div className="text-sm text-gray-600 mt-1">Số nơi thực hiện: {c.count}</div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center">
+                      <FileText className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">{c.name}</div>
+                      <div className="text-sm text-gray-600 mt-1">Số nơi thực hiện: {c.count}</div>
+                    </div>
                   </div>
                   <Badge className="bg-slate-100 text-slate-800 px-3 py-1 rounded-full">Xem</Badge>
                 </CardContent>
