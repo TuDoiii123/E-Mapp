@@ -4,3 +4,6 @@ data/
 *.log
 .DS_Store
 
+# Do not commit GCP service account keys
+ai_voice_backend/gcloud-key.json
+
