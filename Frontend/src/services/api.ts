@@ -193,6 +193,7 @@ export interface ChatRequestPayload {
   message: string;
   sessionId?: string;
   intent?: string; // optional intent e.g. 'administrative_qa'
+  speak?: boolean; // request audio response
 }
 
 export interface ChatResponsePayload {
@@ -203,6 +204,7 @@ export interface ChatResponsePayload {
     analysis?: unknown;
     toolResults?: unknown;
     latencyMs?: number;
+    audio?: { mimeType: string; base64: string };
   };
   warnings?: string[];
   message?: string;
@@ -268,6 +270,59 @@ export const chatbotAPI = {
         sessionId: options?.sessionId,
       }),
     });
+  },
+};
+
+// Voice API
+export const voiceAPI = {
+  stt: async (blob: Blob): Promise<{ status: string; text?: string; message?: string }> => {
+    const form = new FormData();
+    form.append('file', blob, 'audio.webm');
+    const token = getToken();
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    // Try primary then fallback
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}/voice/stt`, { method: 'POST', headers, body: form as any });
+    } catch {
+      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/stt`, { method: 'POST', headers, body: form as any });
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || 'STT error');
+    return data;
+  },
+
+  tts: async (text: string): Promise<Blob> => {
+    const token = getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}/voice/tts`, { method: 'POST', headers, body: JSON.stringify({ text }) });
+    } catch {
+      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/tts`, { method: 'POST', headers, body: JSON.stringify({ text }) });
+    }
+    if (!res.ok) {
+      const msg = await res.text();
+      throw new Error(msg || 'TTS error');
+    }
+    return await res.blob();
+  },
+
+  autoCreate: async (text: string, phone?: string): Promise<{ status: string; message: string; missing?: string[]; appointment?: any }> => {
+    const token = getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    let res: Response;
+    const body = JSON.stringify({ text, phone });
+    try {
+      res = await fetch(`${API_BASE_URL}/voice/appointments/auto-create`, { method: 'POST', headers, body });
+    } catch {
+      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/appointments/auto-create`, { method: 'POST', headers, body });
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || 'Voice booking error');
+    return data;
   },
 };
 

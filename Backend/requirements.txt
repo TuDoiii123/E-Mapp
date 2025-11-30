@@ -13,3 +13,6 @@ transformers==4.57.1
 torch>=2.2.0
 pandas==2.2.2
 scikit-learn==1.4.2
+google-generativeai==0.8.3
+google-cloud-speech==2.26.0
+google-cloud-texttospeech==2.16.5

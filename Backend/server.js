@@ -7,6 +7,14 @@ dotenv.config();
 
 const app = express();
 const PORT = 8888;
+// Voice backend (FastAPI) base URL
+const VOICE_BASE = process.env.VOICE_BASE || 'http://127.0.0.1:8000';
+
+// Lazy import for node-fetch (ESM) in CommonJS
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+// Multer for handling multipart/form-data uploads
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Middleware
 app.use(cors({
@@ -67,6 +75,30 @@ app.use('/api/notifications', notificationsRouter);
 // 7. Procedures routes - THÊM MỚI
 const proceduresRouter = require('./routes/procedures');
 app.use('/api/procedures', proceduresRouter);
+
+// 8. Voice routes proxy → FastAPI
+// POST /api/voice/stt → forwards to FastAPI /voice/stt
+app.post('/api/voice/stt', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ status: 'error', message: 'Missing audio file under field name "file"' });
+    }
+
+    // Use Web FormData available in Node.js 18+
+    const form = new FormData();
+    form.append('file', new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/webm' }), req.file.originalname || 'audio.webm');
+
+    const resp = await fetch(`${VOICE_BASE}/voice/stt`, {
+      method: 'POST',
+      body: form,
+    });
+    const data = await resp.json().catch(() => ({ status: 'error', message: 'Invalid JSON from voice backend' }));
+    return res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('Proxy STT error:', err);
+    return res.status(500).json({ status: 'error', message: err.message || 'STT proxy error' });
+  }
+});
 
 // === ERROR HANDLERS (PHẢI Ở CUỐI) ===
 

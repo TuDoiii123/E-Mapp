@@ -4,7 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent } from './ui/card';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { chatbotAPI, type ChatSessionSummary } from '../services/api';
+import { chatbotAPI, voiceAPI, type ChatSessionSummary } from '../services/api';
 interface ChatbotScreenProps {
   onNavigate: (screen: string) => void;
 }
@@ -37,6 +37,9 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
   const [loadingSessions, setLoadingSessions] = useState<boolean>(false);
   const [showSearch, setShowSearch] = useState<boolean>(false);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
 
   const activeConversationId = sessionId ?? '__local__';
 
@@ -260,11 +263,24 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
         } else {
           appendBotMessage(resp.message || 'Không thể lấy gợi ý giấy tờ.');
         }
+      } else if (mode === 'booking') {
+        // Voice-style auto create booking from one sentence
+        const resp = await voiceAPI.autoCreate(trimmed);
+        if (resp.status === 'success' && resp.appointment) {
+          const appt = resp.appointment;
+          const reply = `Đã đặt lịch thành công: ${appt.serviceCode || 'Dịch vụ'} • ${appt.date} ${appt.time} tại ${appt.agencyId}. Mã: ${appt.id}.`;
+          appendBotMessage(reply);
+        } else if (resp.status === 'missing_fields') {
+          appendBotMessage(resp.message || 'Thiếu thông tin để đặt lịch. Vui lòng cho biết ngày và giờ.');
+        } else {
+          appendBotMessage(resp.message || 'Không thể đặt lịch từ mô tả này.');
+        }
       } else {
         const response = await chatbotAPI.sendMessage({
           message: trimmed,
           sessionId: sessionId ?? undefined,
           intent: mode === 'administrative_qa' ? 'administrative_qa' : undefined,
+          speak: true,
         });
 
       if (response.warnings?.length) {
@@ -303,6 +319,16 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
 
         const responseText = response.data?.response ?? 'Xin lỗi, hệ thống chưa có phản hồi phù hợp.';
         appendBotMessage(responseText);
+        // Play audio if provided
+        const audio = response.data?.audio;
+        if (audio && audio.base64) {
+          try {
+            const audioEl = new Audio(`data:${audio.mimeType || 'audio/mpeg'};base64,${audio.base64}`);
+            void audioEl.play();
+          } catch (e) {
+            console.warn('Audio playback failed:', e);
+          }
+        }
       }
     } catch (error) {
       console.error('Chatbot sendMessage failed:', error);
@@ -315,6 +341,43 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
       setIsTyping(false);
     }
   }, [appendBotMessage, appendUserMessage, inputText, isTyping, sessionId, mode]);
+
+  // Recording helpers
+  const startRecording = useCallback(async () => {
+    if (isRecording) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      chunksRef.current = [];
+      mr.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data); };
+      mr.onstop = async () => {
+        try {
+          const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+          const stt = await voiceAPI.stt(blob);
+          if (stt.status === 'success' && stt.text) {
+            setInputText(stt.text);
+          } else {
+            appendBotMessage(stt.message || 'Không nhận diện được giọng nói.');
+          }
+        } catch (e: any) {
+          appendBotMessage(e?.message || 'Lỗi ghi âm/STT.');
+        }
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setIsRecording(true);
+    } catch (e) {
+      appendBotMessage('Không truy cập được micro. Vui lòng cấp quyền.');
+    }
+  }, [appendBotMessage, isRecording]);
+
+  const stopRecording = useCallback(() => {
+    const mr = mediaRecorderRef.current;
+    if (!mr) return;
+    if (mr.state !== 'inactive') mr.stop();
+    setIsRecording(false);
+    mediaRecorderRef.current = null;
+  }, []);
 
   const startNewConversation = useCallback(() => {
     setSessionId(null);
@@ -733,8 +796,14 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                 disabled={isTyping}
               />
 
-              <Button variant="ghost" size="sm" disabled={isTyping}>
-                <Mic className="w-5 h-5" />
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isTyping}
+                onClick={() => (isRecording ? stopRecording() : startRecording())}
+                title={isRecording ? 'Dừng ghi' : 'Ghi âm'}
+              >
+                <Mic className={`w-5 h-5 ${isRecording ? 'text-red-600' : ''}`} />
               </Button>
 
               <Button onClick={handleSend} disabled={!inputText.trim() || isTyping}>
