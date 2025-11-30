@@ -25,6 +25,7 @@ interface Conversation {
 }
 
 export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [inputText, setInputText] = useState('');
@@ -264,16 +265,23 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
           appendBotMessage(resp.message || 'Không thể lấy gợi ý giấy tờ.');
         }
       } else if (mode === 'booking') {
-        // Voice-style auto create booking from one sentence
-        const resp = await voiceAPI.autoCreate(trimmed);
-        if (resp.status === 'success' && resp.appointment) {
-          const appt = resp.appointment;
-          const reply = `Đã đặt lịch thành công: ${appt.serviceCode || 'Dịch vụ'} • ${appt.date} ${appt.time} tại ${appt.agencyId}. Mã: ${appt.id}.`;
-          appendBotMessage(reply);
-        } else if (resp.status === 'missing_fields') {
-          appendBotMessage(resp.message || 'Thiếu thông tin để đặt lịch. Vui lòng cho biết ngày và giờ.');
-        } else {
-          appendBotMessage(resp.message || 'Không thể đặt lịch từ mô tả này.');
+        // Session-based dialog flow for booking
+        const dialog = await voiceAPI.dialog(trimmed, sessionId ?? undefined, undefined, true);
+        appendBotMessage(dialog.reply);
+        const audio = dialog.audio;
+        if (audio?.base64) {
+          try {
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            const src = `data:${audio.mimeType || 'audio/mpeg'};base64,${audio.base64}`;
+            const audioEl = new Audio(src);
+            audioRef.current = audioEl;
+            void audioEl.play();
+          } catch (e) {
+            console.warn('Audio playback failed:', e);
+          }
         }
       } else {
         const response = await chatbotAPI.sendMessage({
@@ -323,7 +331,14 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
         const audio = response.data?.audio;
         if (audio && audio.base64) {
           try {
-            const audioEl = new Audio(`data:${audio.mimeType || 'audio/mpeg'};base64,${audio.base64}`);
+            // Stop previous audio, if any
+            if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current.currentTime = 0;
+            }
+            const src = `data:${audio.mimeType || 'audio/mpeg'};base64,${audio.base64}`;
+            const audioEl = new Audio(src);
+            audioRef.current = audioEl;
             void audioEl.play();
           } catch (e) {
             console.warn('Audio playback failed:', e);
@@ -355,7 +370,35 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
           const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
           const stt = await voiceAPI.stt(blob);
           if (stt.status === 'success' && stt.text) {
-            setInputText(stt.text);
+            // If currently in booking mode, route voice directly to auto-create
+            if (mode === 'booking') {
+              try {
+                // Show the user's spoken query in the chat UI
+                appendUserMessage(stt.text);
+                const dialog = await voiceAPI.dialog(stt.text, sessionId ?? undefined, undefined, true);
+                appendBotMessage(dialog.reply);
+                const audio = dialog.audio;
+                if (audio?.base64) {
+                  try {
+                    if (audioRef.current) {
+                      audioRef.current.pause();
+                      audioRef.current.currentTime = 0;
+                    }
+                    const src = `data:${audio.mimeType || 'audio/mpeg'};base64,${audio.base64}`;
+                    const audioEl = new Audio(src);
+                    audioRef.current = audioEl;
+                    void audioEl.play();
+                  } catch (e) {
+                    console.warn('Audio playback failed:', e);
+                  }
+                }
+              } catch (err: any) {
+                appendBotMessage(err?.message || 'Lỗi xử lý đặt lịch bằng giọng nói.');
+              }
+            } else {
+              // Otherwise, place transcript into input for user to send/edit
+              setInputText(stt.text);
+            }
           } else {
             appendBotMessage(stt.message || 'Không nhận diện được giọng nói.');
           }

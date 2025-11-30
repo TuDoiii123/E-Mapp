@@ -309,12 +309,12 @@ export const voiceAPI = {
     return await res.blob();
   },
 
-  autoCreate: async (text: string, phone?: string): Promise<{ status: string; message: string; missing?: string[]; appointment?: any }> => {
+  autoCreate: async (text: string, phone?: string, sessionId?: string): Promise<{ status: string; message: string; next?: string; state?: any; suggestedSlots?: string[]; appointment?: any }> => {
     const token = getToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     let res: Response;
-    const body = JSON.stringify({ text, phone });
+    const body = JSON.stringify({ text, phone, sessionId });
     try {
       res = await fetch(`${API_BASE_URL}/voice/appointments/auto-create`, { method: 'POST', headers, body });
     } catch {
@@ -322,6 +322,29 @@ export const voiceAPI = {
     }
     const data = await res.json();
     if (!res.ok) throw new Error(data?.message || 'Voice booking error');
+    return data;
+  },
+
+  dialog: async (text: string, sessionId?: string, phone?: string, speak: boolean = true): Promise<{
+    reply: string;
+    step: string;
+    done: boolean;
+    state: any;
+    appointment?: any;
+    audio?: { mimeType: string; base64: string };
+  }> => {
+    const token = getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const body = JSON.stringify({ text, sessionId, phone, speak });
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}/voice/dialog`, { method: 'POST', headers, body });
+    } catch {
+      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/dialog`, { method: 'POST', headers, body });
+    }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.reply || data?.message || 'Voice dialog error');
     return data;
   },
 };

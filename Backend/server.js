@@ -86,7 +86,7 @@ app.post('/api/voice/stt', upload.single('file'), async (req, res) => {
 
     // Use Web FormData available in Node.js 18+
     const form = new FormData();
-    form.append('file', new Blob([req.file.buffer], { type: req.file.mimetype || 'audio/webm' }), req.file.originalname || 'audio.webm');
+    form.append('file', new Blob([req.file.buffer], { type: req.file.mimetype || '/appointments/auto-create/webm' }), req.file.originalname || 'audio.webm');
 
     const resp = await fetch(`${VOICE_BASE}/voice/stt`, {
       method: 'POST',
