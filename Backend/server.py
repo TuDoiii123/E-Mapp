@@ -103,6 +103,7 @@ class _DialogStep:
 
 
 _dialog_store: Dict[str, Dict[str, Any]] = {}
+_auto_state_store: Dict[str, Dict[str, Any]] = {}
 
 def _get_speech_client():
     if g_speech is None:
@@ -122,20 +123,28 @@ def _get_tts_client():
 
 
 def _tts_mp3_base64(text: str) -> Optional[str]:
-    """Synthesize Vietnamese speech and return base64-encoded MP3 or None if unavailable."""
+    """Synthesize Vietnamese speech and return base64-encoded MP3 or None if unavailable.
+    Prefer ai_voice_backend.services.tts if available to keep logic centralized.
+    """
+    # Try shared service module first
+    try:
+        from ai_voice_backend.services.tts import text_to_speech  # type: ignore
+        audio_bytes = text_to_speech(text)
+        if audio_bytes:
+            return base64.b64encode(audio_bytes).decode('ascii')
+    except Exception:
+        pass
+    # Fallback to direct client
     client = _get_tts_client()
     if client is None:
         return None
     try:
-        # Configurable voice parameters via env
-        voice_name = os.getenv('GOOGLE_TTS_VOICE_NAME')  # e.g., 'vi-VN-Wavenet-A' or 'vi-VN-Neural2-C'
+        voice_name = os.getenv('GOOGLE_TTS_VOICE_NAME')
         speaking_rate = float(os.getenv('GOOGLE_TTS_SPEAKING_RATE', '1.0'))
         pitch = float(os.getenv('GOOGLE_TTS_PITCH', '0.0'))
-
         voice_params = {'language_code': 'vi-VN', 'ssml_gender': g_tts.SsmlVoiceGender.NEUTRAL}
         if voice_name:
             voice_params = {'name': voice_name}
-
         res = client.synthesize_speech(
             input=g_tts.SynthesisInput(text=text),
             voice=g_tts.VoiceSelectionParams(**voice_params),
@@ -146,7 +155,7 @@ def _tts_mp3_base64(text: str) -> Optional[str]:
             ),
         )
         return base64.b64encode(res.audio_content).decode('ascii')
-    except Exception as _e:
+    except Exception:
         return None
 
 
@@ -393,7 +402,8 @@ def _create_appointment_internal(payload: Dict[str, Any]) -> Tuple[bool, Dict[st
 
     items = _read_appointments()
     same_date = [a for a in items if a.get('agencyId') == agency_id and a.get('date') == date_str]
-    if len([a for a in same_date if a.get('time') == time_str]) >= 5:
+    slot_count = len([a for a in same_date if a.get('time') == time_str])
+    if slot_count >= 5:
         return False, {}, f'Thời điểm {time_str} ngày {date_str} đã đầy'
 
     new_item = {
@@ -407,6 +417,7 @@ def _create_appointment_internal(payload: Dict[str, Any]) -> Tuple[bool, Dict[st
         'fullName': payload.get('fullName'),
         'phone': payload.get('phone'),
         'info': payload.get('info'),
+        'queueNumber': slot_count + 1,
     }
     items.append(new_item)
     _write_appointments(items)
@@ -482,6 +493,17 @@ def create_appointment():
         _write_appointments(items)
 
         return jsonify({'success': True, 'message': 'Đặt lịch hẹn thành công', 'data': new_item}), 201
+        # Build detailed display message
+        location_display = ('UBND Quận' if agency_id == 'ubnd-001' else 'Cơ quan hành chính')
+        service_display = 'Làm CCCD' if service_code == 'CCCD' else ('Đăng ký khai sinh' if service_code == 'KHAISINH' else ('Làm hộ chiếu' if service_code == 'PASSPORT' else 'Dịch vụ hành chính'))
+        detailed_msg = (
+            "Đặt lịch thành công, thông tin chi tiết đặt lịch:\n"
+            f"Thời gian: {date_str} {time_str}\n"
+            f"Địa điểm: {location_display}\n"
+            f"Dịch vụ: {service_display}\n"
+            f"Mã số: {new_item.get('id')}"
+        )
+        return jsonify({'status': 'success', 'message': detailed_msg, 'missing': None, 'appointment': new_item})
     except Exception as exc:
         import traceback as _tb
         print('[appointments][POST][ERROR]', exc)
@@ -670,8 +692,17 @@ def api_voice_auto_create():
     payload = request.get_json(silent=True) or {}
     user_text = (payload.get('text') or '').strip()
     phone = (payload.get('phone') or '').strip() or None
+    session_id = (payload.get('session_id') or payload.get('sessionId') or 'default').strip() or 'default'
+    speak = bool(payload.get('speak') or os.getenv('VOICE_DIALOG_TTS', '1') == '1')
     if not user_text:
         return jsonify({'status': 'error', 'message': 'Thiếu text.'}), 400
+    # Load aggregated state for this session (stateless FE compatibility)
+    agg = _auto_state_store.get(session_id) or {
+        'service_type': None,
+        'location': None,
+        'appointment_date': None,
+        'appointment_time': None,
+    }
 
     # If Gemini configured, use LLM parsing for richer extraction
     if _gemini_model is not None:
@@ -682,14 +713,6 @@ Nhiệm vụ: Đọc câu tiếng Việt và trích xuất thông tin đặt l�
 Chỉ trả lời đúng JSON hợp lệ, không giải thích thêm.
 
 Trường cần trích xuất:
-- citizen_name: tên người dân (string, có thể null)
-- phone: số điện thoại (string, có thể null)
-- id_number: CCCD/CMND (string, có thể null)
-- service_type: loại thủ tục (string)
-- location: địa điểm (string)
-- appointment_date: ngày hẹn, định dạng YYYY-MM-DD (string, có thể null)
-- appointment_time: giờ hẹn, định dạng HH:MM:SS (string, có thể null)
-- note: ghi chú thêm (string, có thể null)
 
 Câu người dùng:
 "{user_text}".
@@ -698,10 +721,15 @@ Câu người dùng:
         if not data:
             # fallback to rule-based
             data = {}
-        service_type = data.get('service_type')
-        location = data.get('location')
-        date_iso = data.get('appointment_date') or _parse_date_vi(user_text)
-        appt_time = data.get('appointment_time')
+        service_type = data.get('service_type') or agg.get('service_type')
+        location = data.get('location') or agg.get('location')
+        date_iso = (data.get('appointment_date') or agg.get('appointment_date') or _parse_date_vi(user_text))
+        appt_time = data.get('appointment_time') or agg.get('appointment_time')
+        # Fallback: nếu Gemini không trích được giờ, thử bắt HH:MM từ người dùng
+        if not appt_time:
+            parsed = _extract_time(user_text)
+            if parsed:
+                appt_time = parsed
         missing = []
         if not service_type:
             missing.append('service_type')
@@ -712,7 +740,29 @@ Câu người dùng:
         if not appt_time:
             missing.append('appointment_time')
         if missing:
-            return jsonify({'status': 'missing_fields', 'message': 'Thiếu thông tin: ' + ', '.join(missing), 'missing': missing}), 200
+            # Không trả về lỗi thiếu trường nữa; hướng dẫn hỏi tiếp theo dạng hội thoại
+            first = missing[0]
+            prompts = {
+                'service_type': 'Bạn muốn làm thủ tục gì? Ví dụ: làm căn cước công dân.',
+                'location': 'Bạn muốn làm ở đâu? Bạn có thể nói tên quận/huyện hoặc cơ quan (ví dụ: UBND quận Hoàn Kiếm).',
+                'appointment_date': 'Bạn có thể cung cấp ngày (định dạng YYYY-MM-DD hoặc DD/MM/YYYY) để mình gợi ý khung giờ trống?',
+                'appointment_time': 'Bạn thích khung giờ nào? Ví dụ: 09:00 hoặc 14:00.',
+            }
+            # Nếu thiếu giờ nhưng có ngày+địa điểm, thử gợi ý slot để người dùng chọn
+            extra: Dict[str, Any] = {}
+            if first == 'appointment_time' and location and date_iso:
+                try:
+                    extra['suggestedSlots'] = _suggest_slots_json(location, date_iso)
+                except Exception:
+                    pass
+            # Persist partial state before asking next
+            _auto_state_store[session_id] = {
+                'service_type': service_type,
+                'location': location,
+                'appointment_date': date_iso,
+                'appointment_time': appt_time,
+            }
+            return jsonify({'status': 'continue', 'message': prompts.get(first, 'Bạn có thể cung cấp thông tin tiếp theo giúp mình?'), 'next': first, 'state': _auto_state_store[session_id], **extra}), 200
 
         try:
             # Normalize HH:MM
@@ -744,10 +794,30 @@ Câu người dùng:
         })
         if not ok:
             return jsonify({'status': 'error', 'message': err or 'Không tạo được lịch'}), 200
-        return jsonify({'status': 'success', 'message': f'Đặt lịch thành công vào {date_iso} lúc {hhmm}', 'missing': None, 'appointment': appt})
+        # Clear session state after success
+        _auto_state_store.pop(session_id, None)
+        # Build detailed display message
+        # Display uses user-provided phrases when available
+        location_display = (location or ('UBND Quận' if agency_id == 'ubnd-001' else 'Cơ quan hành chính'))
+        service_display = (service_type or ('Làm CCCD' if svc == 'CCCD' else ('Đăng ký khai sinh' if svc == 'KHAISINH' else ('Làm hộ chiếu' if svc == 'PASSPORT' else 'Dịch vụ hành chính'))))
+        detailed_msg = (
+            "Đặt lịch thành công, thông tin chi tiết đặt lịch:\n"
+            f"Thời gian: {date_iso} {hhmm}\n"
+            f"Địa điểm: {location_display} (theo người dùng yêu cầu đầu vào voice)\n"
+            f"Dịch vụ: {service_display}\n"
+            f"Mục đích: {appt.get('info') or 'Đặt lịch qua voice'}\n"
+            f"Mã số: {appt.get('queueNumber', 1)}\n"
+            f"Mã ID: {appt.get('id')}"
+        )
+        resp_payload = {'status': 'success', 'message': detailed_msg, 'missing': None, 'appointment': appt}
+        if speak:
+            audio_b64 = _tts_mp3_base64(detailed_msg)
+            if audio_b64:
+                resp_payload['audio'] = { 'mimeType': 'audio/mpeg', 'base64': audio_b64 }
+        return jsonify(resp_payload)
 
     # Fallback simple rule-based extraction when Gemini not configured
-    svc = 'SERVICE_CODE'
+    svc = agg.get('service_type') and ('CCCD' if re.search(r"căn cước|cccd", str(agg.get('service_type')), re.I) else 'SERVICE_CODE') or 'SERVICE_CODE'
     svc_lower = user_text.lower()
     if 'căn cước' in svc_lower or 'cccd' in svc_lower:
         svc = 'CCCD'
@@ -760,12 +830,19 @@ Câu người dùng:
     if 'ubnd' in svc_lower or 'ủy ban' in svc_lower or 'uy ban' in svc_lower:
         agency_id = 'ubnd-001'
 
-    date_iso = _parse_date_vi(user_text)
+    date_iso = agg.get('appointment_date') or _parse_date_vi(user_text)
     if not date_iso:
-        return jsonify({'status': 'missing_fields', 'message': 'Thiếu ngày hẹn (appointment_date).', 'missing': ['appointment_date']}), 200
+        # Không báo thiếu trường; yêu cầu người dùng cung cấp ngày
+        _auto_state_store[session_id] = {
+            'service_type': 'CCCD' if svc == 'CCCD' else agg.get('service_type'),
+            'location': agg.get('location'),
+            'appointment_date': None,
+            'appointment_time': agg.get('appointment_time'),
+        }
+        return jsonify({'status': 'continue', 'message': 'Bạn có thể cung cấp ngày (YYYY-MM-DD hoặc DD/MM/YYYY) để mình gợi ý khung giờ trống?', 'next': 'appointment_date', 'state': _auto_state_store[session_id]}), 200
 
     candidate_slots = ["08:00", "09:00", "10:00", "14:00", "15:00"]
-    picked = _extract_time(user_text, [s+":00" for s in candidate_slots])
+    picked = _extract_time(user_text, [s+":00" for s in candidate_slots]) or agg.get('appointment_time')
     time_pick = picked or candidate_slots[0] + ":00"
 
     ok, appt, err = _create_appointment_internal({
@@ -778,13 +855,30 @@ Câu người dùng:
     })
     if not ok:
         return jsonify({'status': 'error', 'message': err or 'Không tạo được lịch'}), 200
-
-    return jsonify({
+    # Build detailed display message
+    location_display = ('UBND Quận' if agency_id == 'ubnd-001' else 'Cơ quan hành chính')
+    # Try to reflect user's phrase in fallback via heuristic
+    service_display = ('Làm CCCD' if svc == 'CCCD' else ('Đăng ký khai sinh' if svc == 'KHAISINH' else ('Làm hộ chiếu' if svc == 'PASSPORT' else 'Dịch vụ hành chính')))
+    detailed_msg = (
+        "Đặt lịch thành công, thông tin chi tiết đặt lịch:\n"
+        f"Thời gian: {date_iso} {time_pick[:5]}\n"
+        f"Địa điểm: {location_display} (theo người dùng yêu cầu đầu vào voice)\n"
+        f"Dịch vụ: {service_display}\n"
+        f"Mục đích: {appt.get('info') or 'Đặt lịch qua voice'}\n"
+        f"Mã số: {appt.get('queueNumber', 1)}\n"
+        f"Mã ID: {appt.get('id')}"
+    )
+    resp_payload = {
         'status': 'success',
-        'message': f"Đặt lịch thành công vào {date_iso} lúc {time_pick[:5]}",
+        'message': detailed_msg,
         'missing': None,
         'appointment': appt,
-    })
+    }
+    if speak:
+        audio_b64 = _tts_mp3_base64(detailed_msg)
+        if audio_b64:
+            resp_payload['audio'] = { 'mimeType': 'audio/mpeg', 'base64': audio_b64 }
+    return jsonify(resp_payload)
 
 @app.route('/api/voice/appointments/auto-create', methods=['OPTIONS'])
 def api_voice_auto_create_options():
@@ -805,7 +899,9 @@ def _dialog_suggest_slots(state: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
     available = _suggest_slots_json(loc, date_iso)
     if not available:
         state['step'] = _DialogStep.ASK_DATE
-        return (f"Ngày {date_iso} tại {loc} hiện đã kín lịch. Anh/chị chọn ngày khác nhé?", state)
+        # Gợi ý cơ quan thay thế khi quá đông
+        alt_office = 'Cơ quan A'
+        return (f"Ngày {date_iso} tại {loc} sẽ khá đông, anh/chị có thể lựa chọn thay thế là {alt_office}. Vui lòng cung cấp ngày khác để em gợi ý khung giờ trống nhé.", state)
     state['suggested_slots'] = available
     state['step'] = _DialogStep.CONFIRM
     times_text = ", ".join(s[:5] for s in available)
@@ -880,10 +976,10 @@ def api_voice_dialog():
             elif re.search(r"khai sinh", user_text, re.I):
                 service_type = 'Đăng ký khai sinh'
         if not service_type:
-            return _reply_payload('Anh/chị muốn làm thủ tục gì ạ?', _DialogStep.ASK_INTENT, False, state)
+            return _reply_payload('Bạn muốn làm thủ tục gì? Ví dụ: “Tôi muốn đặt lịch làm thủ tục CCCD”.', _DialogStep.ASK_INTENT, False, state)
         state['service_type'] = service_type
         state['step'] = _DialogStep.ASK_LOCATION
-        return _reply_payload(f"Anh/chị muốn {service_type.lower()} ở đâu ạ? Ví dụ: UBND quận Hoàn Kiếm.", state['step'], False, state)
+        return _reply_payload(f"Bạn muốn {service_type.lower()} ở đâu? Ví dụ: UBND quận Hoàn Kiếm.", state['step'], False, state)
 
     # ASK_LOCATION
     if state.get('step') == _DialogStep.ASK_LOCATION:
@@ -897,10 +993,18 @@ def api_voice_dialog():
             if m:
                 location = m.group(1)
         if not location:
-            return _reply_payload('Anh/chị muốn làm thủ tục ở cơ quan nào ạ?', _DialogStep.ASK_LOCATION, False, state)
-        state['location'] = location
+            return _reply_payload('Bạn muốn làm ở đâu? Bạn có thể nói tên quận/huyện hoặc cơ quan.', _DialogStep.ASK_LOCATION, False, state)
+        # Ưu tiên gợi ý cơ quan gần nhất nếu có dịch vụ khoảng cách
+        nearest = None
+        try:
+            from services.distance import suggest_nearest_office
+            nearest = suggest_nearest_office(user_text)
+        except Exception:
+            nearest = None
+        state['location'] = nearest or location
         state['step'] = _DialogStep.ASK_DATE
-        return _reply_payload(f"Anh/chị muốn đến {location} vào ngày nào ạ? Ví dụ: 05/12/2025.", state['step'], False, state)
+        loc_display = state['location']
+        return _reply_payload(f"Địa chỉ bạn muốn tới là {loc_display}, bạn có thể cung cấp ngày để tôi lựa chọn khung giờ phù hợp nhất", state['step'], False, state)
 
     # ASK_DATE
     if state.get('step') == _DialogStep.ASK_DATE:
@@ -980,8 +1084,18 @@ def api_voice_dialog():
         _dialog_store[session_id] = state
         d_str = datetime.strptime(date_iso, '%Y-%m-%d').strftime('%d/%m/%Y') if date_iso else ''
         t_str = hhmm
+        # Build detailed display message for dialog confirmation
+        service_display = (state.get('service_type') or ('Làm CCCD' if svc == 'CCCD' else ('Đăng ký khai sinh' if svc == 'KHAISINH' else ('Làm hộ chiếu' if svc == 'PASSPORT' else 'Dịch vụ hành chính'))))
+        location_display = state.get('location') or ('UBND Quận' if agency_id == 'ubnd-001' else 'Cơ quan hành chính')
         reply = (
-            f"Em đã đặt lịch {state.get('service_type')} cho anh/chị tại {state.get('location')} vào ngày {d_str}, lúc {t_str}. Mã lịch hẹn là {appt.get('id')}.")
+            "Đặt lịch thành công, thông tin chi tiết đặt lịch:\n"
+            f"Thời gian: {d_str} {t_str}\n"
+            f"Địa điểm: {location_display} (theo người dùng yêu cầu đầu vào voice)\n"
+            f"Dịch vụ: {service_display}\n"
+            f"Mục đích: {appt.get('info') or 'Đặt lịch qua voicebot'}\n"
+            f"Mã số: {appt.get('queueNumber', 1)}\n"
+            f"Mã ID: {appt.get('id')}"
+        )
         return _reply_payload(reply, state['step'], True, state, {'appointment': appt})
 
     return _reply_payload('Mình đang gặp lỗi kỹ thuật, anh/chị thử nói lại giúp em được không?', state.get('step') or _DialogStep.ASK_INTENT, False, state)
@@ -1291,7 +1405,8 @@ def rag_chat():
     user_message = (payload.get('message') or '').strip()
     session_id = payload.get('sessionId') or None
     intent = (payload.get('intent') or '').strip().lower()
-    speak = bool(payload.get('speak') or payload.get('tts') or os.getenv('CHATBOT_TTS', '0') == '1')
+    # Mặc định bật TTS cho chatbot nếu không chỉ định (fix trường hợp không có tiếng)
+    speak = True if (payload.get('speak') is None and payload.get('tts') is None and os.getenv('CHATBOT_TTS') is None) else bool(payload.get('speak') or payload.get('tts') or os.getenv('CHATBOT_TTS', '0') == '1')
 
     if not user_message:
         return jsonify({'success': False, 'message': 'message is required'}), 400
@@ -1355,10 +1470,12 @@ def rag_chat():
         warnings.append(str(exc))
 
     audio_obj = None
-    if speak and final_answer:
-        audio_b64 = _tts_mp3_base64(final_answer)
-        if audio_b64:
-            audio_obj = { 'mimeType': 'audio/mpeg', 'base64': audio_b64 }
+    if final_answer:
+        # Luôn cố synthesize nếu speak=true mặc định hoặc người dùng bật
+        if speak:
+            audio_b64 = _tts_mp3_base64(final_answer)
+            if audio_b64:
+                audio_obj = { 'mimeType': 'audio/mpeg', 'base64': audio_b64 }
 
     response_payload: Dict[str, Any] = {
         'success': True,
