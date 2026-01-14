@@ -49,16 +49,16 @@ Khi người dùng chọn giờ hợp lệ → tạo lịch hẹn DB → state c
 ## 2. Môi trường & Biến .env
 Các biến cần có trong `.env`:
 ```
-GEMINI_API_KEY=your_gemini_key
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=xxx
-DB_NAME=ai_egov
+GEMINI_API_KEY=""
+DB_HOST=""
+DB_PORT=""
+DB_USER=""
+DB_PASSWORD=""
+DB_NAME=""
 ```
 Yêu cầu thiết lập Google Application Credentials nếu dùng service account:
 ```
-GOOGLE_APPLICATION_CREDENTIALS=./gcloud-key.json
+GOOGLE_APPLICATION_CREDENTIALS=""
 ```
 
 ## 3. Cài đặt & Chạy
