@@ -4,17 +4,11 @@ import jwt
 import json
 from datetime import datetime, timedelta
 import re
-import os
 from models.user import User
 from services.vneid import verify_vneid
+from config import JWT_SECRET, JWT_EXPIRES_IN
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
-
-JWT_SECRET = os.getenv('JWT_SECRET', 'default-secret-key-change-in-production')
-JWT_EXPIRES_IN = os.getenv('JWT_EXPIRES_IN', '7d')
-
-if JWT_SECRET == 'default-secret-key-change-in-production':
-    print('⚠️  WARNING: Using default JWT_SECRET. Please set JWT_SECRET in .env file for production!')
 
 
 def generate_token(user):

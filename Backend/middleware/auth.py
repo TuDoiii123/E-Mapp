@@ -1,9 +1,7 @@
-import os
 import jwt
 from flask import request, jsonify
 from models.user import User
-
-JWT_SECRET = os.getenv('JWT_SECRET', 'default-secret-key-change-in-production')
+from config import JWT_SECRET
 
 
 def load_user_from_token():

@@ -105,7 +105,7 @@ export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
             </Button>
             <h1 className="text-2xl font-bold text-gray-900">Phân tích & Gợi ý</h1>
           </div>
-          <div className="ml-13">
+          <div className="ml-[52px]">
             <p className="text-gray-600">Thông tin thông minh để tối ưu trải nghiệm</p>
           </div>
         </div>

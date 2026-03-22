@@ -39,7 +39,7 @@ export function LoginScreen({ onLogin, onNavigate }: LoginScreenProps) {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleLogin();
     }
@@ -81,7 +81,7 @@ export function LoginScreen({ onLogin, onNavigate }: LoginScreenProps) {
                   setCccdNumber(e.target.value.replace(/\D/g, ''));
                   setError('');
                 }}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyDown}
                 maxLength={12}
                 disabled={isLoading}
               />
@@ -99,7 +99,7 @@ export function LoginScreen({ onLogin, onNavigate }: LoginScreenProps) {
                     setPassword(e.target.value);
                     setError('');
                   }}
-                  onKeyPress={handleKeyPress}
+                  onKeyDown={handleKeyDown}
                   disabled={isLoading}
                 />
                 <Button

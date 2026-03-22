@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Star, Send, CheckCircle, Building, Calendar } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -12,6 +12,7 @@ interface EvaluationScreenProps {
 
 export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
   const [selectedOffice, setSelectedOffice] = useState<any>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ratings, setRatings] = useState({
     attitude: 0,
     speed: 0,
@@ -19,6 +20,12 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
   });
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
 
   const offices = [
     {
@@ -81,7 +88,7 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
   const handleSubmitEvaluation = () => {
     if (ratings.attitude > 0 && ratings.speed > 0 && ratings.quality > 0) {
       setSubmitted(true);
-      setTimeout(() => {
+      timeoutRef.current = setTimeout(() => {
         setSelectedOffice(null);
         setSubmitted(false);
         setRatings({ attitude: 0, speed: 0, quality: 0 });

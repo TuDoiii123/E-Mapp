@@ -1,7 +1,7 @@
 /// <reference types="../vite-env" />
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Filter, Navigation, Clock, Phone, FileText, Loader2, AlertCircle, Map } from 'lucide-react';
+import { MapPin, Navigation, Clock, Phone, Loader2, AlertCircle, Map } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
@@ -81,14 +81,6 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     };
 
     document.head.appendChild(script);
-
-    return () => {
-      // Cleanup if component unmounts
-      const existingScript = document.querySelector('script[src*="maps.googleapis.com"]');
-      if (existingScript && existingScript.parentNode) {
-        existingScript.parentNode.removeChild(existingScript);
-      }
-    };
   }, []);
 
   // Initialize Google Map after script loads

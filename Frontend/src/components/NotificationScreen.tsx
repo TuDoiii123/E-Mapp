@@ -13,7 +13,7 @@ interface NotificationScreenProps {
 export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
   const [filter, setFilter] = useState('all');
 
-  const notifications = [
+  const [notifications, setNotifications] = useState([
     {
       id: 1,
       type: 'document',
@@ -62,7 +62,7 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
       priority: 'medium',
       documentId: 'HS002'
     }
-  ];
+  ]);
 
   const history = [
     {
@@ -124,11 +124,15 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
     }
   };
 
-  const filteredNotifications = filter === 'all' 
-    ? notifications 
+  const filteredNotifications = filter === 'all'
+    ? notifications
     : notifications.filter(n => n.type === filter);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  const handleMarkAllRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -247,7 +251,7 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
               ))}
             </div>
 
-            <Button variant="outline" className="w-full">
+            <Button variant="outline" className="w-full" onClick={handleMarkAllRead}>
               Đánh dấu tất cả đã đọc
             </Button>
           </TabsContent>

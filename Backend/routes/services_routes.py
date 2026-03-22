@@ -28,7 +28,7 @@ def get_nearby_services():
             user_lng = float(lng)
             radius_km = float(radius)
             limit_num = int(limit)
-        except:
+        except (TypeError, ValueError):
             return jsonify({
                 'success': False,
                 'message': 'Latitude và longitude không hợp lệ'
@@ -104,7 +104,7 @@ def search_services():
                 user_lng = float(lng)
                 nearby = find_nearby(services, user_lat, user_lng, 100)
                 services = nearby
-            except:
+            except (TypeError, ValueError):
                 pass
         
         # Sort by distance if available, otherwise by name
@@ -168,7 +168,7 @@ def get_service(id):
                     service.get('latitude', 0),
                     service.get('longitude', 0)
                 )
-            except:
+            except (TypeError, ValueError):
                 pass
         
         return jsonify({
@@ -218,7 +218,7 @@ def get_all_services():
                 user_lng = float(lng)
                 nearby = find_nearby(services, user_lat, user_lng, 100)
                 services = nearby
-            except:
+            except (TypeError, ValueError):
                 pass
         
         limit_num = int(limit)

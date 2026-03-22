@@ -4,11 +4,14 @@ import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import React from 'react';
+import { useAuth } from '../contexts/AuthContext';
+
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
 }
 
 export function HomeScreen({ onNavigate }: HomeScreenProps) {
+  const { user } = useAuth();
   const shortcuts = [
     {
       id: 'search',
@@ -63,7 +66,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Chào bạn!</h1>
-              <p className="text-lg text-gray-600 mt-1">Nguyễn Văn A</p>
+              <p className="text-lg text-gray-600 mt-1">{user?.fullName || 'bạn'}</p>
             </div>
             <Button
               variant="ghost"

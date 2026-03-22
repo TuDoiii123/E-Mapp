@@ -1,143 +1,268 @@
-# Public Services Backend API
+# E-Mapp Backend
 
-Backend API cho ứng dụng Dịch vụ công số với hệ thống xác thực JWT và phân quyền.
+Backend API cho ứng dụng **Dịch vụ công số tỉnh Thanh Hóa** — hỗ trợ tìm kiếm dịch vụ công, đặt lịch hẹn, xác thực người dùng và chatbot RAG hỏi đáp thủ tục hành chính.
+
+---
+
+## Kiến trúc tổng quan
+
+```
+Backend/
+├── server.py               # Flask app chính – khởi động server
+├── routes/                 # Các blueprint API
+│   ├── auth_routes.py      # Đăng ký / đăng nhập
+│   ├── services_routes.py  # Tìm kiếm dịch vụ công
+│   ├── applications_routes.py  # Nộp hồ sơ
+│   └── admin_routes.py     # Quản trị
+├── models/                 # Data models (PostgreSQL + file JSON fallback)
+│   ├── db.py               # Kết nối PostgreSQL
+│   ├── user.py             # Model người dùng
+│   └── public_service.py   # Model dịch vụ công
+├── middleware/
+│   └── auth.py             # Xác thực JWT
+├── services/
+│   ├── distance.py         # Tính khoảng cách Haversine
+│   └── vneid.py            # Tích hợp VNeID (demo)
+├── RAG/                    # Hệ thống chatbot AI (LangGraph + Gemini + ChromaDB)
+│   ├── agent_core/         # LangGraph graph và các node
+│   ├── tools/              # RAG tool (ChromaDB search)
+│   ├── utils/              # LLM wrapper (Gemini)
+│   ├── connect_SQL/        # Kết nối SQL Server (lịch sử hội thoại)
+│   ├── create_vecto_db/    # Script tạo vector database
+│   └── models/             # Mô hình embedding AITeamVN/Vietnamese_Embedding
+├── SuggestProcedure/       # Gợi ý thủ tục hành chính (sentence-transformers)
+├── ImageExtract/           # Trích xuất thông tin từ ảnh (Gemini Vision)
+└── scripts/                # Tiện ích: seed data, import CSV, geocode...
+```
+
+---
+
+## Yêu cầu
+
+- Python 3.10+
+- PostgreSQL (tùy chọn — nếu không có thì dùng file JSON)
+- SQL Server + ODBC Driver 17 (tùy chọn — lưu lịch sử chat RAG)
+
+---
 
 ## Cài đặt
 
-1. Cài đặt dependencies:
+### 1. Tạo môi trường ảo và cài thư viện
+
 ```bash
-npm install
-```
-
-2. Tạo file `.env` (đã có sẵn template):
-```env
-PORT=8888
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-JWT_EXPIRES_IN=7d
-NODE_ENV=development
-```
-
-3. Chạy server:
-```bash
-npm run dev
-```
-
-Hoặc sử dụng file `start-server.bat` trên Windows.
-
-## API Endpoints
-
-### Authentication
-
-# Public Services Backend
-
-This folder contains two possible backend implementations for the demo Public Services application:
-
-- Original Node.js/Express implementation (legacy, kept for compatibility)
-- New Python/Flask implementation (migration in-progress)
-
-This README documents how to run either implementation, how to seed demo data, and important runtime notes.
-
----
-
-## Quick Start — Node (existing)
-
-1. Install Node dependencies:
-
-```powershell
-cd "c:\\Users\\ADMIN\\Downloads\\E-Map\\Backend"
-npm install
-```
-
-2. Create `.env` (example):
-
-```text
-PORT=8888
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-JWT_EXPIRES_IN=7d
-NODE_ENV=development
-```
-
-3. Start dev server (uses `nodemon`):
-
-```powershell
-npm run dev
-```
-
-Or run once:
-
-```powershell
-npm start
-```
-
-To seed demo data with the Node script (if you still have the Node scripts):
-
-```powershell
-npm run seed
-```
-
----
-
-## Quick Start — Python/Flask (recommended for migration)
-
-1. Create and activate a virtual environment, then install minimal deps:
-
-```powershell
-cd "c:\\Users\\ADMIN\\Downloads\\E-Map\\Backend"
+cd Backend
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+
+# Windows
+.venv\Scripts\activate
+
+# Linux/Mac
+source .venv/bin/activate
+
 pip install -r requirements.txt
-# if requirements.txt is missing, at minimum install:
-pip install flask flask-cors pyjwt
 ```
 
-2. Run the Flask server:
+### 2. Cấu hình file `.env`
 
-```powershell
+Tạo file `.env` tại thư mục `Backend/`:
+
+```env
+# ── Bắt buộc ──────────────────────────────────────
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+JWT_EXPIRES_IN=7d
+
+# Google Gemini API (dùng 1 key hoặc 3 key riêng cho từng LLM)
+GOOGLE_API_KEY=your_gemini_api_key
+
+# Nếu muốn dùng 3 key riêng biệt (tùy chọn):
+# GOOGLE_API_KEY_1=key_for_analyzer
+# GOOGLE_API_KEY_2=key_for_synthesizer
+# GOOGLE_API_KEY_3=key_for_summarizer
+
+# ── Tùy chọn ──────────────────────────────────────
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=emapp
+DB_USER=postgres
+DB_PASSWORD=your_db_password
+
+# Gemini Voice AI
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_MODEL_NAME=models/gemini-2.5-flash-lite
+
+# Google Cloud TTS/STT (nếu dùng voice)
+# GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
+```
+
+### 3. Cấu hình SQL Server (tùy chọn — lưu lịch sử chat)
+
+Chỉnh sửa `RAG/connect_SQL/config.json`:
+
+```json
+{
+  "connection": {
+    "server": "localhost",
+    "database": "emapp_chat",
+    "username": "sa",
+    "password": "your_password"
+  }
+}
+```
+
+Nếu để trống, hệ thống RAG vẫn hoạt động bình thường — chỉ không lưu lịch sử chat.
+
+### 4. Khởi động server
+
+```bash
 python server.py
 ```
 
-The Python routes mirror the original Express routes and are located in `routes/*.py`.
+Server chạy tại: `http://localhost:8888`
 
 ---
 
-## Seeding demo data
+## Hệ thống RAG (Chatbot AI)
 
-- Python seed script: `python scripts/seed_data.py` (creates categories and sample public services).
-- Node seed script (legacy): `npm run seed` (if present).
+### Mô hình embedding
+
+Model `AITeamVN/Vietnamese_Embedding` được đặt tại:
+```
+RAG/models/Vietnamese_Embedding/
+```
+
+Nếu chưa có, tải về bằng lệnh:
+
+```bash
+cd Backend/RAG
+python -c "
+from huggingface_hub import snapshot_download
+snapshot_download('AITeamVN/Vietnamese_Embedding', local_dir='models/Vietnamese_Embedding', ignore_patterns=['*.onnx','onnx/*'])
+"
+```
+
+### Tạo vector database
+
+Vector DB được tạo sẵn tại `RAG/chroma_db/chroma_db_faqs/`.
+
+Để rebuild từ file CSV dữ liệu FAQ:
+
+```bash
+cd Backend/RAG
+python create_vecto_db/create_faq_db.py
+```
+
+Để embed dữ liệu dịch vụ công Thanh Hóa:
+
+```bash
+cd Backend/RAG
+python create_vecto_db/embed_thanhhoa.py
+```
+
+Kết quả lưu tại `RAG/chroma_db/thanhhoa/` với 3 collection:
+- `thanhhoa_congan` — 159 thủ tục hành chính Công an
+- `thanhhoa_ubnd` — Dịch vụ công UBND
+- `thanhhoa_diadiem` — Địa điểm DVC
+
+### Luồng xử lý chatbot
+
+```
+Câu hỏi người dùng
+    ↓
+[user_input_node]   — nhận input
+    ↓
+[role_manager]      — load prompt + lịch sử hội thoại
+    ↓
+[task_analyzer]     — Gemini phân tích + chọn tool
+    ↓
+[tool_executor]     — gọi search_project_documents (ChromaDB)
+    ↓
+[llm_response]      — Gemini tổng hợp câu trả lời
+```
 
 ---
 
-## Important behavior notes
+## API Endpoints chính
 
-- Submitting an application requires at least 1 uploaded file/photo. The API will return 400 if no files are included on create.
-- Multipart form field name for files is `files` (multiple allowed).
-- Uploaded files are stored under `Backend/uploads/` (local file storage used for demo).
-- Document processing is a light-weight placeholder: only `.txt` files are read for text extraction by default. Integrate OCR libraries (`pytesseract`, `pdfminer.six`, `PyMuPDF`) to extract text from images/PDFs.
+### Xác thực
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/api/auth/register` | Đăng ký tài khoản |
+| POST | `/api/auth/login` | Đăng nhập |
+| GET | `/api/auth/profile` | Lấy thông tin người dùng |
+| PUT | `/api/auth/profile` | Cập nhật hồ sơ |
+
+**Đăng ký (demo):** OTP mặc định là `123456`.
+
+### Dịch vụ công
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| GET | `/api/services/` | Danh sách dịch vụ |
+| GET | `/api/services/search?q=...` | Tìm kiếm |
+| GET | `/api/services/nearby?lat=&lng=&radius=` | Tìm gần vị trí |
+| GET | `/api/services/<id>` | Chi tiết dịch vụ |
+| GET | `/api/services/categories/list` | Danh mục |
+
+### Đặt lịch hẹn
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/api/appointments` | Tạo lịch hẹn |
+| GET | `/api/appointments/by-date?agencyId=&date=` | Lịch theo ngày |
+| GET | `/api/appointments/upcoming` | Lịch sắp tới |
+| GET | `/api/appointments/all` | Tất cả lịch |
+
+### Chatbot RAG
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/api/chat` | Gửi câu hỏi hành chính |
+
+```json
+// Request
+{ "message": "Làm CCCD cần những giấy tờ gì?", "session_id": "abc123" }
+
+// Response
+{ "success": true, "data": { "answer": "...", "session_id": "abc123" } }
+```
+
+### Voice AI
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| POST | `/api/voice/stt` | Speech-to-Text (Google Cloud) |
+| POST | `/api/voice/tts` | Text-to-Speech |
+| POST | `/api/voice/dialog` | Hội thoại đặt lịch |
+| POST | `/api/voice/appointments/auto-create` | Tự động đặt lịch từ voice |
+
+### Gợi ý thủ tục
+
+| Method | Endpoint | Mô tả |
+|--------|----------|-------|
+| GET | `/api/suggest?q=...&top_k=4` | Gợi ý thủ tục hành chính |
 
 ---
 
-## Environment variables
+## Seed dữ liệu
 
-- `PORT` — HTTP port (default 8888)
-- `JWT_SECRET` — Secret used to sign JWTs (change for production)
-- `JWT_EXPIRES_IN` — Token expiry (e.g. `7d`)
-- `NODE_ENV` / `FLASK_ENV` — environment
+```bash
+# Seed dữ liệu dịch vụ công mẫu
+python scripts/seed_data.py
 
----
+# Tạo tài khoản admin
+python scripts/create_admin.py
 
-## Where to look next
-
-- Python routes: `routes/*.py`
-- Python models: `models/*.py` (file-based JSON storage in `data/`)
-- Document processor: `services/document_processor.py` (current placeholder)
-
-If you want, I can:
-
-- Add OCR/PDF extraction to `services/document_processor.py` and update `requirements.txt`.
-- Create a `requirements.txt` with pinned versions.
-- Commit the Python migration and remove legacy Node start scripts.
+# Import dữ liệu DVC từ CSV
+python scripts/import_dichvu_to_public_services.py
+```
 
 ---
 
-If anything should be adjusted for your preferred workflow (Node vs Python), tell me which and I will update the README and scripts accordingly.
+## Lưu ý
 
+- Dữ liệu người dùng được lưu vào **PostgreSQL** (nếu cấu hình) hoặc file `data/users.json` (fallback).
+- File upload được lưu local tại `uploads/` — chưa tích hợp cloud storage.
+- VNeID verification hiện là **demo mock** — chưa kết nối API thật.
+- Voice STT/TTS yêu cầu **Google Cloud credentials** — nếu không có thì dùng mock mode (`VOICE_STT_DEV_MOCK=1`).

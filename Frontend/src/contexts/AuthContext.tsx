@@ -29,16 +29,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check if user is authenticated on mount
   useEffect(() => {
     const checkAuth = async () => {
       const token = getToken();
       if (token) {
-        // Temporarily skip fetching profile from server.
-        // We keep the token and treat presence of token as authenticated
-        // for now; user details will be null until a profile endpoint
-        // is re-enabled.
-        setUser(null);
+        try {
+          const response = await authAPI.getProfile();
+          if (response.success) {
+            setUser(response.data.user);
+          } else {
+            removeToken();
+          }
+        } catch {
+          // Token expired or invalid — clear it
+          removeToken();
+        }
       }
       setIsLoading(false);
     };
@@ -47,59 +52,55 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = async (cccdNumber: string, password: string) => {
-    try {
-      const response = await authAPI.login({ cccdNumber, password });
-      if (response.success) {
-        setUser(response.data.user);
-      } else {
-        throw new Error(response.message || 'Đăng nhập thất bại');
-      }
-    } catch (error: any) {
-      throw error;
+    const response = await authAPI.login({ cccdNumber, password });
+    if (response.success) {
+      setUser(response.data.user);
+    } else {
+      throw new Error(response.message || 'Đăng nhập thất bại');
     }
   };
 
   const register = async (userData: any) => {
-    try {
-      const response = await authAPI.register(userData);
-      if (response.success) {
-        setUser(response.data.user);
-      } else {
-        throw new Error(response.message || 'Đăng ký thất bại');
-      }
-    } catch (error: any) {
-      throw error;
+    const response = await authAPI.register(userData);
+    if (response.success) {
+      setUser(response.data.user);
+    } else {
+      throw new Error(response.message || 'Đăng ký thất bại');
     }
   };
 
   const logout = async () => {
     try {
       await authAPI.logout();
-    } catch (error) {
-      console.error('Logout error:', error);
+    } catch {
+      removeToken();
     } finally {
       setUser(null);
-      removeToken();
     }
   };
 
   const refreshProfile = async () => {
-    // Temporarily disabled while profile endpoints are removed
-    console.warn('refreshProfile is temporarily disabled');
-    return;
+    try {
+      const response = await authAPI.getProfile();
+      if (response.success) {
+        setUser(response.data.user);
+      }
+    } catch {
+      // Profile refresh failed silently
+    }
   };
 
-  const value: AuthContextType = {
-    user,
-    // Consider token presence as authentication while profile fetch is disabled
-    isAuthenticated: !!user || !!getToken(),
-    isLoading,
-    login,
-    register,
-    logout,
-    refreshProfile,
-  };
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated: !!user || !!getToken(),
+      isLoading,
+      login,
+      register,
+      logout,
+      refreshProfile,
+    }}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
-

@@ -85,11 +85,6 @@ export function RegisterScreen({ onNavigate }: RegisterScreenProps) {
         setError('Vui lòng nhập mã OTP 6 chữ số');
         return;
       }
-      // For demo, accept 123456 as valid OTP
-      if (otp !== '123456') {
-        setError('Mã OTP không đúng. Sử dụng 123456 cho demo.');
-        return;
-      }
       setError('');
       // Proceed to registration
       await handleRegister();
@@ -106,7 +101,7 @@ export function RegisterScreen({ onNavigate }: RegisterScreenProps) {
     try {
       await register({
         ...formData,
-        otp: otp || '123456', // For demo
+        otp: otp,
         useVNeID: false
       });
       setStep(3);
@@ -283,7 +278,7 @@ export function RegisterScreen({ onNavigate }: RegisterScreenProps) {
                   <Checkbox 
                     id="terms" 
                     checked={agreeTerms}
-                    onCheckedChange={(checked : boolean) => setAgreeTerms(checked as boolean)}
+                    onCheckedChange={(checked: boolean | 'indeterminate') => setAgreeTerms(checked === true)}
                     className="mt-1"
                   />
                   <div className="flex-1">
@@ -323,7 +318,6 @@ export function RegisterScreen({ onNavigate }: RegisterScreenProps) {
           <div className="space-y-4">
             <div className="text-center mb-4">
               <p className="text-gray-600">Mã xác thực đã được gửi đến số điện thoại {formData.phone}</p>
-              <p className="text-sm text-gray-500 mt-2">(Sử dụng mã 123456 cho demo)</p>
             </div>
 
             {error && (

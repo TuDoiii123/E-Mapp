@@ -45,7 +45,7 @@ def create_application():
         # Parse data
         try:
             data = json.loads(data_str)
-        except:
+        except (json.JSONDecodeError, ValueError):
             data = {}
         
         # Validate serviceId

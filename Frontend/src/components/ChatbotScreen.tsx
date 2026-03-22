@@ -44,6 +44,16 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
 
   const activeConversationId = sessionId ?? '__local__';
 
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
   const STORAGE_KEY = 'chat_conversations_v1';
 
   const loadConversations = useCallback(() => {
@@ -834,7 +844,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                 placeholder="Nhập tin nhắn..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyPress}
                 className="flex-1"
                 disabled={isTyping}
               />
