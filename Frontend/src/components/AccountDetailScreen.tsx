@@ -7,14 +7,18 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { ArrowLeft, Camera, Edit3, Save, X, Eye, EyeOff } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
+import { useAuth } from '../contexts/AuthContext';
+import { authAPI, apiRequest } from '../services/api';
 import React from 'react';
 interface AccountDetailScreenProps {
   onNavigate: (screen: string) => void;
 }
 
 export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
+  const { user, refreshProfile } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
   const [showPasswords, setShowPasswords] = useState({
     current: false,
     new: false,
@@ -22,12 +26,12 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
   });
 
   const [userInfo, setUserInfo] = useState({
-    cccdNumber: '001234567890',
-    fullName: 'Nguyễn Văn A',
-    dateOfBirth: '1990-01-15',
-    phone: '0987654321',
-    email: 'nguyenvana@gmail.com',
-    address: 'Số 1 Trần Hưng Đạo, Hoàn Kiếm, Hà Nội',
+    cccdNumber: user?.cccdNumber || '',
+    fullName: user?.fullName || '',
+    dateOfBirth: user?.dateOfBirth || '',
+    phone: user?.phone || '',
+    email: user?.email || '',
+    address: '',
     avatar: '',
   });
 
@@ -43,9 +47,19 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
     setEditForm({ ...userInfo });
   };
 
-  const handleSave = () => {
-    setUserInfo({ ...editForm });
-    setIsEditing(false);
+  const handleSave = async () => {
+    try {
+      await authAPI.updateProfile({
+        fullName: editForm.fullName,
+        phone: editForm.phone,
+        email: editForm.email,
+      });
+      setUserInfo({ ...editForm });
+      setIsEditing(false);
+      await refreshProfile();
+    } catch (err: any) {
+      // Keep editing open so user sees the issue
+    }
   };
 
   const handleCancel = () => {
@@ -53,14 +67,21 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
     setIsEditing(false);
   };
 
-  const handlePasswordChange = () => {
-    // Xử lý đổi mật khẩu
-    setPasswordForm({
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
-    });
-    setIsChangingPassword(false);
+  const handlePasswordChange = async () => {
+    setPasswordError('');
+    try {
+      await apiRequest('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword,
+        }),
+      });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setIsChangingPassword(false);
+    } catch (err: any) {
+      setPasswordError(err.message || 'Đổi mật khẩu thất bại');
+    }
   };
 
   const togglePasswordVisibility = (field: 'current' | 'new' | 'confirm') => {
@@ -321,10 +342,13 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
                     </div>
                   </div>
 
+                  {passwordError && (
+                    <p className="text-sm text-red-600">{passwordError}</p>
+                  )}
                   <Button
                     onClick={handlePasswordChange}
                     className="w-full bg-red-600 hover:bg-red-700"
-                    disabled={!passwordForm.currentPassword || !passwordForm.newPassword || 
+                    disabled={!passwordForm.currentPassword || !passwordForm.newPassword ||
                              passwordForm.newPassword !== passwordForm.confirmPassword}
                   >
                     Cập nhật mật khẩu

@@ -2,17 +2,20 @@ import os
 import shutil
 import logging
 from datetime import datetime
+from pathlib import Path
 import json
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 import chromadb
 import time
 
+_DIR = Path(__file__).parent
+
 # ==============================================================================
 # PHẦN 1: LOGGER
 # ==============================================================================
 
-def setup_logger(log_dir: str = r"C:/Users/ADMIN/E-Map/Backend/RAG/create_vecto_db/logs"):
+def setup_logger(log_dir: str = str(Path(__file__).parent / "logs")):
     """Khởi tạo logger."""
     os.makedirs(log_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -165,11 +168,11 @@ if __name__ == "__main__":
     logger = setup_logger()
 
     try:
-        CONFIG_PATH = r"C:/Users/ADMIN/E-Map/Backend/RAG/create_vecto_db/config.json"
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        config_path = _DIR / "config.json"
+        with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-    except:
-        logger.error("Không tìm thấy config.json")
+    except FileNotFoundError:
+        logger.error("Không tìm thấy config.json tại %s", config_path)
         exit()
 
     CSV_PATH = config["faq_csv_path"]

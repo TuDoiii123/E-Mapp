@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { API_BASE_URL, getToken } from '../services/api';
 import { Upload, Camera, FileText, CheckCircle, Info, Plus, ArrowLeft } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -345,7 +346,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                   // perform multipart upload to backend
                   try {
                     setSubmitting(true);
-                    const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8888/api';
+                    const API_BASE = API_BASE_URL;
                     const form = new FormData();
                     form.append('serviceId', selectedService);
                     const payloadData = { notes };
@@ -363,7 +364,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                       if (f) form.append('files', f, f.name);
                     });
 
-                    const token = localStorage.getItem('auth_token');
+                    const token = getToken();
                     const resp = await fetch(`${API_BASE}/applications/create`, {
                       method: 'POST',
                       headers: token ? { 'Authorization': `Bearer ${token}` } : {},

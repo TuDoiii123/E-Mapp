@@ -8,7 +8,6 @@ declare global {
   }
 }
 
-// Try to use the configured IP, fallback to localhost for development
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888/api';
 export const API_BASE_URL_FALLBACK = 'http://localhost:8888/api';
 
@@ -74,8 +73,8 @@ export const removeToken = (): void => {
   localStorage.removeItem('auth_token');
 };
 
-// API request helper with fallback
-async function apiRequest<T>(
+// Shared API request helper with primary → fallback URL logic
+export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -95,27 +94,18 @@ async function apiRequest<T>(
   let data: any;
 
   try {
-    // Try primary URL first
-    response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    response = await fetch(`${API_BASE_URL}${endpoint}`, { ...options, headers });
     data = await response.json();
   } catch (error: any) {
-    // If primary URL fails, try fallback (localhost)
     if (API_BASE_URL !== API_BASE_URL_FALLBACK) {
       try {
-        console.warn(`Primary API URL failed, trying fallback: ${API_BASE_URL_FALLBACK}`);
-        response = await fetch(`${API_BASE_URL_FALLBACK}${endpoint}`, {
-          ...options,
-          headers,
-        });
+        response = await fetch(`${API_BASE_URL_FALLBACK}${endpoint}`, { ...options, headers });
         data = await response.json();
-      } catch (fallbackError: any) {
+      } catch {
         throw new Error(
           `Không thể kết nối đến server. Vui lòng kiểm tra:\n` +
           `1. Backend server đã chạy chưa?\n` +
-          `2. Đã cài đặt dependencies: cd Backend && npm install\n` +
+          `2. Đã cài đặt dependencies: cd Backend && pip install -r requirements.txt\n` +
           `3. Server đang chạy trên port 8888?\n\n` +
           `Lỗi: ${error.message || 'Network error'}`
         );
@@ -124,15 +114,15 @@ async function apiRequest<T>(
       throw new Error(
         `Không thể kết nối đến server. Vui lòng kiểm tra:\n` +
         `1. Backend server đã chạy chưa?\n` +
-        `2. Đã cài đặt dependencies: cd Backend && npm install\n` +
+        `2. Đã cài đặt dependencies: cd Backend && pip install -r requirements.txt\n` +
         `3. Server đang chạy trên port 8888?\n\n` +
         `Lỗi: ${error.message || 'Network error'}`
       );
     }
   }
 
-  if (!response.ok) {
-    throw new Error(data.message || data.error || `Lỗi ${response.status}: ${response.statusText}`);
+  if (!response!.ok) {
+    throw new Error(data?.message || data?.error || `Lỗi ${response!.status}: ${response!.statusText}`);
   }
 
   return data;
@@ -145,11 +135,9 @@ export const authAPI = {
       method: 'POST',
       body: JSON.stringify(credentials),
     });
-
     if (response.success && response.data.token) {
       setToken(response.data.token);
     }
-
     return response;
   },
 
@@ -158,21 +146,17 @@ export const authAPI = {
       method: 'POST',
       body: JSON.stringify(userData),
     });
-
     if (response.success && response.data.token) {
       setToken(response.data.token);
     }
-
     return response;
   },
 
   logout: async (): Promise<{ success: boolean; message: string }> => {
     try {
-      await apiRequest('/auth/logout', {
-        method: 'POST',
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
+      await apiRequest('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore logout errors — token is cleared regardless
     } finally {
       removeToken();
     }
@@ -180,20 +164,22 @@ export const authAPI = {
   },
 
   getProfile: async (): Promise<ProfileResponse> => {
-    // Temporarily disabled. Callers should avoid using this until re-enabled.
-    return Promise.reject(new Error('getProfile temporarily disabled'));
+    return apiRequest<ProfileResponse>('/auth/profile');
   },
 
   updateProfile: async (updates: Partial<User>): Promise<ProfileResponse> => {
-    return Promise.reject(new Error('updateProfile temporarily disabled'));
+    return apiRequest<ProfileResponse>('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
   },
 };
 
 export interface ChatRequestPayload {
   message: string;
   sessionId?: string;
-  intent?: string; // optional intent e.g. 'administrative_qa'
-  speak?: boolean; // request audio response
+  intent?: string;
+  speak?: boolean;
 }
 
 export interface ChatResponsePayload {
@@ -257,7 +243,21 @@ export const chatbotAPI = {
     options?: { topK?: number; threshold?: number; sessionId?: string }
   ): Promise<{
     success: boolean;
-    data?: { suggestions: Array<{ procedure_internal_id: number; procedure_name: string; procedure_code?: string | null; label?: number | null; similarity_score: number; source?: string; link?: string }>; explanation: string; totalCandidates: number; latencyMs: number; sessionId?: string };
+    data?: {
+      suggestions: Array<{
+        procedure_internal_id: number;
+        procedure_name: string;
+        procedure_code?: string | null;
+        label?: number | null;
+        similarity_score: number;
+        source?: string;
+        link?: string;
+      }>;
+      explanation: string;
+      totalCandidates: number;
+      latencyMs: number;
+      sessionId?: string;
+    };
     message?: string;
     error?: string;
   }> => {
@@ -280,7 +280,6 @@ export const voiceAPI = {
     form.append('file', blob, 'audio.webm');
     const token = getToken();
     const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    // Try primary then fallback
     let res: Response;
     try {
       res = await fetch(`${API_BASE_URL}/voice/stt`, { method: 'POST', headers, body: form as any });
@@ -309,12 +308,19 @@ export const voiceAPI = {
     return await res.blob();
   },
 
-  autoCreate: async (text: string, phone?: string, sessionId?: string): Promise<{ status: string; message: string; next?: string; state?: any; suggestedSlots?: string[]; appointment?: any }> => {
+  autoCreate: async (text: string, phone?: string, sessionId?: string): Promise<{
+    status: string;
+    message: string;
+    next?: string;
+    state?: any;
+    suggestedSlots?: string[];
+    appointment?: any;
+  }> => {
     const token = getToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    let res: Response;
     const body = JSON.stringify({ text, phone, sessionId });
+    let res: Response;
     try {
       res = await fetch(`${API_BASE_URL}/voice/appointments/auto-create`, { method: 'POST', headers, body });
     } catch {
@@ -325,7 +331,7 @@ export const voiceAPI = {
     return data;
   },
 
-  dialog: async (text: string, sessionId?: string, phone?: string, speak: boolean = true): Promise<{
+  dialog: async (text: string, sessionId?: string, phone?: string, speak = true): Promise<{
     reply: string;
     step: string;
     done: boolean;
@@ -348,4 +354,3 @@ export const voiceAPI = {
     return data;
   },
 };
-

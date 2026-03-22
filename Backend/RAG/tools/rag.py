@@ -1,30 +1,32 @@
-import os
 from pathlib import Path
 import chromadb
 from sentence_transformers import SentenceTransformer
 from functools import lru_cache
+import logging
 
-# Load mo hinh embedding
+logger = logging.getLogger(__name__)
+
+_RAG_DIR = Path(__file__).parent.parent  # RAG/
+_MODEL_PATH = _RAG_DIR / "models" / "Vietnamese_Embedding"
+_CHROMA_PATH = _RAG_DIR / "chroma_db" / "chroma_db_faqs"
+
+
 @lru_cache(maxsize=1)
 def load_model():
-    local_model_path = r"C:/Users/ADMIN/E-Map/Backend/RAG/models/Vietnamese_Embedding"
-    model = SentenceTransformer(local_model_path)
+    model = SentenceTransformer(str(_MODEL_PATH))
     return model
+
 
 @lru_cache(maxsize=1)
 def connect_chroma_db():
-    # 📂 Đường dẫn tới thư mục chứa chroma.sqlite3
-    persist_dir = r"C:/Users/ADMIN/E-Map/Backend/RAG/chroma_db/chroma_db_faqs"  
-
-    # Kết nối ChromaDB
-    client = chromadb.PersistentClient(path=persist_dir)
+    client = chromadb.PersistentClient(path=str(_CHROMA_PATH))
     collection = client.get_collection("faqs_collection")
     return collection
 
 
-def get_embedding(text: str) -> list[float]:
+def get_embedding(text: str) -> list:
     if not text.strip():
-        print("Attempted to get embedding for empty text.")
+        logger.debug("Attempted to get embedding for empty text.")
         return []
 
     model = load_model()

@@ -1,6 +1,7 @@
 from .state import MultiRoleAgentState
 from docx import Document
 from typing import List, Dict, Any
+from pathlib import Path
 from ..utils.llm_wrapper import (
     GeminiSynthesizerLLM,
     GeminiAnalyzerLLM,
@@ -10,23 +11,28 @@ from ..tools.tool_registry import TOOL_REGISTRY
 import yaml
 import re
 import json
+import logging
 from ..connect_SQL.connect_SQL import connect_sql
 import os
 from sqlalchemy import text
 
+logger = logging.getLogger(__name__)
 
-def user_input(state: MultiRoleAgentState ) -> str:
+# Thư mục gốc RAG (2 cấp trên so với file này: RAG/agent_core/node.py → RAG/)
+_RAG_DIR = Path(__file__).parent.parent
+
+
+def user_input(state: MultiRoleAgentState) -> str:
     return state["user_input"]
 
 
-def _load_base_prompt(state: MultiRoleAgentState ) -> str:
-    path = f"C:/Users/ADMIN/E-Map/Backend/RAG/prompt/General_Prompt.docx"
+def _load_base_prompt(state: MultiRoleAgentState) -> str:
+    path = _RAG_DIR / "prompt" / "General_Prompt.docx"
     try:
-        doc = Document(path)
-        prompt_text = "/n".join([p.text for p in doc.paragraphs if p.text.strip()])
+        doc = Document(str(path))
+        prompt_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
         return prompt_text
     except Exception:
-        # Fallback prompt if document cannot be loaded
         return "Bạn là trợ lý hành chính, hỗ trợ người dân với câu trả lời rõ ràng và súc tích."
 
 def _load_tool_for_role() -> List[Dict[str, Any]]:
@@ -44,12 +50,11 @@ def _load_tool_for_role() -> List[Dict[str, Any]]:
         returns: "Danh sách bản ghi phù hợp"
     """
 
-    path = f"C:/Users/ADMIN/E-Map/Backend/RAG/prompt/tool.yaml"
+    path = _RAG_DIR / "prompt" / "tool.yaml"
     try:
-        if not os.path.isfile(path):
-            # Gracefully return empty tools if file missing
+        if not path.is_file():
             return []
-        with open(path, "r", encoding="utf-8") as f:
+        with open(str(path), "r", encoding="utf-8") as f:
             content = f.read()
         if not content.strip():
             return []
@@ -75,40 +80,35 @@ def _load_tool_for_role() -> List[Dict[str, Any]]:
         # Any parsing error -> return empty tools to keep the system running
         return []
 
-def _load_memory(session_id: str ) -> list:
+def _load_memory(session_id: str) -> str:
     if not session_id:
         return ""
-  
-    query = text(f"""
+
+    query = text("""
         SELECT TOP 3 user_message, bot_response
         FROM dbo.conversation_history
         WHERE session_id = :session_id
-          AND timestamp >= DATEADD(HOUR, -4, GETDATE())   
+          AND timestamp >= DATEADD(HOUR, -4, GETDATE())
         ORDER BY timestamp DESC;
     """)
 
     try:
         engine = connect_sql()
+        if engine is None:
+            return ""
         with engine.connect() as conn:
-            result = conn.execute(
-                query,
-                {"session_id": session_id}
-            )
+            result = conn.execute(query, {"session_id": session_id})
             rows = result.fetchall()
 
-        print(rows)
-
-        # Đảo ngược 
-        history_records = reversed(rows)
         formatted_history = []
-        for user_msg, bot_msg in history_records:
+        for user_msg, bot_msg in reversed(rows):
             formatted_history.append(f"User: {user_msg}")
             formatted_history.append(f"Assistant: {bot_msg}")
         return "\n".join(formatted_history)
 
     except Exception as e:
-        print(f"ERROR: Không thể tải memory. Lỗi: {e}")
-        return ""  
+        logger.warning("Không thể tải memory: %s", e)
+        return ""
 
 def role_manager(state: MultiRoleAgentState) -> None:
     state["tools"] = _load_tool_for_role()
@@ -116,23 +116,19 @@ def role_manager(state: MultiRoleAgentState) -> None:
     state["base_prompt"] =  base_prompt
 
     conversation_history = _load_memory(session_id=state.get("session_id", ""))
-    summarizer = GeminiChatParagraphSummarizer()
-    summarise_conversation_history = summarizer.summarize_each_exchange(chat_json=conversation_history)
-    state["conversation_history"] = summarise_conversation_history  
+    if conversation_history:
+        summarizer = GeminiChatParagraphSummarizer()
+        summarise_conversation_history = summarizer.summarize_each_exchange(chat_json=conversation_history)
+    else:
+        summarise_conversation_history = ""
+    state["conversation_history"] = summarise_conversation_history
 
-    # 3. Xây dựng template để chèn memory vào prompt
-    # Đây là cách bạn "chèn vào prompt"
-    final_prompt_template = (f"""
-        {base_prompt} 
-        ---
-        ### LỊCH SỬ HỘI THOẠI GẦN ĐÂY:
-        {summarise_conversation_history}
-        ---
-            """)
-
-    # 4. Cập nhật state với prompt cuối cùng đã được bổ sung memory
-    state["full_prompt"] = final_prompt_template
-    print("Đã tải và kết hợp memory vào prompt thành công.")
+    history_section = (
+        f"\n---\n### LỊCH SỬ HỘI THOẠI GẦN ĐÂY:\n{summarise_conversation_history}\n---"
+        if summarise_conversation_history else ""
+    )
+    state["full_prompt"] = f"{base_prompt}{history_section}"
+    logger.debug("Đã tải và kết hợp memory vào prompt thành công.")
 
 
 def _normalize_role_tools(role_tools_raw: List[Any]) -> List[Dict[str, Any]]:
@@ -192,7 +188,6 @@ def _validate_and_format_required_tools(parsed_required: Any, normalized_role_to
     if not parsed_required:
         return []
 
-    #print(normalized_role_tools)
     result = []
     available_names = {t["name"] for t in normalized_role_tools}
 
@@ -231,8 +226,6 @@ def task_analyzer(state: MultiRoleAgentState) -> None:
     user_question = state.get("user_input")
     base_prompt = state.get("full_prompt")
     role_tools_raw = state.get("tools", [])
-    #print(f"state: {state}")
-
     if not user_question or not base_prompt:
         raise ValueError("task_analyzer: state thiếu user_question hoặc base_prompt")
 

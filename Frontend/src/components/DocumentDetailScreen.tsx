@@ -44,7 +44,8 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
         .catch(() => setService(null))
         .finally(() => setLoading(false));
     }
-  }, [serviceId, params]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceId, params?.categoryId, params?.categoryName]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -112,14 +113,6 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
               </CardContent>
             </Card>
 
-            <Card className="p-4">
-              <CardHeader>
-                <CardTitle>Chi tiết thêm</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-xs text-gray-700 whitespace-pre-wrap">{JSON.stringify(service, null, 2)}</pre>
-              </CardContent>
-            </Card>
           </div>
         )}
       </div>

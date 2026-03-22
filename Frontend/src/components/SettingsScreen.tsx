@@ -6,12 +6,14 @@ import { Switch } from './ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Label } from './ui/label';
 import { Avatar, AvatarFallback } from './ui/avatar';
+import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 interface SettingsScreenProps {
   onNavigate: (screen: string) => void;
 }
 
 export function SettingsScreen({ onNavigate }: SettingsScreenProps) {
+  const { user, logout } = useAuth();
   const [language, setLanguage] = useState('vi');
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState({
@@ -28,40 +30,33 @@ export function SettingsScreen({ onNavigate }: SettingsScreenProps) {
     { code: 'zh', name: '中文', flag: '🇨🇳' }
   ];
 
-  const userInfo = {
-    name: 'Nguyễn Văn A',
-    cccd: '012345678901',
-    phone: '0901234567',
-    email: 'nguyenvana@email.com',
-    vneid: 'Đã kết nối'
-  };
+  const vneidStatus = user?.isVNeIDVerified ? 'Đã kết nối' : 'Chưa kết nối';
 
   const settingSections = [
     {
       title: 'Tài khoản',
       icon: User,
       items: [
-        { label: 'Thông tin cá nhân', value: userInfo.name, action: () => {} },
-        { label: 'Số CCCD', value: userInfo.cccd, action: () => {} },
-        { label: 'Số điện thoại', value: userInfo.phone, action: () => {} },
-        { label: 'Email', value: userInfo.email, action: () => {} }
+        { label: 'Thông tin cá nhân', value: user?.fullName || '—', action: () => {} },
+        { label: 'Số CCCD', value: user?.cccdNumber || '—', action: () => {} },
+        { label: 'Số điện thoại', value: user?.phone || '—', action: () => {} },
+        { label: 'Email', value: user?.email || '—', action: () => {} }
       ]
     },
     {
       title: 'VNeID',
       icon: Shield,
       items: [
-        { label: 'Trạng thái kết nối', value: userInfo.vneid, action: () => {} },
+        { label: 'Trạng thái kết nối', value: vneidStatus, action: () => {} },
         { label: 'Quản lý chữ ký số', value: 'Xem chi tiết', action: () => {} },
         { label: 'Bảo mật tài khoản', value: 'Cấu hình', action: () => {} }
       ]
     }
   ];
 
-  const handleLogout = () => {
-    if (confirm('Bạn có chắc chắn muốn đăng xuất?')) {
-      onNavigate('login');
-    }
+  const handleLogout = async () => {
+    await logout();
+    onNavigate('login');
   };
 
   return (
@@ -101,8 +96,8 @@ export function SettingsScreen({ onNavigate }: SettingsScreenProps) {
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1">
-                <h3>{userInfo.name}</h3>
-                <p className="text-sm text-gray-600">CCCD: {userInfo.cccd}</p>
+                <h3>{user?.fullName || '—'}</h3>
+                <p className="text-sm text-gray-600">CCCD: {user?.cccdNumber || '—'}</p>
                 <p className="text-sm text-green-600">✓ Tài khoản đã xác thực</p>
               </div>
               <ChevronRight className="w-5 h-5 text-gray-400" />
