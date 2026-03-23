@@ -1,39 +1,46 @@
-import { Home, FileText, MessageCircle, BarChart3, Settings } from 'lucide-react';
+import { Home, FileText, MessageCircle, Hash, Settings, ShieldCheck, MonitorPlay } from 'lucide-react';
 import { Badge } from './ui/badge';
 import React from 'react';
+import { useAuth } from '../contexts/AuthContext';
+
 interface BottomNavigationProps {
   currentScreen: string;
   onNavigate: (screen: string) => void;
 }
 
 export function BottomNavigation({ currentScreen, onNavigate }: BottomNavigationProps) {
-  const navItems = [
-    {
-      id: 'home',
-      label: 'Trang chủ',
-      icon: Home
-    },
-    {
-      id: 'search',
-      label: 'Hồ sơ',
-      icon: FileText
-    },
-    {
-      id: 'chatbot',
-      label: 'Trợ lý AI',
-      icon: MessageCircle
-    },
-    {
-      id: 'analytics',
-      label: 'Phân tích',
-      icon: BarChart3
-    },
-    {
-      id: 'settings',
-      label: 'Cài đặt',
-      icon: Settings
-    }
+  const { user } = useAuth();
+  const role = (user as any)?.role || 'citizen';
+
+  // Nav items theo role
+  const citizenItems = [
+    { id: 'home',    label: 'Trang chủ',  icon: Home },
+    { id: 'search',  label: 'Tra cứu',    icon: FileText },
+    { id: 'queue',   label: 'Hàng chờ',  icon: Hash },
+    { id: 'chatbot', label: 'Trợ lý AI', icon: MessageCircle },
+    { id: 'settings',label: 'Cài đặt',   icon: Settings },
   ];
+
+  const staffItems = [
+    { id: 'home',        label: 'Trang chủ',   icon: Home },
+    { id: 'queue-staff', label: 'Quầy phục vụ',icon: Hash },
+    { id: 'queue-display',label: 'Bảng chờ',   icon: MonitorPlay },
+    { id: 'chatbot',     label: 'Trợ lý AI',   icon: MessageCircle },
+    { id: 'settings',    label: 'Cài đặt',     icon: Settings },
+  ];
+
+  const adminItems = [
+    { id: 'home',        label: 'Trang chủ',  icon: Home },
+    { id: 'admin',       label: 'Quản trị',   icon: ShieldCheck },
+    { id: 'queue-staff', label: 'Hàng chờ',  icon: Hash },
+    { id: 'chatbot',     label: 'Trợ lý AI', icon: MessageCircle },
+    { id: 'settings',    label: 'Cài đặt',   icon: Settings },
+  ];
+
+  const navItems =
+    role === 'admin' ? adminItems :
+    role === 'staff' ? staffItems :
+    citizenItems;
 
   // Don't show navigation on login, register, forgot-password screens
   if (['login', 'register', 'forgot-password', 'account-detail'].includes(currentScreen)) {

@@ -2,6 +2,9 @@ from flask import Blueprint, request, jsonify
 from models.public_service import PublicService
 from models.service_category import ServiceCategory
 from services.distance import find_nearby, calculate_distance
+from logger import get_logger
+
+log = get_logger('services_routes')
 
 services_bp = Blueprint('services', __name__, url_prefix='/api/services')
 
@@ -63,6 +66,7 @@ def get_nearby_services():
         }), 200
     
     except Exception as e:
+        log.error(f'get_nearby_services error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi khi tìm kiếm dịch vụ gần đây'
@@ -132,6 +136,7 @@ def search_services():
         }), 200
     
     except Exception as e:
+        log.error(f'search_services error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi khi tìm kiếm dịch vụ'
@@ -182,6 +187,7 @@ def get_service(id):
         }), 200
     
     except Exception as e:
+        log.error(f'get_service({id}) error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi khi lấy thông tin dịch vụ'
@@ -233,6 +239,7 @@ def get_all_services():
         }), 200
     
     except Exception as e:
+        log.error(f'get_all_services error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi khi lấy danh sách dịch vụ'
@@ -253,6 +260,7 @@ def get_categories():
         }), 200
     
     except Exception as e:
+        log.error(f'get_categories error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi khi lấy danh mục dịch vụ'
@@ -291,6 +299,7 @@ def get_popular_services():
         }), 200
     
     except Exception as e:
+        log.error(f'get_popular_services error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi khi lấy dịch vụ phổ biến'

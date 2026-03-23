@@ -1,4 +1,4 @@
-import { Search, FileText, Plus, MapPin, Star, Bell, Calendar } from 'lucide-react';
+import { Search, FileText, Plus, MapPin, Star, Bell, Calendar, Hash, MonitorPlay, ShieldCheck } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
@@ -12,6 +12,8 @@ interface HomeScreenProps {
 
 export function HomeScreen({ onNavigate }: HomeScreenProps) {
   const { user } = useAuth();
+  const role = (user as any)?.role || 'citizen';
+
   const shortcuts = [
     {
       id: 'search',
@@ -54,7 +56,36 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
       icon: FileText,
       color: 'bg-indigo-600',
       description: 'Xem các loại giấy tờ và tìm kiếm'
-    }
+    },
+    {
+      id: 'queue',
+      title: 'Lấy số thứ tự',
+      icon: Hash,
+      color: 'bg-emerald-600',
+      description: 'Lấy số và theo dõi hàng chờ'
+    },
+    {
+      id: 'queue-display',
+      title: 'Bảng hàng chờ',
+      icon: MonitorPlay,
+      color: 'bg-slate-700',
+      description: 'Màn hình hiển thị realtime'
+    },
+    // Chỉ hiển thị cho nhân viên / admin
+    ...(role === 'staff' || role === 'admin' ? [{
+      id: 'queue-staff',
+      title: 'Quầy phục vụ',
+      icon: Hash,
+      color: 'bg-teal-600',
+      description: 'Gọi vé và phục vụ khách'
+    }] : []),
+    ...(role === 'admin' ? [{
+      id: 'admin',
+      title: 'Quản trị',
+      icon: ShieldCheck,
+      color: 'bg-gray-800',
+      description: 'Quản lý hệ thống'
+    }] : []),
   ];
 
   return (

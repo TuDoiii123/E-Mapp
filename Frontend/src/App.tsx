@@ -17,22 +17,18 @@ import { DocumentDetailScreen } from './components/DocumentDetailScreen';
 import { BottomNavigation } from './components/BottomNavigation';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppointmentCalendarScreen } from './components/AppointmentCalendarScreen';
+import { QueueScreen } from './components/QueueScreen';
+import { QueueDisplayScreen } from './components/QueueDisplayScreen';
+import { QueueStaffScreen } from './components/QueueStaffScreen';
+import { AdminDashboardScreen } from './components/AdminDashboardScreen';
 
 function AppContent() {
-  const [currentScreen, setCurrentScreen] = useState('login');
+  const [currentScreen, setCurrentScreen] = useState('home');
   const [screenParams, setScreenParams] = useState<any>(null);
   const { isAuthenticated, isLoading, logout } = useAuth();
 
-  useEffect(() => {
-    // If authenticated, go to home, otherwise go to login
-    if (!isLoading) {
-      if (isAuthenticated && currentScreen === 'login') {
-        setCurrentScreen('home');
-      } else if (!isAuthenticated && currentScreen !== 'login' && currentScreen !== 'register' && currentScreen !== 'forgot-password') {
-        setCurrentScreen('login');
-      }
-    }
-  }, [isAuthenticated, isLoading]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  useEffect(() => {}, [isAuthenticated, isLoading]);
 
   const handleLogin = () => {
     setCurrentScreen('home');
@@ -71,10 +67,7 @@ function AppContent() {
     // Public screens that don't require authentication
     const publicScreens = ['login', 'forgot-password', 'register'];
     
-    // If not logged in and trying to access a protected screen, redirect to login
-    if (!isAuthenticated && !publicScreens.includes(currentScreen)) {
-      return <LoginScreen onLogin={handleLogin} onNavigate={handleNavigate} />;
-    }
+    // Skip auth check — bypass login for now
 
     switch (currentScreen) {
       case 'login':
@@ -109,6 +102,32 @@ function AppContent() {
         return <SettingsScreen onNavigate={handleNavigate} />;
       case 'account-detail':
         return <AccountDetailScreen onNavigate={handleNavigate} />;
+      case 'queue':
+        return (
+          <QueueScreen
+            onNavigate={handleNavigateWithParams}
+            agencyId={screenParams?.agencyId || 'default'}
+            agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công'}
+          />
+        );
+      case 'queue-display':
+        return (
+          <QueueDisplayScreen
+            onNavigate={handleNavigate}
+            agencyId={screenParams?.agencyId || 'default'}
+            agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công tỉnh Thanh Hóa'}
+          />
+        );
+      case 'queue-staff':
+        return (
+          <QueueStaffScreen
+            onNavigate={handleNavigateWithParams}
+            agencyId={screenParams?.agencyId || 'default'}
+            agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công'}
+          />
+        );
+      case 'admin':
+        return <AdminDashboardScreen onNavigate={handleNavigateWithParams} />;
       default:
         return <HomeScreen onNavigate={handleNavigate} />;
     }
@@ -117,15 +136,15 @@ function AppContent() {
   return (
     <div className="size-full min-h-screen bg-gray-50 relative">
       {/* Main Content */}
-      <div className={`${isAuthenticated && !['account-detail'].includes(currentScreen) ? 'pb-16' : ''}`}>
+      <div className={`${!['account-detail', 'queue-display'].includes(currentScreen) ? 'pb-16' : ''}`}>
         {renderScreen()}
       </div>
-      
-      {/* Bottom Navigation */}
-      {isAuthenticated && (
-        <BottomNavigation 
-          currentScreen={currentScreen} 
-          onNavigate={handleNavigate} 
+
+      {/* Bottom Navigation — ẩn trên màn hình fullscreen */}
+      {!['queue-display', 'login', 'register', 'forgot-password'].includes(currentScreen) && (
+        <BottomNavigation
+          currentScreen={currentScreen}
+          onNavigate={handleNavigate}
         />
       )}
     </div>

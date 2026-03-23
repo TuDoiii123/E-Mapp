@@ -1,45 +1,46 @@
-from sqlalchemy import create_engine
-from pathlib import Path
-import json
-import logging
+"""
+Kết nối database cho RAG — dùng chung PostgreSQL với phần còn lại của app.
+Đọc config từ biến môi trường (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD).
+"""
+import os
+from urllib.parse import quote_plus
+from sqlalchemy import create_engine, text
+from logger import get_logger
 
-logger = logging.getLogger(__name__)
+log = get_logger('connect_SQL')
 
-_CONFIG_PATH = Path(__file__).parent / "config.json"
+_engine = None
 
 
 def connect_sql():
-    try:
-        with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-            config = json.load(f)
-    except FileNotFoundError:
-        logger.warning("Không tìm thấy config SQL: %s", _CONFIG_PATH)
-        return None
+    """Trả về SQLAlchemy engine kết nối PostgreSQL. Singleton, tạo 1 lần."""
+    global _engine
+    if _engine is not None:
+        return _engine
 
-    conn_cfg = config.get("connection", {})
-    DB_SERVER = conn_cfg.get("server", "")
-    DB_DATABASE = conn_cfg.get("database", "")
-    DB_USERNAME = conn_cfg.get("username", "")
-    DB_PASSWORD = conn_cfg.get("password", "")
+    host     = os.getenv('DB_HOST', 'localhost').strip()
+    port     = os.getenv('DB_PORT', '5432').strip()
+    db_name  = os.getenv('DB_NAME', 'postgres').strip()
+    user     = os.getenv('DB_USER', 'postgres').strip()
+    password = os.getenv('DB_PASSWORD', '').strip()
 
-    # Nếu chưa cấu hình, bỏ qua kết nối
-    if not DB_SERVER or not DB_DATABASE:
-        logger.info("SQL Server chưa được cấu hình (config.json trống).")
-        return None
+    if not password:
+        log.warning('[RAG] DB_PASSWORD not set — connection may fail')
 
-    ODBC_DRIVER = "ODBC Driver 17 for SQL Server"
-    CONNECTION_STRING = (
-        f"mssql+pyodbc://{DB_USERNAME}:{DB_PASSWORD}@{DB_SERVER}/{DB_DATABASE}"
-        f"?driver={ODBC_DRIVER.replace(' ', '+')}"
-    )
+    url = f'postgresql://{user}:{quote_plus(password)}@{host}:{port}/{db_name}'
 
     try:
-        engine = create_engine(CONNECTION_STRING)
-        with engine.connect():
-            pass
-        logger.info("Kết nối tới SQL Server thành công!")
-        return engine
-    except Exception as e:
-        logger.error("Lỗi kết nối SQL Server: %s", e)
+        engine = create_engine(
+            url,
+            pool_pre_ping=True,
+            pool_recycle=3600,
+            connect_args={'connect_timeout': 10},
+        )
+        with engine.connect() as conn:
+            conn.execute(text('SELECT 1'))
+        log.info(f'[RAG] PostgreSQL connected: {host}:{port}/{db_name}')
+        _engine = engine
+        return _engine
+    except Exception as exc:
+        log.error(f'[RAG] PostgreSQL connection failed: {exc}', exc_info=True)
         return None
-

@@ -4,21 +4,27 @@ from typing_extensions import Annotated
 
 class MultiRoleAgentState(TypedDict):
 
-    user_input: str          
+    user_input: str
     session_id: str
     conversation_history: str
 
-    # Dùng để lưu prompt gốc 
-    base_prompt: str   
-    tools: Optional[List[str]] 
+    # Dùng để lưu prompt gốc
+    base_prompt: str
+    tools: Optional[List[str]]
     full_prompt: str
 
+    # ── CAG: cache augmented generation ──────────────────────────────────────
+    # Vector embedding của câu hỏi — tính 1 lần, dùng lại ở cache_store
+    query_embedding: Optional[List[float]]
+    # True = cache hit (bỏ qua pipeline), False/None = cache miss
+    cache_hit: Optional[bool]
+
     # Phân tích của LLM
-    llm_analysis: Optional[str]      
-    required_tools: Optional[List[Dict[str, Any]]] 
-    
+    llm_analysis: Optional[str]
+    required_tools: Optional[List[Dict[str, Any]]]
+
     # Kết quả tool
-    tool_results: Annotated[List[Dict[str, Any]], add]  
+    tool_results: Annotated[List[Dict[str, Any]], add]
 
     # Câu trả lời cuối cùng
-    final_answer: Optional[str]  
+    final_answer: Optional[str]

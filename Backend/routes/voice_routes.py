@@ -12,6 +12,9 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, Response, jsonify, make_response, request
 
 from services.appointments import create_appointment, suggest_slots
+from logger import get_logger
+
+log = get_logger('voice_routes')
 
 voice_bp = Blueprint('voice', __name__, url_prefix='/api/voice')
 
@@ -32,7 +35,7 @@ def _get_gemini():
         genai.configure(api_key=api_key)
         _gemini_model = genai.GenerativeModel(model_name)
     except Exception as exc:
-        print('[Gemini][voice] Init failed:', exc)
+        log.error(f'[Gemini][voice] Init failed: {exc}', exc_info=True)
     return _gemini_model
 
 
@@ -94,7 +97,7 @@ def _call_gemini_json(prompt: str, tag: str = 'GENERIC') -> Dict[str, Any]:
             return {}
         return json.loads(m.group(0))
     except Exception as e:
-        print(f'[Gemini:{tag}] Error:', repr(e))
+        log.error(f'[Gemini:{tag}] error: {e}', exc_info=True)
         return {}
 
 

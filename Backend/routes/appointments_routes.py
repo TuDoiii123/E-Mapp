@@ -1,12 +1,14 @@
 import re
 import time
-import traceback
 from datetime import datetime
 from flask import Blueprint, jsonify, request
 from services.appointments import (
     read_appointments, write_appointments,
     is_valid_time, is_valid_date, create_appointment,
 )
+from logger import get_logger
+
+log = get_logger('appointments_routes')
 
 appointments_bp = Blueprint('appointments', __name__, url_prefix='/api/appointments')
 
@@ -56,8 +58,7 @@ def create_appointment_route():
         return jsonify({'success': True, 'message': 'Đặt lịch hẹn thành công', 'data': new_item}), 201
 
     except Exception as exc:
-        print('[appointments][POST][ERROR]', exc)
-        print(traceback.format_exc())
+        log.error(f'create_appointment error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi tạo lịch hẹn: {exc}'}), 500
 
 
@@ -72,6 +73,7 @@ def get_appointments_by_date():
         filtered = [a for a in items if a.get('agencyId') == agency_id and a.get('date') == date_str]
         return jsonify({'success': True, 'message': 'Lấy danh sách lịch hẹn thành công', 'data': {'appointments': filtered}})
     except Exception as exc:
+        log.error(f'appointments_routes error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi lấy danh sách lịch hẹn: {exc}'}), 500
 
 
@@ -81,6 +83,7 @@ def get_all_appointments():
         items = read_appointments()
         return jsonify({'success': True, 'message': 'Lấy danh sách lịch hẹn thành công', 'data': {'appointments': items}})
     except Exception as exc:
+        log.error(f'appointments_routes error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi lấy danh sách lịch hẹn: {exc}'}), 500
 
 
@@ -100,4 +103,5 @@ def get_upcoming_appointments():
         upcoming.sort(key=lambda a: _to_dt(a) or datetime.max)
         return jsonify({'success': True, 'message': 'Danh sách lịch hẹn sắp tới', 'data': {'appointments': upcoming}})
     except Exception as exc:
+        log.error(f'appointments_routes error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi lấy lịch hẹn sắp tới: {exc}'}), 500
