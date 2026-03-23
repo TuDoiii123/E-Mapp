@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(psql -U postgres -c \"CREATE DATABASE emapp;\")",
+      "Bash(python scripts/create_admin.py)",
+      "Bash(PGPASSWORD=tubeo123 psql -U postgres -h localhost -c \"CREATE DATABASE emapp;\" 2>&1)",
+      "Bash($env:PYTHONPATH=\"C:\\\\Users\\\\ADMIN\\\\E-Mapp\\\\Backend\")",
+      "Bash(echo \"DB_PASSWORD=$DB_PASSWORD\")",
+      "Bash(echo \"DB_HOST=$DB_HOST\")",
+      "Bash(echo \"DB_NAME=$DB_NAME\")",
+      "Bash(python -m venv .venv)",
+      "Bash(.venvScriptspip install:*)",
+      "Bash(.venv/Scripts/pip install:*)",
+      "Bash(python -:*)",
+      "Bash(python -m py_compile logger.py server.py routes/auth_routes.py routes/services_routes.py routes/admin_routes.py routes/appointments_routes.py routes/applications_routes.py routes/voice_routes.py routes/rag_routes.py)",
+      "Bash(python -m py_compile routes/rag_routes.py)",
+      "Bash(python -m py_compile models/db.py RAG/connect_SQL/connect_SQL.py routes/rag_routes.py RAG/agent_core/node.py)",
+      "Bash(python -m py_compile logger.py RAG/connect_SQL/connect_SQL.py models/db.py routes/rag_routes.py RAG/agent_core/node.py)",
+      "Bash(python -c \":*)"
+    ]
+  }
+}
