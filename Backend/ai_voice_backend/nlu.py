@@ -155,7 +155,7 @@ class NLUEngine:
         if not GEMINI_API_KEY:
             return {}
         try:
-            import google.generativeai as genai
+            import google.generativeai as genai  # type: ignore
             from datetime import date
 
             if self._model is None:

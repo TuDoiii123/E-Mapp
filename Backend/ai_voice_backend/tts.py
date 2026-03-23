@@ -72,7 +72,7 @@ class TTSEngine:
     def available(self) -> bool:
         """True nếu có ít nhất một backend TTS hoạt động."""
         try:
-            from google.cloud import texttospeech  # noqa
+            from google.cloud import texttospeech  # type: ignore  # noqa
             return True
         except ImportError:
             return False
@@ -81,7 +81,7 @@ class TTSEngine:
 
     def _synthesize_gcloud(self, text: str) -> Optional[bytes]:
         try:
-            from google.cloud import texttospeech as g_tts
+            from google.cloud import texttospeech as g_tts  # type: ignore
         except ImportError:
             return None
         try:
