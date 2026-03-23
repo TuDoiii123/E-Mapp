@@ -1,6 +1,13 @@
 """
-Voice routes: STT, TTS, dialog flow, auto-create appointment.
-Dialog state is persisted to data/dialog_store.json so it survives restarts.
+Voice routes — delegates to ai_voice_backend module.
+
+Endpoints:
+  POST /api/voice/stt                  Speech-to-Text
+  POST /api/voice/tts                  Text-to-Speech
+  GET  /api/voice/voices               Danh sách giọng TTS
+  POST /api/voice/dialog               Hội thoại đặt lịch multi-turn
+  POST /api/voice/audio-dialog         Pipeline Audio→STT→Dialog→TTS (full)
+  POST /api/voice/appointments/auto-create  One-shot NLP → đặt lịch
 """
 import base64
 import json
@@ -9,16 +16,17 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from flask import Blueprint, Response, jsonify, make_response, request
+from flask import Blueprint, Response, jsonify, request
 
-from services.appointments import create_appointment, suggest_slots
 from logger import get_logger
+from ai_voice_backend import VoiceBackend
 
 log = get_logger('voice_routes')
 
-voice_bp = Blueprint('voice', __name__, url_prefix='/api/voice')
+voice_bp  = Blueprint('voice', __name__, url_prefix='/api/voice')
+_backend  = VoiceBackend()
 
-# ── Gemini (lazy init) ─────────────────────────────────────────────────────────
+# ── Legacy Gemini (giữ lại để backward-compat với code cũ) ────────────────────
 _gemini_model = None
 
 
@@ -189,6 +197,60 @@ def _success_msg(date_iso: str, hhmm: str, location_display: str, service_displa
         f'Mã số: {queue}\n'
         f'Mã ID: {appt_id}'
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NEW endpoints dùng ai_voice_backend module
+# ══════════════════════════════════════════════════════════════════════════════
+
+@voice_bp.route('/audio-dialog', methods=['POST'])
+def api_audio_dialog():
+    """
+    Pipeline đầy đủ: Audio → STT → Dialog → TTS.
+    Nhận multipart/form-data với field 'audio', trả về:
+      { transcription, reply, step, done, appointment, audio }
+    """
+    speak      = request.args.get('speak', '1') == '1'
+    session_id = (request.form.get('session_id') or
+                  request.headers.get('X-Session-Id') or 'default')
+    mock_text  = request.headers.get('X-Debug-Transcription')
+
+    audio_file = request.files.get('audio') or request.files.get('file')
+    if not audio_file:
+        return jsonify({'success': False, 'message': 'Thiếu file audio (field "audio")'}), 400
+
+    audio_bytes = audio_file.read()
+    mime_type   = audio_file.content_type or 'audio/webm'
+
+    result = _backend.process_audio(
+        session_id=session_id,
+        audio_bytes=audio_bytes,
+        mime_type=mime_type,
+        speak=speak,
+        mock_text=mock_text,
+    )
+    return jsonify({'success': True, 'data': result})
+
+
+@voice_bp.route('/dialog/start', methods=['POST'])
+def api_dialog_start():
+    """Bắt đầu phiên hội thoại mới."""
+    payload    = request.get_json(silent=True) or {}
+    session_id = (payload.get('session_id') or payload.get('sessionId') or 'default')
+    resp       = _backend.dialog_start(session_id)
+    return jsonify({
+        'success': True,
+        'data': {'reply': resp.reply, 'step': resp.step, 'state': resp.state},
+    })
+
+
+@voice_bp.route('/dialog/reset', methods=['POST'])
+def api_dialog_reset():
+    """Xóa trạng thái phiên hội thoại."""
+    payload    = request.get_json(silent=True) or {}
+    session_id = payload.get('session_id') or payload.get('sessionId') or 'default'
+    _backend.dialog_reset(session_id)
+    return jsonify({'success': True})
 
 
 # ── STT ────────────────────────────────────────────────────────────────────────
