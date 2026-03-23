@@ -16,6 +16,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from RAG.agent_core.graph import MultiRoleAgentGraph
 from RAG.connect_SQL.connect_SQL import connect_sql
+from logger import get_logger
+
+log = get_logger('rag_routes')
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -103,23 +106,26 @@ def _log_chat(session_id: Optional[str], user_query: str, ai_response: str, inte
         with engine.begin() as conn:
             if is_new:
                 conn.execute(
-                    text('INSERT INTO ChatSessions (SessionId, FirstMessageSummary, CreatedAt) VALUES (:sid, :summary, :ts)'),
+                    text('''INSERT INTO chat_sessions (session_id, first_message_summary, created_at)
+                            VALUES (:sid, :summary, :ts)
+                            ON CONFLICT (session_id) DO NOTHING'''),
                     {'sid': sid, 'summary': summary, 'ts': timestamp},
                 )
             result = conn.execute(
-                text('''INSERT INTO dbo.conversation_history (session_id, user_message, bot_response, timestamp)
-                        OUTPUT INSERTED.id VALUES (:sid, :user_msg, :bot_res, :ts)'''),
+                text('''INSERT INTO conversation_history (session_id, user_message, bot_response, timestamp)
+                        VALUES (:sid, :user_msg, :bot_res, :ts)
+                        RETURNING id'''),
                 {'sid': sid, 'user_msg': user_query, 'bot_res': ai_response, 'ts': timestamp},
             )
             conv_id = result.scalar_one()
             conn.execute(
-                text('''INSERT INTO dbo.query_results (conversation_id, query_text, response_text, retrieved_docs, model_name, timestamp)
+                text('''INSERT INTO query_results (conversation_id, query_text, response_text, retrieved_docs, model_name, timestamp)
                         VALUES (:conv_id, :q_text, :res_text, :r_docs, :model, :ts)'''),
                 {'conv_id': conv_id, 'q_text': user_query, 'res_text': ai_response,
                  'r_docs': intermediate_steps, 'model': 'gemini-2.0-flash', 'ts': timestamp},
             )
     except SQLAlchemyError as exc:
-        print(f'[rag] DB log failed: {exc}')
+        log.warning(f'[rag] DB log failed: {exc}', exc_info=True)
         return None
 
     return sid
@@ -132,11 +138,11 @@ def _fetch_recent_sessions(limit: int = 5) -> List[Dict[str, Any]]:
     try:
         with engine.connect() as conn:
             rows = conn.execute(
-                text('SELECT TOP (:limit) SessionId, FirstMessageSummary, CreatedAt FROM dbo.ChatSessions ORDER BY CreatedAt DESC'),
+                text('SELECT session_id, first_message_summary, created_at FROM chat_sessions ORDER BY created_at DESC LIMIT :limit'),
                 {'limit': limit}
             ).fetchall()
-        return [{'sessionId': r.SessionId, 'summary': r.FirstMessageSummary,
-                 'createdAt': r.CreatedAt.isoformat() if r.CreatedAt else None} for r in rows]
+        return [{'sessionId': r.session_id, 'summary': r.first_message_summary,
+                 'createdAt': r.created_at.isoformat() if r.created_at else None} for r in rows]
     except Exception:
         return []
 
@@ -148,7 +154,7 @@ def _fetch_session_messages(session_id: str) -> List[Dict[str, Any]]:
     try:
         with engine.connect() as conn:
             rows = conn.execute(
-                text('SELECT user_message, bot_response, timestamp FROM dbo.conversation_history WHERE session_id = :sid ORDER BY timestamp ASC'),
+                text('SELECT user_message, bot_response, timestamp FROM conversation_history WHERE session_id = :sid ORDER BY timestamp ASC'),
                 {'sid': session_id}
             ).fetchall()
         msgs = []
@@ -182,7 +188,7 @@ def init_document_suggestion():
 
     fine_tuned_available = os.path.isdir(model_path)
     if not fine_tuned_available:
-        print(f'[SuggestProcedure][WARN] Fine-tuned model not found: {model_path}')
+        log.info(f'[SuggestProcedure][WARN] Fine-tuned model not found: {model_path}')
 
     try:
         _doc_df = pd.read_csv(csv_path)
@@ -218,24 +224,24 @@ def init_document_suggestion():
                         'procedure_name': row.get('procedure_name'),
                         'label': int(row.get('label', 1)),
                     })
-                print(f'[SuggestProcedure] Query map built: {len(_query_map)} queries')
+                log.info(f'[SuggestProcedure] Query map built: {len(_query_map)} queries')
             except Exception as r_exc:
-                print(f'[SuggestProcedure][WARN] Ranking CSV failed: {r_exc}')
+                log.info(f'[SuggestProcedure][WARN] Ranking CSV failed: {r_exc}')
 
         if fine_tuned_available:
             needed = ['config.json', 'model.safetensors', 'bpe.codes']
             if any(not os.path.isfile(os.path.join(model_path, f)) for f in needed):
                 fine_tuned_available = False
-                print('[SuggestProcedure][WARN] Fine-tuned model incomplete -> fallback')
+                log.info('[SuggestProcedure][WARN] Fine-tuned model incomplete -> fallback')
 
         model_name = model_path if fine_tuned_available else 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
         _doc_model = SentenceTransformer(model_name)
         names = _doc_df['NAME'].astype(str).tolist()
         _doc_embeddings = _doc_model.encode(names, convert_to_tensor=True)
-        print('[SuggestProcedure] Embeddings ready')
+        log.info('[SuggestProcedure] Embeddings ready')
 
     except Exception as exc:
-        print(f'[SuggestProcedure][ERROR] {exc}\n{traceback.format_exc()}')
+        log.info(f'[SuggestProcedure][ERROR] {exc}\n{traceback.format_exc()}')
         fallback = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
         try:
             _doc_model = SentenceTransformer(fallback)
@@ -243,9 +249,9 @@ def init_document_suggestion():
                 _doc_df = pd.DataFrame({'ID': [], 'NAME': []})
             names = _doc_df['NAME'].astype(str).tolist()
             _doc_embeddings = _doc_model.encode(names or ['placeholder'], convert_to_tensor=True)
-            print('[SuggestProcedure][FALLBACK] Ready')
+            log.info('[SuggestProcedure][FALLBACK] Ready')
         except Exception as fb_exc:
-            print(f'[SuggestProcedure][FALLBACK][ERROR] {fb_exc}')
+            log.info(f'[SuggestProcedure][FALLBACK][ERROR] {fb_exc}')
             _doc_model = _doc_df = _doc_embeddings = None
             raise
 
@@ -329,11 +335,13 @@ def rag_chat():
         try:
             agent = _get_agent()
         except Exception as exc:
+            log.error(f'[rag/chat] Failed to initialize agent: {exc}', exc_info=True)
             return jsonify({'success': False, 'message': f'Failed to initialize agent: {exc}'}), 500
         try:
             state = agent.create_new_state(user_question=user_message, session_id=session_id or '')
             result = agent.run(state)
         except Exception as exc:
+            log.error(f'[rag/chat] Agent execution failed: {exc}', exc_info=True)
             return jsonify({'success': False, 'message': f'Agent execution failed: {exc}'}), 500
 
         final_answer = result.get('final_answer') or 'Xin lỗi, tôi chưa thể trả lời câu hỏi này.'
@@ -359,6 +367,7 @@ def rag_chat():
         if result_sid:
             stored_session_id = result_sid
     except Exception as exc:
+        log.warning(f'[rag/chat] DB log failed: {exc}', exc_info=True)
         warnings.append(str(exc))
 
     audio_obj = None
@@ -391,6 +400,7 @@ def rag_sessions():
     try:
         sessions = _fetch_recent_sessions(limit)
     except Exception as exc:
+        log.error(f'[rag/sessions] {exc}', exc_info=True)
         return jsonify({'success': False, 'message': str(exc)}), 500
     return jsonify({'success': True, 'data': {'sessions': sessions}})
 
@@ -402,6 +412,7 @@ def rag_session_messages(session_id: str):
     try:
         messages = _fetch_session_messages(session_id)
     except Exception as exc:
+        log.error(f'[rag/session_messages] {exc}', exc_info=True)
         return jsonify({'success': False, 'message': str(exc)}), 500
     return jsonify({'success': True, 'data': {'sessionId': session_id, 'messages': messages}})
 

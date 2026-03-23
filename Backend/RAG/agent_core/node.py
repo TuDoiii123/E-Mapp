@@ -8,15 +8,18 @@ from ..utils.llm_wrapper import (
     GeminiChatParagraphSummarizer,
 )
 from ..tools.tool_registry import TOOL_REGISTRY
+from ..cache.semantic_cache import get_cache
 import yaml
 import re
 import json
-import logging
 from ..connect_SQL.connect_SQL import connect_sql
 import os
 from sqlalchemy import text
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger('rag.node')
 
 # Thư mục gốc RAG (2 cấp trên so với file này: RAG/agent_core/node.py → RAG/)
 _RAG_DIR = Path(__file__).parent.parent
@@ -85,11 +88,12 @@ def _load_memory(session_id: str) -> str:
         return ""
 
     query = text("""
-        SELECT TOP 3 user_message, bot_response
-        FROM dbo.conversation_history
+        SELECT user_message, bot_response
+        FROM conversation_history
         WHERE session_id = :session_id
-          AND timestamp >= DATEADD(HOUR, -4, GETDATE())
-        ORDER BY timestamp DESC;
+          AND timestamp >= NOW() - INTERVAL '4 hours'
+        ORDER BY timestamp DESC
+        LIMIT 3
     """)
 
     try:
@@ -344,3 +348,87 @@ Nhiệm vụ của bạn:
 
     # --- Cập nhật vào state ---
     state["final_answer"] = final_answer.strip()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CAG — Cache Augmented Generation nodes
+# ══════════════════════════════════════════════════════════════════════════════
+
+def cache_check(state: MultiRoleAgentState) -> None:
+    """
+    CAG Node 1/2 — Kiểm tra semantic cache trước khi chạy pipeline đầy đủ.
+
+    Luồng:
+      1. Embed câu hỏi người dùng thành vector d-chiều bằng SentenceTransformer.
+      2. Tính Cosine Similarity giữa vector đó và mọi entry đã cache.
+      3. HIT  (similarity ≥ threshold): ghi final_answer từ cache, đặt cache_hit=True.
+         → Graph sẽ nhảy thẳng đến END, bỏ qua task_analyzer / tool_executor / llm_response.
+      4. MISS (similarity <  threshold): đặt cache_hit=False, lưu embedding vào state
+         để cache_store tái sử dụng mà không cần embed lại.
+
+    Tiết kiệm:
+      • ~2 lần gọi Gemini API (task_analyzer + llm_response)
+      • 1 lần truy vấn ChromaDB + encode SentenceTransformer
+      → Giảm latency từ ~3-8 s xuống còn ~50-200 ms khi hit.
+    """
+    from ..tools.rag import get_embedding
+
+    user_question = state.get("user_input", "")
+    if not user_question:
+        state["cache_hit"] = False
+        return
+
+    # Embed câu hỏi (SentenceTransformer local — nhanh)
+    query_embedding = get_embedding(user_question)
+    state["query_embedding"] = query_embedding
+
+    if not query_embedding:
+        state["cache_hit"] = False
+        return
+
+    # Tìm trong cache
+    cache = get_cache()
+    hit   = cache.lookup(query_embedding)
+
+    if hit is not None:
+        state["cache_hit"]    = True
+        state["final_answer"] = hit.answer
+        logger.info(
+            '[CAG] Cache HIT — skipping task_analyzer + tool_executor + llm_response'
+        )
+        cache.log_stats()
+    else:
+        state["cache_hit"] = False
+        logger.debug('[CAG] Cache MISS — proceeding with full RAG pipeline')
+
+
+def cache_store(state: MultiRoleAgentState) -> None:
+    """
+    CAG Node 2/2 — Lưu câu trả lời mới vào semantic cache sau khi RAG hoàn thành.
+
+    Chỉ lưu khi:
+      • cache_hit == False  (kết quả vừa được sinh ra bởi LLM, chưa có trong cache)
+      • final_answer không rỗng
+      • query_embedding đã được tính ở cache_check (tránh embed lại)
+
+    Sau khi lưu, in thống kê tổng hợp (hit rate, số entries) ra terminal.
+    """
+    if state.get("cache_hit"):
+        return  # không cần lưu lại entry đã có
+
+    answer = state.get("final_answer", "").strip()
+    query  = state.get("user_input", "").strip()
+    emb    = state.get("query_embedding")
+
+    if not answer or not query:
+        return
+
+    # Nếu embedding chưa có (edge case), tính lại
+    if not emb:
+        from ..tools.rag import get_embedding
+        emb = get_embedding(query)
+
+    if emb:
+        cache = get_cache()
+        cache.store(query=query, query_embedding=emb, answer=answer)
+        cache.log_stats()

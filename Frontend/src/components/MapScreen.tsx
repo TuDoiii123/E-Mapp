@@ -1,14 +1,16 @@
 /// <reference types="../vite-env" />
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Navigation, Clock, Phone, Loader2, AlertCircle, Map } from 'lucide-react';
+import { MapPin, Navigation, Clock, Phone, Loader2, AlertCircle, Map, Search, Hash, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
+import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Slider } from './ui/slider';
 import { servicesAPI, PublicService, ServiceCategory } from '../services/servicesApi';
 import { Alert, AlertDescription } from './ui/alert';
+import { getMapOverview, AgencyQueueStatus } from '../services/queueService';
 
 declare global {
   interface Window {
@@ -17,7 +19,7 @@ declare global {
 }
 
 interface MapScreenProps {
-  onNavigate: (screen: string) => void;
+  onNavigate: (screen: string, params?: any) => void;
 }
 
 // Default location (Hoàn Kiếm, Hà Nội)
@@ -27,6 +29,7 @@ const DEFAULT_LNG = 105.8542;
 export function MapScreen({ onNavigate }: MapScreenProps) {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [radius, setRadius] = useState([10]);
+  const [searchQuery,     setSearchQuery]     = useState('');
   const [selectedOffice, setSelectedOffice] = useState<PublicService | null>(null);
   const [offices, setOffices] = useState<PublicService[]>([]);
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
@@ -36,6 +39,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const [locationLoading, setLocationLoading] = useState(false);
   const [mapError, setMapError] = useState<string>('');
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [queueData, setQueueData] = useState<Record<string, AgencyQueueStatus>>({});
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
@@ -161,7 +165,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     }
   }, [userLocation]);
 
-  // Update markers when offices change
+  // Update markers when offices or queue data change
   useEffect(() => {
     if (!mapInstanceRef.current || !window.google) return;
 
@@ -172,24 +176,37 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     // Add markers for each office
     offices.forEach((office) => {
       if (office.latitude && office.longitude) {
+        const qs = queueData[office.id];
+        const loadLevel = qs?.loadLevel ?? 'low';
+        const waiting   = qs?.totalWaiting ?? 0;
+
         const marker = new window.google.maps.Marker({
           position: { lat: office.latitude, lng: office.longitude },
           map: mapInstanceRef.current,
           title: office.name,
           icon: {
-            url: 'http://maps.google.com/mapfiles/ms/icons/red-dot.png',
-            scaledSize: new window.google.maps.Size(32, 32)
+            url: buildQueueMarkerSvg(waiting, loadLevel),
+            scaledSize: new window.google.maps.Size(44, 54),
+            anchor: new window.google.maps.Point(22, 54),
           }
         });
 
-        // Add info window
+        const loadColor = loadLevel === 'high' ? '#ef4444' : loadLevel === 'medium' ? '#f59e0b' : '#22c55e';
+        const loadText  = loadLevel === 'high' ? 'Đông' : loadLevel === 'medium' ? 'Vừa' : 'Ít';
+        const queueHtml = qs
+          ? `<p style="margin:4px 0 0;font-size:12px;color:${loadColor};font-weight:600;">
+               Đang chờ: ${waiting} người &bull; <span>${loadText}</span>
+             </p>`
+          : '';
+
         const infoWindow = new window.google.maps.InfoWindow({
           content: `
-            <div style="padding: 8px; min-width: 200px;">
-              <h3 style="margin: 0 0 8px 0; font-weight: bold; font-size: 14px;">${office.name}</h3>
-              <p style="margin: 0 0 4px 0; font-size: 12px; color: #666;">${office.address}</p>
-              ${office.distance ? `<p style="margin: 0 0 4px 0; font-size: 12px; color: #666;">Khoảng cách: ${office.distance.toFixed(1)} km</p>` : ''}
-              ${office.phone ? `<p style="margin: 0; font-size: 12px; color: #666;">📞 ${office.phone}</p>` : ''}
+            <div style="padding:8px;min-width:200px;">
+              <h3 style="margin:0 0 6px;font-weight:bold;font-size:14px;">${office.name}</h3>
+              <p style="margin:0 0 3px;font-size:12px;color:#555;">${office.address}</p>
+              ${office.distance ? `<p style="margin:0 0 3px;font-size:12px;color:#555;">Khoảng cách: ${office.distance.toFixed(1)} km</p>` : ''}
+              ${office.phone ? `<p style="margin:0 0 3px;font-size:12px;color:#555;">📞 ${office.phone}</p>` : ''}
+              ${queueHtml}
             </div>
           `
         });
@@ -214,7 +231,22 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
       }
       mapInstanceRef.current.fitBounds(bounds);
     }
-  }, [offices]);
+  }, [offices, queueData]);
+
+  // Poll realtime queue overview for map markers
+  useEffect(() => {
+    const fetchQueueOverview = async () => {
+      try {
+        const data = await getMapOverview();
+        setQueueData(data);
+      } catch {
+        // non-fatal: markers will show without queue counts
+      }
+    };
+    fetchQueueOverview();
+    const interval = setInterval(fetchQueueOverview, 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Load categories on mount
   useEffect(() => {
@@ -225,6 +257,18 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   useEffect(() => {
     loadServices();
   }, [selectedCategory, radius, userLocation]);
+
+  // Build SVG pin icon with waiting count badge
+  const buildQueueMarkerSvg = (waiting: number, loadLevel: 'low' | 'medium' | 'high'): string => {
+    const color = loadLevel === 'high' ? '#ef4444' : loadLevel === 'medium' ? '#f59e0b' : '#22c55e';
+    const label = waiting > 99 ? '99+' : String(waiting);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="54" viewBox="0 0 44 54">
+      <ellipse cx="22" cy="21" rx="19" ry="19" fill="${color}" stroke="white" stroke-width="2.5"/>
+      <polygon points="14,37 30,37 22,54" fill="${color}"/>
+      <text x="22" y="27" text-anchor="middle" font-size="${label.length > 2 ? 10 : 13}" font-weight="bold" fill="white" font-family="Arial,sans-serif">${label}</text>
+    </svg>`;
+    return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+  };
 
   const loadCategories = async () => {
     try {
@@ -336,7 +380,13 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     }
   };
 
-  const filteredOffices = offices;
+  const filteredOffices = searchQuery.trim()
+    ? offices.filter(o =>
+        o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (o.address || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (o.services || []).some(s => s.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+    : offices;
 
   return (
     <div className="min-h-screen bg-white">
@@ -344,8 +394,25 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
       {/* iOS Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="px-4 py-4">
-          <h1 className="text-2xl font-bold text-gray-900 mb-6">Bản đồ dịch vụ công</h1>
-          
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Bản đồ dịch vụ công</h1>
+
+          {/* Thanh tìm kiếm */}
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Tìm cơ quan, dịch vụ, địa chỉ..."
+              className="pl-10 pr-10 h-11 bg-gray-50 border-gray-200 rounded-xl"
+            />
+            {searchQuery && (
+              <button className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+                onClick={() => setSearchQuery('')}>
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
           {error && (
             <Alert variant="destructive" className="mb-4">
               <AlertCircle className="h-4 w-4" />
@@ -438,7 +505,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
 
         {/* GPS Button */}
         {mapLoaded && !mapError && (
-          <div className="absolute top-4 right-4 z-10">
+          <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 items-end">
             <Button
               variant="outline"
               size="sm"
@@ -453,7 +520,13 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
               )}
               {locationLoading ? 'Đang lấy...' : 'Vị trí của tôi'}
             </Button>
-        </div>
+            {/* Queue legend */}
+            <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md px-3 py-2 text-xs space-y-1">
+              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-500 inline-block"/><span>Ít người (≤5)</span></div>
+              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"/><span>Vừa (6-15)</span></div>
+              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"/><span>Đông (&gt;15)</span></div>
+            </div>
+          </div>
         )}
       </div>
 
@@ -510,6 +583,14 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                   <div className="flex-1">
                     <h3 className="font-semibold text-gray-900">{office.name}</h3>
                     <p className="text-sm text-gray-600 mt-1">{office.address}</p>
+                    {queueData[office.id] && (
+                      <p className={`text-xs font-medium mt-1 ${
+                        queueData[office.id].loadLevel === 'high' ? 'text-red-600' :
+                        queueData[office.id].loadLevel === 'medium' ? 'text-amber-600' : 'text-green-600'
+                      }`}>
+                        Đang chờ: {queueData[office.id].totalWaiting} người
+                      </p>
+                    )}
                   </div>
                   <div className="text-right">
                       <p className="text-sm font-medium text-gray-900">
@@ -572,15 +653,28 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                         </div>
                       )}
 
+                    {queueData[office.id] && (
+                      <div className={`p-4 rounded-2xl ${
+                        queueData[office.id].loadLevel === 'high' ? 'bg-red-50 border border-red-100' :
+                        queueData[office.id].loadLevel === 'medium' ? 'bg-amber-50 border border-amber-100' :
+                        'bg-green-50 border border-green-100'
+                      }`}>
+                        <h4 className="font-medium text-gray-900 mb-1">Trạng thái hàng chờ</h4>
+                        <p className="text-sm text-gray-700">
+                          Đang chờ: <strong>{queueData[office.id].totalWaiting}</strong> người &bull; Đang phục vụ: <strong>{queueData[office.id].totalServing}</strong>
+                        </p>
+                      </div>
+                    )}
+
                     <div className="p-4 bg-blue-50 rounded-2xl">
                       <p className="text-sm text-blue-800">
                         <strong>Lưu ý:</strong> Nên đặt lịch trước qua ứng dụng để tiết kiệm thời gian chờ đợi.
                       </p>
                     </div>
 
-                    <div className="flex gap-3">
-                        <Button 
-                          className="flex-1 h-12 bg-red-600 hover:bg-red-700 rounded-xl"
+                    <div className="flex gap-2 flex-wrap">
+                        <Button
+                          className="flex-1 h-11 bg-red-600 hover:bg-red-700 rounded-xl text-sm"
                           onClick={(e) => {
                             e.stopPropagation();
                             if (office.latitude && office.longitude) {
@@ -591,20 +685,19 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                             }
                           }}
                         >
-                        <Navigation className="w-4 h-4 mr-2" />
-                        Đường đi
-                      </Button>
-                        <Button 
-                          variant="outline" 
-                          className="flex-1 h-12 rounded-xl border-gray-300"
+                          <Navigation className="w-4 h-4 mr-1.5" />
+                          Đường đi
+                        </Button>
+                        <Button
+                          className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // Navigate to detail screen if needed
+                            onNavigate('queue', { agencyId: office.id, agencyName: office.name });
                           }}
                         >
-                        <FileText className="w-4 h-4 mr-2" />
-                        Chi tiết
-                      </Button>
+                          <Hash className="w-4 h-4 mr-1.5" />
+                          Lấy số
+                        </Button>
                     </div>
                   </div>
                 )}

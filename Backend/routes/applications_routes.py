@@ -8,6 +8,9 @@ from models.application import Application
 from models.document import Document
 from models.status_tracking import StatusTracking
 from services.document_processor import process_document
+from logger import get_logger
+
+log = get_logger('applications_routes')
 
 applications_bp = Blueprint('applications', __name__, url_prefix='/api/applications')
 
@@ -115,7 +118,7 @@ def create_application():
                         if text:
                             Document.update(doc.get('id'), {'processedText': text})
                     except Exception as e:
-                        print(f'Document processing failed: {e}')
+                        log.error(f'Document processing failed: {e}', exc_info=True)
                 
                 thread = threading.Thread(target=process_async)
                 thread.daemon = True
@@ -130,6 +133,7 @@ def create_application():
         }), 201
     
     except Exception as e:
+        log.error(f'applications_routes error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': str(e) or 'Lỗi tạo hồ sơ'
@@ -180,6 +184,7 @@ def update_application(id):
         }), 200
     
     except Exception as e:
+        log.error(f'applications_routes error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi cập nhật hồ sơ'
@@ -239,6 +244,7 @@ def update_status(id):
         }), 403
     
     except Exception as e:
+        log.error(f'applications_routes error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi thay đổi trạng thái'
@@ -282,6 +288,7 @@ def get_application(id):
         }), 200
     
     except Exception as e:
+        log.error(f'applications_routes error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi lấy hồ sơ'
@@ -356,7 +363,7 @@ def attach_files(id):
                         if text:
                             Document.update(doc.get('id'), {'processedText': text})
                     except Exception as e:
-                        print(f'Document processing failed: {e}')
+                        log.error(f'Document processing failed: {e}', exc_info=True)
                 
                 thread = threading.Thread(target=process_async)
                 thread.daemon = True
@@ -369,9 +376,106 @@ def attach_files(id):
                 'attached': attached
             }
         }), 200
-    
+
     except Exception as e:
+        log.error(f'applications_routes error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi khi upload file'
         }), 500
+
+
+@applications_bp.route('/search', methods=['GET'])
+def search_applications():
+    """
+    Tra cứu hồ sơ theo mã hồ sơ hoặc số CCCD.
+    Query params:
+      q     — mã hồ sơ (id prefix) hoặc CCCD
+      cccd  — tìm chính xác theo CCCD của người nộp
+      status — lọc theo trạng thái
+    Công dân chỉ thấy hồ sơ của mình; admin thấy tất cả.
+    """
+    try:
+        if not hasattr(request, 'user_id'):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+
+        q      = (request.args.get('q') or '').strip().lower()
+        cccd   = (request.args.get('cccd') or '').strip()
+        status = (request.args.get('status') or '').strip()
+        is_admin = getattr(request, 'role', '') == 'admin'
+
+        from models.user import FileStorage
+        all_apps = FileStorage.read_json('applications.json')
+
+        results = []
+        for app in all_apps:
+            # Phân quyền: công dân chỉ thấy hồ sơ của mình
+            if not is_admin and app.get('applicantId') != request.user_id:
+                continue
+
+            # Lọc CCCD: tra cứu applicantId (user_id) qua bảng users
+            if cccd:
+                users = FileStorage.read_json('users.json')
+                owner = next(
+                    (u for u in users if u.get('cccdNumber') == cccd), None
+                )
+                if not owner or app.get('applicantId') != owner.get('id'):
+                    continue
+
+            # Lọc mã hồ sơ hoặc từ khóa
+            if q and not (
+                q in app.get('id', '').lower()
+                or q in (app.get('data', {}).get('applicantName') or '').lower()
+            ):
+                continue
+
+            # Lọc trạng thái
+            if status and app.get('currentStatus') != status:
+                continue
+
+            # Lấy thêm lịch sử trạng thái và thông tin dịch vụ
+            history = Application.get_status_history(app['id'])
+            results.append({
+                **app,
+                'statusHistory': history,
+            })
+
+        # Sắp xếp mới nhất lên đầu
+        results.sort(key=lambda a: a.get('createdAt', ''), reverse=True)
+
+        page  = max(int(request.args.get('page', 1)), 1)
+        limit = min(int(request.args.get('limit', 10)), 50)
+        total = len(results)
+        results = results[(page - 1) * limit: page * limit]
+
+        return jsonify({
+            'success': True,
+            'data': results,
+            'pagination': {'page': page, 'limit': limit, 'total': total},
+        })
+
+    except Exception as e:
+        log.error(f'applications_routes error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@applications_bp.route('/my', methods=['GET'])
+def my_applications():
+    """Danh sách hồ sơ của người dùng hiện tại"""
+    try:
+        if not hasattr(request, 'user_id'):
+            return jsonify({'success': False, 'message': 'Unauthorized'}), 401
+
+        from models.user import FileStorage
+        all_apps = FileStorage.read_json('applications.json')
+        mine = [a for a in all_apps if a.get('applicantId') == request.user_id]
+        mine.sort(key=lambda a: a.get('createdAt', ''), reverse=True)
+
+        status = request.args.get('status')
+        if status:
+            mine = [a for a in mine if a.get('currentStatus') == status]
+
+        return jsonify({'success': True, 'data': mine, 'total': len(mine)})
+    except Exception as e:
+        log.error(f'applications_routes error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500

@@ -1,5 +1,13 @@
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+from server import app
 from models.user import User
+
 
 
 def main():
@@ -43,4 +51,5 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    with app.app_context():
+        main()

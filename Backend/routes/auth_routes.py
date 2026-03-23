@@ -7,6 +7,9 @@ import re
 from models.user import User
 from services.vneid import verify_vneid
 from config import JWT_SECRET, JWT_EXPIRES_IN
+from logger import get_logger
+
+log = get_logger('auth_routes')
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -174,6 +177,7 @@ def register():
         }), 201
     
     except Exception as e:
+        log.error(f'register error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': str(e) or 'Đăng ký thất bại'
@@ -234,6 +238,7 @@ def login():
         }), 200
     
     except Exception as e:
+        log.error(f'login error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi đăng nhập'
@@ -249,6 +254,7 @@ def logout():
             'message': 'Đăng xuất thành công'
         }), 200
     except Exception as e:
+        log.error(f'logout error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi đăng xuất'
@@ -278,6 +284,7 @@ def get_profile():
             }
         }), 200
     except Exception as e:
+        log.error(f'get_profile error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': 'Lỗi lấy thông tin người dùng'
@@ -349,6 +356,7 @@ def update_profile():
         }), 200
     
     except Exception as e:
+        log.error(f'update_profile error: {e}', exc_info=True)
         return jsonify({
             'success': False,
             'message': str(e) or 'Lỗi cập nhật thông tin'
