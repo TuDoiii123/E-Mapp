@@ -102,7 +102,7 @@ class STTEngine:
         if GEMINI_API_KEY:
             return 'gemini'
         try:
-            from google.cloud import speech  # noqa
+            from google.cloud import speech  # type: ignore  # noqa
             return 'google_cloud'
         except ImportError:
             pass
@@ -116,7 +116,7 @@ class STTEngine:
         Không cần Google Cloud credentials — chỉ cần GEMINI_API_KEY.
         """
         try:
-            import google.generativeai as genai
+            import google.generativeai as genai  # type: ignore
 
             if self._gemini_model is None:
                 genai.configure(api_key=GEMINI_API_KEY)
@@ -151,7 +151,7 @@ class STTEngine:
     def _transcribe_gcloud(self, audio_bytes: bytes) -> str:
         """Google Cloud Speech-to-Text API."""
         try:
-            from google.cloud import speech as g_speech
+            from google.cloud import speech as g_speech  # type: ignore
         except ImportError:
             return ''
         try:
