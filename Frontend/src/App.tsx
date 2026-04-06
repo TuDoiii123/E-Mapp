@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { MessageCircle } from 'lucide-react';
 import { LoginScreen } from './components/LoginScreen';
 import { HomeScreen } from './components/HomeScreen';
 import { MapScreen } from './components/MapScreen';
@@ -14,13 +15,16 @@ import { RegisterScreen } from './components/RegisterScreen';
 import { AccountDetailScreen } from './components/AccountDetailScreen';
 import { DocumentCatalogScreen } from './components/DocumentCatalogScreen';
 import { DocumentDetailScreen } from './components/DocumentDetailScreen';
-import { BottomNavigation } from './components/BottomNavigation';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppointmentCalendarScreen } from './components/AppointmentCalendarScreen';
+import { AppointmentScreen } from './components/AppointmentScreen';
 import { QueueScreen } from './components/QueueScreen';
 import { QueueDisplayScreen } from './components/QueueDisplayScreen';
 import { QueueStaffScreen } from './components/QueueStaffScreen';
 import { AdminDashboardScreen } from './components/AdminDashboardScreen';
+
+/* Screens where the chatbot FAB should NOT appear */
+const NO_FAB_SCREENS = ['login', 'register', 'forgot-password', 'chatbot', 'queue-display'];
 
 function AppContent() {
   const [currentScreen, setCurrentScreen] = useState('home');
@@ -80,6 +84,8 @@ function AppContent() {
         return <HomeScreen onNavigate={handleNavigateWithParams} />;
       case 'appointment':
         return <AppointmentCalendarScreen onNavigate={handleNavigateWithParams} />;
+      case 'booking':
+        return <AppointmentScreen onNavigate={handleNavigateWithParams} />;
       case 'map':
         return <MapScreen onNavigate={handleNavigate} />;
       case 'search':
@@ -133,19 +139,21 @@ function AppContent() {
     }
   };
 
-  return (
-    <div className="size-full min-h-screen bg-gray-50 relative">
-      {/* Main Content */}
-      <div className={`${!['account-detail', 'queue-display'].includes(currentScreen) ? 'pb-16' : ''}`}>
-        {renderScreen()}
-      </div>
+  const showFab = !NO_FAB_SCREENS.includes(currentScreen);
 
-      {/* Bottom Navigation — ẩn trên màn hình fullscreen */}
-      {!['queue-display', 'login', 'register', 'forgot-password'].includes(currentScreen) && (
-        <BottomNavigation
-          currentScreen={currentScreen}
-          onNavigate={handleNavigate}
-        />
+  return (
+    <div className="size-full min-h-screen relative">
+      {renderScreen()}
+
+      {/* Floating Chatbot Button */}
+      {showFab && (
+        <button
+          onClick={() => handleNavigate('chatbot')}
+          className="fixed bottom-6 right-5 z-50 w-14 h-14 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-full shadow-lg shadow-red-600/40 flex items-center justify-center transition-all"
+          aria-label="Mở trợ lý AI"
+        >
+          <MessageCircle className="w-6 h-6" />
+        </button>
       )}
     </div>
   );

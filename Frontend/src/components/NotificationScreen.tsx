@@ -1,92 +1,87 @@
-import { useState } from 'react';
-import { Bell, Filter, FileText, Building, Star, Clock, CheckCircle, AlertCircle, ArrowLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Bell, Filter, FileText, Building, Star, Clock, CheckCircle, AlertCircle, ArrowLeft, RefreshCw } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import React from 'react';
+import * as adminSvc from '../services/adminService';
+
 interface NotificationScreenProps {
   onNavigate: (screen: string) => void;
 }
 
+// Map application status → notification shape
+function appToNotification(app: any) {
+  const STATUS_TITLE: Record<string, string> = {
+    submitted:      'Hồ sơ đã được tiếp nhận',
+    under_review:   'Hồ sơ đang được xem xét',
+    need_more_info: 'Cần bổ sung hồ sơ',
+    approved:       'Hồ sơ đã được duyệt',
+    rejected:       'Hồ sơ bị từ chối',
+  };
+  const PRIORITY: Record<string, string> = {
+    need_more_info: 'high',
+    rejected:       'high',
+    approved:       'medium',
+    under_review:   'medium',
+    submitted:      'low',
+  };
+  const st = app.currentStatus || 'submitted';
+  return {
+    id:         app.id,
+    type:       'document',
+    title:      STATUS_TITLE[st] || 'Cập nhật hồ sơ',
+    content:    `Hồ sơ "${app.procedureName || app.procedureId}" - Mã: ${app.id}`,
+    time:       app.updatedAt ? new Date(app.updatedAt).toLocaleDateString('vi-VN') : '',
+    read:       st === 'submitted',
+    priority:   PRIORITY[st] || 'low',
+    documentId: app.id,
+  };
+}
+
+const STATUS_VI: Record<string, string> = {
+  submitted:      'Đã nộp',
+  under_review:   'Đang xét',
+  need_more_info: 'Cần bổ sung',
+  approved:       'Đã duyệt',
+  rejected:       'Từ chối',
+};
+const STATUS_COLOR: Record<string, string> = {
+  submitted:      'bg-blue-100 text-blue-800',
+  under_review:   'bg-yellow-100 text-yellow-800',
+  need_more_info: 'bg-orange-100 text-orange-800',
+  approved:       'bg-green-100 text-green-800',
+  rejected:       'bg-red-100 text-red-800',
+};
+
 export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
-  const [filter, setFilter] = useState('all');
+  const [filter,       setFilter]       = useState('all');
+  const [applications, setApplications] = useState<any[]>([]);
+  const [loading,      setLoading]      = useState(true);
+  const [readSet,      setReadSet]      = useState<Set<string>>(new Set());
 
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: 'document',
-      title: 'Hồ sơ đã được xử lý xong',
-      content: 'Hồ sơ "Đăng ký kết hôn" của bạn đã được hoàn tất. Vui lòng đến nhận kết quả.',
-      time: '2 phút trước',
-      read: false,
-      priority: 'high',
-      documentId: 'HS001'
-    },
-    {
-      id: 2,
-      type: 'document',
-      title: 'Cần bổ sung hồ sơ',
-      content: 'Hồ sơ "Cấp lại CCCD" cần bổ sung ảnh 4x6. Hạn cuối: 28/01/2024',
-      time: '1 giờ trước',
-      read: false,
-      priority: 'high',
-      documentId: 'HS003'
-    },
-    {
-      id: 3,
-      type: 'office',
-      title: 'Thông báo nghỉ lễ',
-      content: 'UBND Quận 1 sẽ nghỉ lễ Tết Nguyên đán từ 08/02 - 17/02/2024',
-      time: '3 giờ trước',
-      read: true,
-      priority: 'medium'
-    },
-    {
-      id: 4,
-      type: 'evaluation',
-      title: 'Đề nghị đánh giá dịch vụ',
-      content: 'Bạn đã hoàn thành thủ tục tại Sở Tài nguyên Môi trường. Vui lòng đánh giá chất lượng dịch vụ.',
-      time: '1 ngày trước',
-      read: true,
-      priority: 'low'
-    },
-    {
-      id: 5,
-      type: 'document',
-      title: 'Hồ sơ được tiếp nhận',
-      content: 'Hồ sơ "Giấy phép lái xe" đã được tiếp nhận. Mã hồ sơ: HS002',
-      time: '2 ngày trước',
-      read: true,
-      priority: 'medium',
-      documentId: 'HS002'
-    }
-  ]);
+  useEffect(() => {
+    adminSvc.getMyApplications()
+      .then(r => setApplications(r.data || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
-  const history = [
-    {
-      id: 'HS001',
-      title: 'Đăng ký kết hôn',
-      status: 'Hoàn thành',
-      date: '2024-01-20',
-      office: 'UBND Quận 1'
-    },
-    {
-      id: 'HS002',
-      title: 'Giấy phép lái xe',
-      status: 'Đang xử lý',
-      date: '2024-01-22',
-      office: 'Sở GTVT TP.HCM'
-    },
-    {
-      id: 'HS003',
-      title: 'Cấp lại CCCD',
-      status: 'Cần bổ sung',
-      date: '2024-01-25',
-      office: 'Công an Quận 3'
-    }
-  ];
+  const notifications = applications.map(appToNotification).map(n => ({
+    ...n,
+    read: readSet.has(String(n.id)) || n.read,
+  }));
+
+  const history = applications.map(app => ({
+    id:     app.id,
+    title:  app.procedureName || app.procedureId || 'Hồ sơ',
+    status: STATUS_VI[app.currentStatus] || app.currentStatus,
+    statusKey: app.currentStatus,
+    date:   app.createdAt ? new Date(app.createdAt).toLocaleDateString('vi-VN') : '',
+    office: app.agencyName || app.agencyId || '',
+  }));
 
   const getNotificationIcon = (type: string) => {
     switch (type) {
@@ -106,21 +101,16 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Hoàn thành': return 'bg-green-100 text-green-800';
-      case 'Đang xử lý': return 'bg-blue-100 text-blue-800';
-      case 'Cần bổ sung': return 'bg-orange-100 text-orange-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const getStatusColor = (statusKey: string) =>
+    STATUS_COLOR[statusKey] || 'bg-gray-100 text-gray-800';
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'Hoàn thành': return <CheckCircle className="w-4 h-4 text-green-600" />;
-      case 'Đang xử lý': return <Clock className="w-4 h-4 text-blue-600" />;
-      case 'Cần bổ sung': return <AlertCircle className="w-4 h-4 text-orange-600" />;
-      default: return <FileText className="w-4 h-4" />;
+  const getStatusIcon = (statusKey: string) => {
+    switch (statusKey) {
+      case 'approved':       return <CheckCircle className="w-4 h-4 text-green-600" />;
+      case 'under_review':   return <Clock className="w-4 h-4 text-blue-600" />;
+      case 'need_more_info': return <AlertCircle className="w-4 h-4 text-orange-600" />;
+      case 'rejected':       return <AlertCircle className="w-4 h-4 text-red-600" />;
+      default:               return <FileText className="w-4 h-4 text-gray-400" />;
     }
   };
 
@@ -128,10 +118,8 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
     ? notifications
     : notifications.filter(n => n.type === filter);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-
   const handleMarkAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setReadSet(new Set(notifications.map(n => String(n.id))));
   };
 
   return (
@@ -188,6 +176,14 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
             </Select>
 
             {/* Notifications list */}
+            {loading && (
+              <div className="flex justify-center py-8">
+                <RefreshCw className="w-5 h-5 animate-spin text-gray-400" />
+              </div>
+            )}
+            {!loading && filteredNotifications.length === 0 && (
+              <p className="text-center text-gray-400 py-8 text-sm">Không có thông báo</p>
+            )}
             <div className="space-y-3">
               {filteredNotifications.map((notification) => (
                 <Card 
@@ -267,18 +263,18 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-2">
                       <h3>{item.title}</h3>
-                      <Badge className={getStatusColor(item.status)}>
+                      <Badge className={getStatusColor(item.statusKey)}>
                         {item.status}
                       </Badge>
                     </div>
-                    
+
                     <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
                       <span>Mã: {item.id}</span>
                       <span>{item.date}</span>
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {getStatusIcon(item.status)}
+                      {getStatusIcon(item.statusKey)}
                       <span className="text-sm">{item.office}</span>
                     </div>
                   </CardContent>

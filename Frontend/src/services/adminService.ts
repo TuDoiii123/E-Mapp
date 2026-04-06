@@ -1,7 +1,8 @@
 /**
- * Admin Service — CRUD users, locations, procedures + stats
+ * Admin Service — CRUD users, locations, procedures + stats + applications + appointments
  */
-const BASE = 'http://localhost:8888/api/admin';
+const BASE       = 'http://localhost:8888/api/admin';
+const COMMON_BASE = 'http://localhost:8888/api';
 
 function authH() {
   const token = localStorage.getItem('token');
@@ -12,6 +13,13 @@ function authH() {
 
 async function api(path: string, opts: RequestInit = {}) {
   const res  = await fetch(`${BASE}${path}`, { headers: authH(), ...opts });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.message || 'Lỗi');
+  return json;
+}
+
+async function apiFull(path: string, opts: RequestInit = {}) {
+  const res  = await fetch(`${COMMON_BASE}${path}`, { headers: authH(), ...opts });
   const json = await res.json();
   if (!json.success) throw new Error(json.message || 'Lỗi');
   return json;
@@ -51,3 +59,18 @@ export const getProcedure    = (id: string)              => api(`/procedures/${i
 export const createProcedure = (data: object)            => api('/procedures', { method: 'POST', body: JSON.stringify(data) });
 export const updateProcedure = (id: string, data: object)=> api(`/procedures/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteProcedure = (id: string)              => api(`/procedures/${id}`, { method: 'DELETE' });
+
+// ── Applications ──────────────────────────────────────────────────────────────
+export const getApplications = (params: Record<string, string> = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return apiFull(`/applications/search${q ? '?' + q : ''}`);
+};
+export const getMyApplications = (params: Record<string, string> = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return apiFull(`/applications/my${q ? '?' + q : ''}`);
+};
+export const reviewApplication = (applicationId: string, action: string, note = '') =>
+  api('/applications/review', { method: 'POST', body: JSON.stringify({ applicationId, action, note }) });
+
+// ── Appointments ──────────────────────────────────────────────────────────────
+export const getAppointments = () => apiFull('/appointments/all');

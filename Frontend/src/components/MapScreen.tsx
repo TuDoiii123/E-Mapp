@@ -1,712 +1,623 @@
-/// <reference types="../vite-env" />
-
-import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Navigation, Clock, Phone, Loader2, AlertCircle, Map, Search, Hash, X } from 'lucide-react';
-import { Button } from './ui/button';
-import { Card, CardContent } from './ui/card';
-import { Badge } from './ui/badge';
-import { Input } from './ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Slider } from './ui/slider';
-import { servicesAPI, PublicService, ServiceCategory } from '../services/servicesApi';
-import { Alert, AlertDescription } from './ui/alert';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { Loader2, AlertCircle, CalendarDays, Navigation, Clock, Route } from 'lucide-react';
+import { servicesAPI, PublicService } from '../services/servicesApi';
 import { getMapOverview, AgencyQueueStatus } from '../services/queueService';
-
-declare global {
-  interface Window {
-    google: any;
-  }
-}
+import { mapAPI, AutocompletePrediction, DirectionsResult } from '../services/mapApi';
 
 interface MapScreenProps {
   onNavigate: (screen: string, params?: any) => void;
 }
 
-// Default location (Hoàn Kiếm, Hà Nội)
 const DEFAULT_LAT = 21.0285;
 const DEFAULT_LNG = 105.8542;
 
+const CATEGORY_CHIPS = [
+  { key: 'all',    label: 'Tất cả' },
+  { key: 'ubnd',   label: 'UBND' },
+  { key: 'police', label: 'Công an' },
+  { key: 'health', label: 'Y tế' },
+];
+
+const STATUS_CFG: Record<string, { dot: string; text: string; label: string }> = {
+  available: { dot: 'bg-green-500 animate-pulse', text: 'text-green-600', label: 'ĐANG MỞ CỬA' },
+  normal:    { dot: 'bg-green-500 animate-pulse', text: 'text-green-600', label: 'ĐANG MỞ CỬA' },
+  busy:      { dot: 'bg-error',                   text: 'text-error',     label: 'SẮP ĐÓNG CỬA' },
+  closed:    { dot: 'bg-error',                   text: 'text-error',     label: 'ĐÃ ĐÓNG CỬA' },
+};
+
+const statusOf = (s: string) => STATUS_CFG[s] ?? STATUS_CFG.available;
+
+// ── Marker SVG helper ─────────────────────────────────────────────────────────
+function buildMarkerIcon(waiting: number, loadLevel: string): L.DivIcon {
+  const color = loadLevel === 'high' ? '#ef4444' : loadLevel === 'medium' ? '#f59e0b' : '#22c55e';
+  const label = waiting > 99 ? '99+' : String(waiting);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="54" viewBox="0 0 44 54">
+    <ellipse cx="22" cy="21" rx="19" ry="19" fill="${color}" stroke="white" stroke-width="2.5"/>
+    <polygon points="14,37 30,37 22,54" fill="${color}"/>
+    <text x="22" y="27" text-anchor="middle" font-size="${label.length > 2 ? 10 : 13}"
+      font-weight="bold" fill="white" font-family="Arial,sans-serif">${label}</text>
+  </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: '',
+    iconSize:   [44, 54],
+    iconAnchor: [22, 54],
+    popupAnchor:[0, -54],
+  });
+}
+
+function buildUserIcon(): L.DivIcon {
+  return L.divIcon({
+    html: `<div style="width:16px;height:16px;background:#3B82F6;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>`,
+    className: '',
+    iconSize:   [16, 16],
+    iconAnchor: [8, 8],
+  });
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 export function MapScreen({ onNavigate }: MapScreenProps) {
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [radius, setRadius] = useState([10]);
-  const [searchQuery,     setSearchQuery]     = useState('');
-  const [selectedOffice, setSelectedOffice] = useState<PublicService | null>(null);
-  const [offices, setOffices] = useState<PublicService[]>([]);
-  const [categories, setCategories] = useState<ServiceCategory[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>('');
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationLoading, setLocationLoading] = useState(false);
-  const [mapError, setMapError] = useState<string>('');
-  const [mapLoaded, setMapLoaded] = useState(false);
-  const [queueData, setQueueData] = useState<Record<string, AgencyQueueStatus>>({});
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const userMarkerRef = useRef<any>(null);
-  const scriptLoadedRef = useRef(false);
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [radius,           setRadius]           = useState(5);
+  const [searchQuery,      setSearchQuery]      = useState('');
+  const [selectedOffice,   setSelectedOffice]   = useState<PublicService | null>(null);
+  const [offices,          setOffices]          = useState<PublicService[]>([]);
+  const [loading,          setLoading]          = useState(true);
+  const [error,            setError]            = useState('');
+  const [userLocation,     setUserLocation]     = useState<{ lat: number; lng: number } | null>(null);
+  const [locationLoading,  setLocationLoading]  = useState(false);
+  const [mapReady,         setMapReady]         = useState(false);
+  const [queueData,        setQueueData]        = useState<Record<string, AgencyQueueStatus>>({});
+  const [showDetail,       setShowDetail]       = useState(false);
+  const [predictions,      setPredictions]      = useState<AutocompletePrediction[]>([]);
+  const [showPredictions,  setShowPredictions]  = useState(false);
+  const [directionsInfo,   setDirectionsInfo]   = useState<DirectionsResult | null>(null);
+  const [directionsLoading,setDirectionsLoading]= useState(false);
 
-  // Load Google Maps script dynamically
+  const mapRef         = useRef<HTMLDivElement>(null);
+  const mapInstance    = useRef<L.Map | null>(null);
+  const markersRef     = useRef<L.Marker[]>([]);
+  const userMarkerRef  = useRef<L.Marker | null>(null);
+  const acTimer        = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Init Leaflet map ───────────────────────────────────────────────────────
   useEffect(() => {
-    if (scriptLoadedRef.current) return;
+    if (!mapRef.current || mapInstance.current) return;
 
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-    
-    if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
-      setMapError('Google Maps API key chưa được cấu hình. Vui lòng thêm VITE_GOOGLE_MAPS_API_KEY vào file .env');
-      scriptLoadedRef.current = true;
-      return;
-    }
+    const map = L.map(mapRef.current, {
+      center: [DEFAULT_LAT, DEFAULT_LNG],
+      zoom:   DEFAULT_ZOOM_LEVEL,
+      zoomControl: false,
+      attributionControl: true,
+    });
 
-    // Check if script already exists
-    if (document.querySelector('script[src*="maps.googleapis.com"]')) {
-      scriptLoadedRef.current = true;
-      if (window.google) {
-        setMapLoaded(true);
-      }
-      return;
-    }
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
 
-    // Load Google Maps script
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-    script.async = true;
-    script.defer = true;
-    
-    script.onload = () => {
-      scriptLoadedRef.current = true;
-      setMapLoaded(true);
-      setMapError('');
+    mapInstance.current = map;
+    setMapReady(true);
+
+    return () => {
+      map.remove();
+      mapInstance.current = null;
     };
-    
-    script.onerror = () => {
-      scriptLoadedRef.current = true;
-      setMapError('Không thể tải Google Maps. Vui lòng kiểm tra API key và kết nối internet.');
-    };
-
-    document.head.appendChild(script);
   }, []);
 
-  // Initialize Google Map after script loads
+  // ── User location marker ───────────────────────────────────────────────────
   useEffect(() => {
-    if (!mapLoaded || !mapRef.current || mapInstanceRef.current) return;
-
-    const initMap = () => {
-      try {
-        if (mapRef.current && window.google && !mapInstanceRef.current) {
-          const center = userLocation || { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
-          
-          mapInstanceRef.current = new window.google.maps.Map(mapRef.current, {
-            center: center,
-            zoom: 13,
-            mapTypeControl: true,
-            streetViewControl: false,
-            fullscreenControl: true,
-            zoomControl: true,
-            styles: [
-              {
-                featureType: 'poi',
-                elementType: 'labels',
-                stylers: [{ visibility: 'off' }]
-              }
-            ]
-          });
-          setMapError('');
-        }
-      } catch (err: any) {
-        setMapError(`Lỗi khởi tạo bản đồ: ${err.message}`);
-        console.error('Map initialization error:', err);
-      }
-    };
-
-    if (window.google) {
-      initMap();
+    if (!mapInstance.current || !userLocation) return;
+    const latlng: L.LatLngExpression = [userLocation.lat, userLocation.lng];
+    mapInstance.current.setView(latlng, mapInstance.current.getZoom());
+    if (userMarkerRef.current) {
+      userMarkerRef.current.setLatLng(latlng);
     } else {
-      // Wait for Google Maps to load
-      let attempts = 0;
-      const maxAttempts = 50; // 5 seconds
-      
-      const checkGoogle = setInterval(() => {
-        attempts++;
-        if (window.google) {
-          clearInterval(checkGoogle);
-          initMap();
-        } else if (attempts >= maxAttempts) {
-          clearInterval(checkGoogle);
-          setMapError('Google Maps không tải được sau 5 giây. Vui lòng thử lại.');
-        }
-      }, 100);
-    }
-  }, [mapLoaded, userLocation]);
-
-  // Update map center when user location changes
-  useEffect(() => {
-    if (mapInstanceRef.current && userLocation) {
-      mapInstanceRef.current.setCenter(userLocation);
-      
-      // Add/update user location marker
-      if (userMarkerRef.current) {
-        userMarkerRef.current.setPosition(userLocation);
-      } else if (window.google) {
-        userMarkerRef.current = new window.google.maps.Marker({
-          position: userLocation,
-          map: mapInstanceRef.current,
-          icon: {
-            path: window.google.maps.SymbolPath.CIRCLE,
-            scale: 8,
-            fillColor: '#3B82F6',
-            fillOpacity: 1,
-            strokeColor: '#FFFFFF',
-            strokeWeight: 2
-          },
-          title: 'Vị trí của bạn'
-        });
-      }
+      userMarkerRef.current = L.marker(latlng, { icon: buildUserIcon(), zIndexOffset: 1000 })
+        .addTo(mapInstance.current)
+        .bindPopup('Vị trí của bạn');
     }
   }, [userLocation]);
 
-  // Update markers when offices or queue data change
+  // ── Office markers ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.google) return;
-
-    // Clear existing markers
-    markersRef.current.forEach(marker => marker.setMap(null));
+    if (!mapInstance.current || !mapReady) return;
+    markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
-    // Add markers for each office
-    offices.forEach((office) => {
-      if (office.latitude && office.longitude) {
-        const qs = queueData[office.id];
-        const loadLevel = qs?.loadLevel ?? 'low';
-        const waiting   = qs?.totalWaiting ?? 0;
+    offices.forEach(office => {
+      if (!office.latitude || !office.longitude) return;
+      const qs        = queueData[office.id];
+      const loadLevel = qs?.loadLevel ?? 'low';
+      const waiting   = qs?.totalWaiting ?? 0;
+      const color     = loadLevel === 'high' ? '#ef4444' : loadLevel === 'medium' ? '#f59e0b' : '#22c55e';
 
-        const marker = new window.google.maps.Marker({
-          position: { lat: office.latitude, lng: office.longitude },
-          map: mapInstanceRef.current,
-          title: office.name,
-          icon: {
-            url: buildQueueMarkerSvg(waiting, loadLevel),
-            scaledSize: new window.google.maps.Size(44, 54),
-            anchor: new window.google.maps.Point(22, 54),
-          }
-        });
+      const marker = L.marker(
+        [office.latitude, office.longitude],
+        { icon: buildMarkerIcon(waiting, loadLevel) },
+      ).addTo(mapInstance.current!);
 
-        const loadColor = loadLevel === 'high' ? '#ef4444' : loadLevel === 'medium' ? '#f59e0b' : '#22c55e';
-        const loadText  = loadLevel === 'high' ? 'Đông' : loadLevel === 'medium' ? 'Vừa' : 'Ít';
-        const queueHtml = qs
-          ? `<p style="margin:4px 0 0;font-size:12px;color:${loadColor};font-weight:600;">
-               Đang chờ: ${waiting} người &bull; <span>${loadText}</span>
-             </p>`
-          : '';
+      marker.bindPopup(`
+        <div style="padding:4px;min-width:180px;font-family:sans-serif">
+          <h3 style="margin:0 0 4px;font-weight:bold;font-size:13px">${office.name}</h3>
+          <p style="margin:0 0 3px;font-size:11px;color:#555">${office.address}</p>
+          ${qs ? `<p style="margin:4px 0 0;font-size:11px;color:${color};font-weight:600">Đang chờ: ${waiting} người</p>` : ''}
+        </div>
+      `);
 
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `
-            <div style="padding:8px;min-width:200px;">
-              <h3 style="margin:0 0 6px;font-weight:bold;font-size:14px;">${office.name}</h3>
-              <p style="margin:0 0 3px;font-size:12px;color:#555;">${office.address}</p>
-              ${office.distance ? `<p style="margin:0 0 3px;font-size:12px;color:#555;">Khoảng cách: ${office.distance.toFixed(1)} km</p>` : ''}
-              ${office.phone ? `<p style="margin:0 0 3px;font-size:12px;color:#555;">📞 ${office.phone}</p>` : ''}
-              ${queueHtml}
-            </div>
-          `
-        });
-
-        marker.addListener('click', () => {
-          infoWindow.open(mapInstanceRef.current, marker);
-          setSelectedOffice(office);
-        });
-
-        markersRef.current.push(marker);
-      }
+      marker.on('click', () => handleViewDetails(office));
+      markersRef.current.push(marker);
     });
 
-    // Fit bounds to show all markers
     if (markersRef.current.length > 0) {
-      const bounds = new window.google.maps.LatLngBounds();
-      markersRef.current.forEach(marker => {
-        bounds.extend(marker.getPosition());
-      });
-      if (userMarkerRef.current) {
-        bounds.extend(userMarkerRef.current.getPosition());
-      }
-      mapInstanceRef.current.fitBounds(bounds);
+      const group = L.featureGroup(markersRef.current);
+      if (userMarkerRef.current) group.addLayer(userMarkerRef.current);
+      mapInstance.current.fitBounds(group.getBounds(), { padding: [40, 40] });
     }
-  }, [offices, queueData]);
+  }, [offices, queueData, mapReady]);
 
-  // Poll realtime queue overview for map markers
+  // ── Queue polling ──────────────────────────────────────────────────────────
   useEffect(() => {
-    const fetchQueueOverview = async () => {
-      try {
-        const data = await getMapOverview();
-        setQueueData(data);
-      } catch {
-        // non-fatal: markers will show without queue counts
-      }
-    };
-    fetchQueueOverview();
-    const interval = setInterval(fetchQueueOverview, 30_000);
-    return () => clearInterval(interval);
+    const fetch = async () => { try { setQueueData(await getMapOverview()); } catch {} };
+    fetch();
+    const id = setInterval(fetch, 30_000);
+    return () => clearInterval(id);
   }, []);
 
-  // Load categories on mount
-  useEffect(() => {
-    loadCategories();
-  }, []);
-
-  // Load services when filters change
-  useEffect(() => {
-    loadServices();
-  }, [selectedCategory, radius, userLocation]);
-
-  // Build SVG pin icon with waiting count badge
-  const buildQueueMarkerSvg = (waiting: number, loadLevel: 'low' | 'medium' | 'high'): string => {
-    const color = loadLevel === 'high' ? '#ef4444' : loadLevel === 'medium' ? '#f59e0b' : '#22c55e';
-    const label = waiting > 99 ? '99+' : String(waiting);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="54" viewBox="0 0 44 54">
-      <ellipse cx="22" cy="21" rx="19" ry="19" fill="${color}" stroke="white" stroke-width="2.5"/>
-      <polygon points="14,37 30,37 22,54" fill="${color}"/>
-      <text x="22" y="27" text-anchor="middle" font-size="${label.length > 2 ? 10 : 13}" font-weight="bold" fill="white" font-family="Arial,sans-serif">${label}</text>
-    </svg>`;
-    return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
-  };
-
-  const loadCategories = async () => {
-    try {
-      const response = await servicesAPI.getCategories();
-      if (response.success) {
-        setCategories(response.data.categories);
-      }
-    } catch (err: any) {
-      console.error('Error loading categories:', err);
-    }
-  };
+  // ── Load services ──────────────────────────────────────────────────────────
+  useEffect(() => { loadServices(); }, [selectedCategory, radius, userLocation]);
 
   const loadServices = async () => {
-    setLoading(true);
-    setError('');
-
+    setLoading(true); setError('');
     try {
-      const lat = userLocation?.lat || DEFAULT_LAT;
-      const lng = userLocation?.lng || DEFAULT_LNG;
-      const categoryId = selectedCategory === 'all' ? undefined : selectedCategory;
-
-      const response = await servicesAPI.getNearby(
-        lat,
-        lng,
-        radius[0],
-        categoryId
+      const res = await servicesAPI.getNearby(
+        userLocation?.lat || DEFAULT_LAT,
+        userLocation?.lng || DEFAULT_LNG,
+        radius,
+        selectedCategory === 'all' ? undefined : selectedCategory,
       );
-
-      if (response.success) {
-        setOffices(response.data.services);
-      } else {
-        setError('Không thể tải danh sách dịch vụ');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Lỗi khi tải danh sách dịch vụ');
-      console.error('Error loading services:', err);
-    } finally {
-      setLoading(false);
-    }
+      if (res.success) setOffices(res.data.services);
+      else setError('Không thể tải danh sách dịch vụ');
+    } catch (e: any) {
+      setError(e.message || 'Lỗi khi tải dịch vụ');
+    } finally { setLoading(false); }
   };
 
+  // ── Geolocation ────────────────────────────────────────────────────────────
   const getCurrentLocation = () => {
     setLocationLoading(true);
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-          setLocationLoading(false);
-        },
-        (error) => {
-          console.error('Error getting location:', error);
-          setError('Không thể lấy vị trí hiện tại. Sử dụng vị trí mặc định.');
-          setUserLocation({ lat: DEFAULT_LAT, lng: DEFAULT_LNG });
-          setLocationLoading(false);
-        }
-      );
-    } else {
-      setError('Trình duyệt không hỗ trợ định vị GPS');
+    if (!navigator.geolocation) {
+      setError('Trình duyệt không hỗ trợ GPS');
       setUserLocation({ lat: DEFAULT_LAT, lng: DEFAULT_LNG });
       setLocationLoading(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocationLoading(false);
+      },
+      () => {
+        setError('Không thể lấy vị trí. Dùng vị trí mặc định.');
+        setUserLocation({ lat: DEFAULT_LAT, lng: DEFAULT_LNG });
+        setLocationLoading(false);
+      },
+    );
+  };
+
+  // ── Autocomplete ───────────────────────────────────────────────────────────
+  const handleSearchInput = useCallback((value: string) => {
+    setSearchQuery(value);
+    if (acTimer.current) clearTimeout(acTimer.current);
+    if (!value.trim() || value.length < 2) {
+      setPredictions([]); setShowPredictions(false); return;
+    }
+    acTimer.current = setTimeout(async () => {
+      try {
+        const res = await mapAPI.autocomplete(value, userLocation?.lat, userLocation?.lng);
+        if (res.success) {
+          setPredictions(res.data.predictions);
+          setShowPredictions(res.data.predictions.length > 0);
+        }
+      } catch { /* ignore */ }
+    }, 350);
+  }, [userLocation]);
+
+  const selectPrediction = (pred: AutocompletePrediction) => {
+    setSearchQuery(pred.description);
+    setPredictions([]); setShowPredictions(false);
+    if (mapInstance.current) {
+      mapInstance.current.setView([pred.lat, pred.lng], 16);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'available': return 'bg-green-100 text-green-800';
-      case 'normal': return 'bg-yellow-100 text-yellow-800';
-      case 'busy': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'available': return 'Ít tải';
-      case 'normal': return 'Bình thường';
-      case 'busy': return 'Quá tải';
-      default: return status;
-    }
-  };
-
-  const formatDistance = (distance?: number) => {
-    if (!distance) return 'N/A';
-    if (distance < 1) {
-      return `${Math.round(distance * 1000)} m`;
-    }
-    return `${distance.toFixed(1)} km`;
-  };
-
-  const formatWorkingHours = (workingHours: any) => {
-    if (!workingHours) return 'N/A';
-    const today = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
-    return workingHours[today] || workingHours.monday || 'N/A';
-  };
-
-  const handleViewDetails = async (office: PublicService) => {
+  // ── Directions ─────────────────────────────────────────────────────────────
+  const fetchDirections = async (office: PublicService) => {
+    if (!office.latitude || !office.longitude) return;
+    setDirectionsLoading(true); setDirectionsInfo(null);
     try {
-      const lat = userLocation?.lat || DEFAULT_LAT;
-      const lng = userLocation?.lng || DEFAULT_LNG;
-      const response = await servicesAPI.getById(office.id, lat, lng);
-      if (response.success) {
-        setSelectedOffice(response.data.service);
-      }
-    } catch (err) {
-      setSelectedOffice(office);
+      const origin = userLocation || { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+      const res = await mapAPI.getDirections(origin, { lat: office.latitude, lng: office.longitude });
+      if (res.success) setDirectionsInfo(res.data);
+    } catch { /* ignore */ } finally { setDirectionsLoading(false); }
+  };
+
+  // ── View details ───────────────────────────────────────────────────────────
+  const handleViewDetails = async (office: PublicService) => {
+    setDirectionsInfo(null);
+    try {
+      const res = await servicesAPI.getById(
+        office.id,
+        userLocation?.lat || DEFAULT_LAT,
+        userLocation?.lng || DEFAULT_LNG,
+      );
+      setSelectedOffice(res.success ? res.data.service : office);
+    } catch { setSelectedOffice(office); }
+    setShowDetail(true);
+    fetchDirections(office);
+
+    // Pan map to selected office
+    if (mapInstance.current && office.latitude && office.longitude) {
+      mapInstance.current.panTo([office.latitude, office.longitude]);
     }
   };
+
+  const fmt = (d?: number) => !d ? 'N/A' : d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
 
   const filteredOffices = searchQuery.trim()
     ? offices.filter(o =>
         o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (o.address || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (o.services || []).some(s => s.toLowerCase().includes(searchQuery.toLowerCase()))
+        (o.address || '').toLowerCase().includes(searchQuery.toLowerCase()),
       )
     : offices;
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-white">
-      
-      {/* iOS Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 py-4">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Bản đồ dịch vụ công</h1>
+    <div className="bg-surface text-on-background overflow-hidden h-screen flex" style={{ fontFamily: "'Manrope', sans-serif" }}>
 
-          {/* Thanh tìm kiếm */}
-          <div className="relative mb-4">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Tìm cơ quan, dịch vụ, địa chỉ..."
-              className="pl-10 pr-10 h-11 bg-gray-50 border-gray-200 rounded-xl"
-            />
-            {searchQuery && (
-              <button className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-                onClick={() => setSearchQuery('')}>
-                <X className="w-4 h-4" />
-              </button>
-            )}
+      <main className="flex-1 flex flex-col relative h-full">
+
+        {/* TopNavBar */}
+        <header className="bg-surface flex justify-between items-center px-6 py-4 w-full top-0 z-50 border-b border-outline-variant/20">
+          <div className="flex items-center gap-8">
+            <button onClick={() => onNavigate('home')} className="text-primary font-extrabold text-xl tracking-tighter uppercase">
+              Cổng dịch vụ công
+            </button>
+            <nav className="hidden lg:flex items-center gap-6">
+              <span className="text-primary border-b-2 border-primary pb-1 font-bold text-base tracking-tight">Bản đồ</span>
+              <button onClick={() => onNavigate('submit')} className="text-on-background opacity-70 hover:text-primary font-bold text-base tracking-tight transition-colors">Thủ tục</button>
+              <button onClick={() => onNavigate('home')}   className="text-on-background opacity-70 hover:text-primary font-bold text-base tracking-tight transition-colors">Tin tức</button>
+            </nav>
           </div>
-
-          {error && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          
-          <div className="space-y-4">
-            <div className="flex gap-3">
-              <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-                <SelectTrigger className="flex-1 h-12 rounded-xl border-gray-300">
-                  <SelectValue placeholder="Chọn loại dịch vụ" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tất cả dịch vụ</SelectItem>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="w-12 h-12 rounded-xl border-gray-300"
-                onClick={getCurrentLocation}
-                disabled={locationLoading}
-              >
-                {locationLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Map className="w-5 h-5" />
-                )}
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
-                Bán kính tìm kiếm: {radius[0]} km
-              </label>
-              <Slider
-                value={radius}
-                onValueChange={setRadius}
-                max={20}
-                min={1}
-                step={1}
-                className="w-full"
+          <div className="flex items-center gap-4">
+            <div className="relative hidden sm:block">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">search</span>
+              <input
+                value={searchQuery}
+                onChange={e => handleSearchInput(e.target.value)}
+                className="pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-full text-sm focus:ring-2 focus:ring-primary w-64 outline-none"
+                placeholder="Tìm kiếm dịch vụ..."
               />
             </div>
+            <button onClick={() => onNavigate('notification')} className="p-2 text-primary hover:bg-surface-container-high rounded-full transition-colors">
+              <span className="material-symbols-outlined">notifications</span>
+            </button>
+            <button className="p-2 text-primary hover:bg-surface-container-high rounded-full transition-colors">
+              <span className="material-symbols-outlined">account_circle</span>
+            </button>
           </div>
-        </div>
-      </div>
+        </header>
 
-      {/* Google Maps */}
-      <div className="relative h-72 mx-4 my-4 rounded-2xl overflow-hidden border border-gray-200 shadow-lg">
-        <div ref={mapRef} className="w-full h-full rounded-2xl" />
-        
-        {/* Loading state */}
-        {!mapLoaded && !mapError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-2xl">
-            <div className="text-center">
-              <Loader2 className="w-8 h-8 animate-spin text-red-600 mx-auto mb-2" />
-              <p className="text-sm text-gray-700 font-medium">Đang tải bản đồ...</p>
-            </div>
-          </div>
-        )}
+        {/* Content */}
+        <div className="flex-1 flex overflow-hidden">
 
-        {/* Error state */}
-        {mapError && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/95 backdrop-blur-sm rounded-2xl">
-            <div className="text-center p-4 max-w-sm">
-              <AlertCircle className="w-12 h-12 text-red-600 mx-auto mb-3" />
-              <p className="text-sm font-medium text-gray-900 mb-2">Không thể tải bản đồ</p>
-              <p className="text-xs text-gray-700 mb-4">{mapError}</p>
-              <div className="text-xs text-left bg-red-50 p-3 rounded-lg border border-red-200">
-                <p className="font-medium mb-2 text-red-900">Hướng dẫn:</p>
-                <ol className="list-decimal list-inside space-y-1 text-gray-700">
-                  <li>Tạo file <code className="bg-white px-1 rounded border border-red-200">.env</code> trong thư mục Frontend</li>
-                  <li>Thêm: <code className="bg-white px-1 rounded border border-red-200">VITE_GOOGLE_MAPS_API_KEY=your_api_key</code></li>
-                  <li>Khởi động lại ứng dụng</li>
-                </ol>
-                <p className="mt-2 text-gray-600">
-                  Xem <code className="bg-white px-1 rounded border border-red-200">GOOGLE_MAPS_SETUP.md</code> để biết chi tiết
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+          {/* Sidebar */}
+          <div className="w-full max-w-sm bg-surface-container-lowest shadow-xl z-20 flex flex-col h-full border-r border-outline-variant/20">
+            <div className="p-5 space-y-5">
 
-        {/* GPS Button */}
-        {mapLoaded && !mapError && (
-          <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 items-end">
-            <Button
-              variant="outline"
-              size="sm"
-              className="bg-white/90 backdrop-blur-sm shadow-md"
-              onClick={getCurrentLocation}
-              disabled={locationLoading}
-            >
-              {locationLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : (
-                <MapPin className="w-4 h-4 mr-2" />
-              )}
-              {locationLoading ? 'Đang lấy...' : 'Vị trí của tôi'}
-            </Button>
-            {/* Queue legend */}
-            <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-md px-3 py-2 text-xs space-y-1">
-              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-500 inline-block"/><span>Ít người (≤5)</span></div>
-              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"/><span>Vừa (6-15)</span></div>
-              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block"/><span>Đông (&gt;15)</span></div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* AI Route Suggestion */}
-      {filteredOffices.length > 0 && (
-      <div className="mx-4 mb-4 p-5 bg-red-50 rounded-2xl border border-red-100">
-        <div className="flex items-start space-x-4">
-          <div className="flex-shrink-0">
-            <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center">
-              <span className="text-white font-semibold">AI</span>
-            </div>
-          </div>
-          <div className="flex-1">
-            <h3 className="font-semibold text-red-800 mb-2">Gợi ý lộ trình thông minh</h3>
-            <p className="text-sm text-red-700 leading-relaxed">
-                Dựa trên thời gian tối ưu, bạn nên đến <strong>{filteredOffices[0]?.name}</strong> 
-                vào lúc 9:00 sáng để tránh đông đúc. 
-                {filteredOffices[0]?.distance && (
-                  <> Khoảng cách: {formatDistance(filteredOffices[0].distance)}.</>
+              {/* Search + Autocomplete */}
+              <div className="relative">
+                <input
+                  value={searchQuery}
+                  onChange={e => handleSearchInput(e.target.value)}
+                  onFocus={() => predictions.length > 0 && setShowPredictions(true)}
+                  onBlur={() => setTimeout(() => setShowPredictions(false), 200)}
+                  className="w-full bg-surface-container-low border-none rounded-xl py-4 pl-12 pr-4 text-on-surface font-semibold focus:ring-2 focus:ring-primary placeholder:text-outline/60 outline-none text-sm"
+                  placeholder="Nhập tên cơ quan, địa chỉ..."
+                />
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-primary text-[20px]">search</span>
+                {searchQuery && (
+                  <button
+                    onClick={() => { setSearchQuery(''); setPredictions([]); setShowPredictions(false); }}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-outline hover:text-primary"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                  </button>
                 )}
-            </p>
-          </div>
-        </div>
-      </div>
-      )}
-
-      {/* Offices list */}
-      <div className="px-4 pb-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">
-          Cơ quan gần bạn tại Hà Nội ({filteredOffices.length})
-        </h2>
-        
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-red-600" />
-            <span className="ml-3 text-gray-600">Đang tải...</span>
-          </div>
-        ) : filteredOffices.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-gray-600">Không tìm thấy dịch vụ nào trong bán kính {radius[0]} km</p>
-          </div>
-        ) : (
-        <div className="space-y-4">
-          {filteredOffices.map((office) => (
-            <Card 
-              key={office.id}
-              className={`cursor-pointer transition-all border-0 shadow-lg hover:scale-[0.98] ${
-                selectedOffice?.id === office.id ? 'ring-2 ring-red-500' : ''
-              }`}
-                onClick={() => handleViewDetails(office)}
-            >
-              <CardContent className="p-5">
-                <div className="flex justify-between items-start mb-3">
-                  <div className="flex-1">
-                    <h3 className="font-semibold text-gray-900">{office.name}</h3>
-                    <p className="text-sm text-gray-600 mt-1">{office.address}</p>
-                    {queueData[office.id] && (
-                      <p className={`text-xs font-medium mt-1 ${
-                        queueData[office.id].loadLevel === 'high' ? 'text-red-600' :
-                        queueData[office.id].loadLevel === 'medium' ? 'text-amber-600' : 'text-green-600'
-                      }`}>
-                        Đang chờ: {queueData[office.id].totalWaiting} người
-                      </p>
-                    )}
-                  </div>
-                  <div className="text-right">
-                      <p className="text-sm font-medium text-gray-900">
-                        {formatDistance(office.distance)}
-                      </p>
-                    <Badge className={`mt-1 px-3 py-1 rounded-full ${getStatusColor(office.status)}`}>
-                        {getStatusText(office.status)}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 mb-4">
-                  {office.services.map((service, index) => (
-                    <Badge key={index} variant="outline" className="px-3 py-1 rounded-full border-gray-300">
-                      {service}
-                    </Badge>
-                  ))}
-                </div>
-
-                <div className="flex items-center gap-4 text-sm text-gray-600">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                      {formatWorkingHours(office.workingHours)}
-                  </div>
-                    {office.phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4" />
-                    {office.phone}
-                  </div>
-                    )}
-                </div>
-
-                {selectedOffice?.id === office.id && (
-                  <div className="mt-5 pt-5 border-t border-gray-200 space-y-4">
-                    <div>
-                        <h4 className="font-medium text-gray-900 mb-2">Dịch vụ hỗ trợ:</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {office.services.map((service, index) => (
-                            <Badge key={index} variant="outline" className="px-3 py-1">
-                              {service}
-                            </Badge>
-                          ))}
+                {showPredictions && predictions.length > 0 && (
+                  <ul className="absolute top-full left-0 right-0 mt-1 bg-surface-container-lowest rounded-xl shadow-2xl border border-outline-variant/20 z-50 max-h-64 overflow-y-auto">
+                    {predictions.map(p => (
+                      <li
+                        key={p.placeId}
+                        onMouseDown={() => selectPrediction(p)}
+                        className="px-4 py-3 cursor-pointer hover:bg-surface-container transition-colors flex items-start gap-3"
+                      >
+                        <span className="material-symbols-outlined text-primary text-[18px] flex-shrink-0 mt-0.5">location_on</span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-on-surface truncate">{p.mainText}</p>
+                          {p.secondaryText && (
+                            <p className="text-xs text-on-surface-variant truncate">{p.secondaryText}</p>
+                          )}
                         </div>
-                    </div>
-                    
-                    <div>
-                        <h4 className="font-medium text-gray-900 mb-2">Giờ làm việc:</h4>
-                        <div className="text-sm text-gray-600 space-y-1">
-                          <p>Thứ 2 - Thứ 6: {office.workingHours?.monday || 'N/A'}</p>
-                          <p>Thứ 7: {office.workingHours?.saturday || 'N/A'}</p>
-                          <p>Chủ nhật: {office.workingHours?.sunday || 'Nghỉ'}</p>
-                        </div>
-                    </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
-                      {office.phone && (
-                        <div>
-                          <h4 className="font-medium text-gray-900 mb-2">Liên hệ:</h4>
-                          <p className="text-sm text-gray-600">Điện thoại: {office.phone}</p>
-                          {office.email && <p className="text-sm text-gray-600">Email: {office.email}</p>}
-                        </div>
-                      )}
+              {/* Radius */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="font-bold text-on-surface-variant uppercase tracking-widest text-[10px]">Bán kính tìm kiếm</span>
+                  <span className="text-primary font-bold text-sm">{radius} km</span>
+                </div>
+                <input
+                  type="range" min={1} max={20} value={radius}
+                  onChange={e => setRadius(Number(e.target.value))}
+                  className="w-full h-2 bg-surface-container-high rounded-lg appearance-none cursor-pointer accent-primary"
+                />
+              </div>
 
-                    {queueData[office.id] && (
-                      <div className={`p-4 rounded-2xl ${
-                        queueData[office.id].loadLevel === 'high' ? 'bg-red-50 border border-red-100' :
-                        queueData[office.id].loadLevel === 'medium' ? 'bg-amber-50 border border-amber-100' :
-                        'bg-green-50 border border-green-100'
-                      }`}>
-                        <h4 className="font-medium text-gray-900 mb-1">Trạng thái hàng chờ</h4>
-                        <p className="text-sm text-gray-700">
-                          Đang chờ: <strong>{queueData[office.id].totalWaiting}</strong> người &bull; Đang phục vụ: <strong>{queueData[office.id].totalServing}</strong>
-                        </p>
+              {/* Category chips */}
+              <div className="flex flex-wrap gap-2">
+                {CATEGORY_CHIPS.map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setSelectedCategory(key)}
+                    className={`px-4 py-2 rounded-full text-xs font-bold shadow-sm transition-colors ${
+                      selectedCategory === key
+                        ? 'bg-primary text-on-primary'
+                        : 'bg-surface-container-high text-on-surface-variant hover:bg-primary-container hover:text-on-primary'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {error && (
+                <div className="flex items-start gap-2 p-3 bg-error-container/20 border-l-4 border-error rounded-lg text-sm text-error">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  {error}
+                </div>
+              )}
+            </div>
+
+            {/* Results list */}
+            <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-4">
+              {loading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  <span className="ml-2 text-sm text-on-surface-variant">Đang tải...</span>
+                </div>
+              ) : filteredOffices.length === 0 ? (
+                <p className="text-center text-sm text-outline py-10">
+                  Không tìm thấy dịch vụ trong bán kính {radius} km
+                </p>
+              ) : (
+                filteredOffices.map(office => {
+                  const qs   = queueData[office.id];
+                  const st   = statusOf(office.status);
+                  const dist = fmt(office.distance);
+                  return (
+                    <div
+                      key={office.id}
+                      onClick={() => handleViewDetails(office)}
+                      className="p-4 rounded-xl bg-surface-container-low border border-transparent hover:bg-surface-container-lowest hover:shadow-lg transition-all cursor-pointer group"
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-bold text-on-background leading-tight group-hover:text-primary transition-colors text-sm">
+                          {office.name}
+                        </h3>
+                        {dist !== 'N/A' && (
+                          <span className="text-[10px] font-extrabold text-secondary px-2 py-0.5 bg-secondary-container rounded-full flex-shrink-0 ml-2">
+                            {dist}
+                          </span>
+                        )}
                       </div>
-                    )}
 
-                    <div className="p-4 bg-blue-50 rounded-2xl">
-                      <p className="text-sm text-blue-800">
-                        <strong>Lưu ý:</strong> Nên đặt lịch trước qua ứng dụng để tiết kiệm thời gian chờ đợi.
+                      <p className="text-xs text-on-surface-variant mb-3 flex items-start gap-1">
+                        <span className="material-symbols-outlined text-[14px] flex-shrink-0 mt-0.5">location_on</span>
+                        {office.address}
                       </p>
-                    </div>
 
-                    <div className="flex gap-2 flex-wrap">
-                        <Button
-                          className="flex-1 h-11 bg-red-600 hover:bg-red-700 rounded-xl text-sm"
-                          onClick={(e) => {
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className={`w-2 h-2 rounded-full ${st.dot}`}></span>
+                        <span className={`text-[10px] font-bold ${st.text}`}>{st.label}</span>
+                        {qs && (
+                          <span className="ml-auto text-[10px] font-bold text-outline">
+                            {qs.totalWaiting} đang chờ
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          onClick={e => { e.stopPropagation(); onNavigate('appointment', { defaultAgencyId: office.id }); }}
+                          className="bg-primary text-on-primary py-2.5 rounded-lg text-[11px] font-extrabold uppercase tracking-tighter hover:scale-95 transition-transform flex items-center justify-center gap-1"
+                        >
+                          <CalendarDays className="w-3 h-3" /> Đặt lịch
+                        </button>
+                        <button
+                          onClick={e => {
                             e.stopPropagation();
                             if (office.latitude && office.longitude) {
+                              const origin = userLocation || { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
                               window.open(
-                                `https://www.google.com/maps/dir/?api=1&destination=${office.latitude},${office.longitude}`,
-                                '_blank'
+                                `https://www.openstreetmap.org/directions?engine=osrm_car&route=${origin.lat},${origin.lng};${office.latitude},${office.longitude}`,
+                                '_blank',
                               );
                             }
                           }}
+                          className="bg-surface-container-highest text-on-surface-variant py-2.5 rounded-lg text-[11px] font-extrabold uppercase tracking-tighter hover:bg-secondary hover:text-on-secondary transition-colors flex items-center justify-center gap-1"
                         >
-                          <Navigation className="w-4 h-4 mr-1.5" />
-                          Đường đi
-                        </Button>
-                        <Button
-                          className="flex-1 h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onNavigate('queue', { agencyId: office.id, agencyName: office.name });
-                          }}
-                        >
-                          <Hash className="w-4 h-4 mr-1.5" />
-                          Lấy số
-                        </Button>
+                          <Navigation className="w-3 h-3" /> Chỉ đường
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Map area */}
+          <div className="flex-1 relative bg-surface-container overflow-hidden">
+
+            {/* Leaflet container */}
+            <div ref={mapRef} className="absolute inset-0 w-full h-full" />
+
+            {/* Map controls */}
+            <div className="absolute bottom-10 right-10 flex flex-col gap-3 z-[400]">
+              <button
+                onClick={() => mapInstance.current?.zoomIn()}
+                className="w-12 h-12 bg-surface-container-lowest rounded-xl shadow-xl flex items-center justify-center text-primary hover:bg-primary hover:text-on-primary transition-all"
+                aria-label="Phóng to"
+              >
+                <span className="material-symbols-outlined">add</span>
+              </button>
+              <button
+                onClick={() => mapInstance.current?.zoomOut()}
+                className="w-12 h-12 bg-surface-container-lowest rounded-xl shadow-xl flex items-center justify-center text-primary hover:bg-primary hover:text-on-primary transition-all"
+                aria-label="Thu nhỏ"
+              >
+                <span className="material-symbols-outlined">remove</span>
+              </button>
+              <button
+                onClick={getCurrentLocation}
+                disabled={locationLoading}
+                className="w-12 h-12 bg-surface-container-lowest rounded-xl shadow-xl flex items-center justify-center text-primary hover:bg-primary hover:text-on-primary transition-all disabled:opacity-50"
+                aria-label="Vị trí hiện tại"
+              >
+                {locationLoading
+                  ? <Loader2 className="w-5 h-5 animate-spin" />
+                  : <span className="material-symbols-outlined">my_location</span>
+                }
+              </button>
+            </div>
+
+            {/* Detail panel */}
+            {showDetail && selectedOffice && (
+              <div className="absolute top-10 right-10 w-80 bg-surface/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-outline-variant/20 p-6 hidden xl:block z-[400] animate-fade-in">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs font-black text-on-surface-variant uppercase tracking-[0.2em]">Thông tin chi tiết</span>
+                  <button onClick={() => setShowDetail(false)} className="text-outline hover:text-primary transition-colors">
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+
+                <h2 className="text-lg font-extrabold text-on-background mb-1">{selectedOffice.name}</h2>
+                <p className="text-sm text-on-surface-variant mb-4 flex items-start gap-1">
+                  <span className="material-symbols-outlined text-[16px] flex-shrink-0 mt-0.5">location_on</span>
+                  {selectedOffice.address}
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  <div className="bg-surface-container p-3 rounded-lg">
+                    <p className="text-[10px] font-bold text-outline uppercase mb-1">Trạng thái</p>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${statusOf(selectedOffice.status).dot}`}></span>
+                      <span className={`text-xs font-bold ${statusOf(selectedOffice.status).text}`}>
+                        {statusOf(selectedOffice.status).label}
+                      </span>
                     </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+
+                  <div className="bg-surface-container p-3 rounded-lg">
+                    <p className="text-[10px] font-bold text-outline uppercase mb-1">Khoảng cách</p>
+                    {directionsLoading
+                      ? <Loader2 className="w-4 h-4 animate-spin text-secondary" />
+                      : <span className="text-lg font-black text-secondary">
+                          {directionsInfo?.distance.text || fmt(selectedOffice.distance)}
+                        </span>
+                    }
+                  </div>
+
+                  {(directionsInfo || directionsLoading) && (
+                    <div className="bg-surface-container p-3 rounded-lg">
+                      <p className="text-[10px] font-bold text-outline uppercase mb-1 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> Thời gian
+                      </p>
+                      {directionsLoading
+                        ? <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                        : <span className="text-lg font-black text-primary">{directionsInfo?.duration.text || 'N/A'}</span>
+                      }
+                    </div>
+                  )}
+
+                  {queueData[selectedOffice.id] && (
+                    <>
+                      <div className="bg-surface-container p-3 rounded-lg">
+                        <p className="text-[10px] font-bold text-outline uppercase mb-1">Đang chờ</p>
+                        <span className="text-lg font-black text-primary">{queueData[selectedOffice.id].totalWaiting}</span>
+                      </div>
+                      <div className="bg-surface-container p-3 rounded-lg">
+                        <p className="text-[10px] font-bold text-outline uppercase mb-1">Đang phục vụ</p>
+                        <span className="text-lg font-black text-secondary">{queueData[selectedOffice.id].totalServing}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    onClick={() => onNavigate('appointment', { defaultAgencyId: selectedOffice.id })}
+                    className="w-full bg-primary text-on-primary py-3.5 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg hover:opacity-90 transition-opacity"
+                  >
+                    Xác nhận đặt lịch
+                  </button>
+                  <button
+                    onClick={() => {
+                      const url = directionsInfo?.osmUrl
+                        || (selectedOffice.latitude && selectedOffice.longitude
+                          ? `https://www.openstreetmap.org/directions?engine=osrm_car&route=${DEFAULT_LAT},${DEFAULT_LNG};${selectedOffice.latitude},${selectedOffice.longitude}`
+                          : null);
+                      if (url) window.open(url, '_blank');
+                    }}
+                    className="w-full bg-surface-container-high text-on-surface-variant py-3 rounded-xl font-bold text-sm hover:bg-secondary-container hover:text-on-secondary-container transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Route className="w-4 h-4" /> Chỉ đường (OpenStreetMap)
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-        )}
-      </div>
+      </main>
+
+      {/* Mobile bottom nav */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-surface/80 backdrop-blur-md border-t border-outline-variant/20 flex justify-around items-center py-3 z-50">
+        <button className="flex flex-col items-center gap-1 text-primary">
+          <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>map</span>
+          <span className="text-[10px] font-bold uppercase">Bản đồ</span>
+        </button>
+        <button className="flex flex-col items-center gap-1 text-on-surface-variant opacity-70" onClick={() => onNavigate('submit')}>
+          <span className="material-symbols-outlined">description</span>
+          <span className="text-[10px] font-bold uppercase">Thủ tục</span>
+        </button>
+        <button className="flex flex-col items-center gap-1 text-on-surface-variant opacity-70" onClick={() => onNavigate('home')}>
+          <span className="material-symbols-outlined">article</span>
+          <span className="text-[10px] font-bold uppercase">Tin tức</span>
+        </button>
+        <button className="flex flex-col items-center gap-1 text-on-surface-variant opacity-70">
+          <span className="material-symbols-outlined">person</span>
+          <span className="text-[10px] font-bold uppercase">Tôi</span>
+        </button>
+      </nav>
     </div>
   );
 }
+
+const DEFAULT_ZOOM_LEVEL = 13;

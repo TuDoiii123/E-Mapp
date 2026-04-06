@@ -16,20 +16,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from RAG.agent_core.graph import MultiRoleAgentGraph
 from RAG.connect_SQL.connect_SQL import connect_sql
+from RAG.tools.suggest import init_suggest, suggest_procedures
 from logger import get_logger
 
 log = get_logger('rag_routes')
-
-try:
-    from sentence_transformers import SentenceTransformer
-    from sentence_transformers.util import cos_sim
-    import pandas as pd
-    import torch
-except Exception:
-    SentenceTransformer = None  # type: ignore
-    cos_sim = None  # type: ignore
-    pd = None  # type: ignore
-    torch = None  # type: ignore
 
 rag_bp = Blueprint('rag', __name__)
 
@@ -38,11 +28,6 @@ VN_TZ = timezone(timedelta(hours=7))
 # ── Lazy singletons ────────────────────────────────────────────────────────────
 _agent_graph: Optional[MultiRoleAgentGraph] = None
 _db_engine = None
-_doc_model = None
-_doc_df = None
-_doc_embeddings = None
-_rank_df = None
-_query_map: Dict[str, List[Dict[str, Any]]] = {}
 
 
 def _get_agent() -> MultiRoleAgentGraph:
@@ -169,147 +154,11 @@ def _fetch_session_messages(session_id: str) -> List[Dict[str, Any]]:
         return []
 
 
-# ── SuggestProcedure ───────────────────────────────────────────────────────────
+# SuggestProcedure — logic đã chuyển sang RAG/tools/suggest.py
+# init_suggest và suggest_procedures được import ở đầu file
 def init_document_suggestion():
-    global _doc_model, _doc_df, _doc_embeddings, _rank_df, _query_map
-    if _doc_model is not None and _doc_df is not None and _doc_embeddings is not None:
-        return _doc_model, _doc_df, _doc_embeddings
-
-    if SentenceTransformer is None or pd is None:
-        raise RuntimeError('sentence-transformers / pandas not installed.')
-
-    base_dir = os.path.dirname(os.path.dirname(__file__))  # Backend/
-    csv_path = os.path.join(base_dir, 'SuggestProcedure', 'data', 'dichvucong_QuangNinh - dichvucong_QuangNinh.csv')
-    model_path = os.path.join(base_dir, 'SuggestProcedure', 'model', 'fine_tuned_model')
-    rank_path = os.path.join(base_dir, 'SuggestProcedure', 'data', 'query_procedure_ranking_quangninh.csv')
-
-    if not os.path.isfile(csv_path):
-        raise FileNotFoundError(f'CSV not found: {csv_path}')
-
-    fine_tuned_available = os.path.isdir(model_path)
-    if not fine_tuned_available:
-        log.info(f'[SuggestProcedure][WARN] Fine-tuned model not found: {model_path}')
-
-    try:
-        _doc_df = pd.read_csv(csv_path)
-        if 'NAME' not in _doc_df.columns:
-            raise RuntimeError("CSV missing 'NAME' column")
-
-        if _rank_df is None and os.path.isfile(rank_path):
-            try:
-                _rank_df = pd.read_csv(rank_path)
-                cols_lower = [c.lower() for c in _rank_df.columns]
-                rename_map = {}
-                for c in _rank_df.columns:
-                    cl = c.lower()
-                    if cl == 'relevance':
-                        rename_map[c] = 'label'
-                    elif cl in ('query_id', 'query_text', 'procedure_id', 'procedure_code', 'procedure_name'):
-                        rename_map[c] = cl
-                if rename_map:
-                    _rank_df.rename(columns=rename_map, inplace=True)
-                required_cols = {'query_text', 'procedure_id', 'procedure_name', 'label'}
-                if not required_cols.issubset(set(_rank_df.columns)):
-                    raise RuntimeError(f"Ranking CSV missing columns: {list(_rank_df.columns)}")
-                _rank_df['label'] = pd.to_numeric(_rank_df['label'], errors='coerce')
-                pos_rows = _rank_df[_rank_df['label'].fillna(0) > 0]
-                for _, row in pos_rows.iterrows():
-                    qtxt = str(row.get('query_text', '')).strip()
-                    if not qtxt:
-                        continue
-                    key = re.sub(r'[^\w\s]', '', qtxt.lower()).strip()
-                    _query_map.setdefault(key, []).append({
-                        'procedure_id': row.get('procedure_id'),
-                        'procedure_code': row.get('procedure_code'),
-                        'procedure_name': row.get('procedure_name'),
-                        'label': int(row.get('label', 1)),
-                    })
-                log.info(f'[SuggestProcedure] Query map built: {len(_query_map)} queries')
-            except Exception as r_exc:
-                log.info(f'[SuggestProcedure][WARN] Ranking CSV failed: {r_exc}')
-
-        if fine_tuned_available:
-            needed = ['config.json', 'model.safetensors', 'bpe.codes']
-            if any(not os.path.isfile(os.path.join(model_path, f)) for f in needed):
-                fine_tuned_available = False
-                log.info('[SuggestProcedure][WARN] Fine-tuned model incomplete -> fallback')
-
-        model_name = model_path if fine_tuned_available else 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
-        _doc_model = SentenceTransformer(model_name)
-        names = _doc_df['NAME'].astype(str).tolist()
-        _doc_embeddings = _doc_model.encode(names, convert_to_tensor=True)
-        log.info('[SuggestProcedure] Embeddings ready')
-
-    except Exception as exc:
-        log.info(f'[SuggestProcedure][ERROR] {exc}\n{traceback.format_exc()}')
-        fallback = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
-        try:
-            _doc_model = SentenceTransformer(fallback)
-            if _doc_df is None:
-                _doc_df = pd.DataFrame({'ID': [], 'NAME': []})
-            names = _doc_df['NAME'].astype(str).tolist()
-            _doc_embeddings = _doc_model.encode(names or ['placeholder'], convert_to_tensor=True)
-            log.info('[SuggestProcedure][FALLBACK] Ready')
-        except Exception as fb_exc:
-            log.info(f'[SuggestProcedure][FALLBACK][ERROR] {fb_exc}')
-            _doc_model = _doc_df = _doc_embeddings = None
-            raise
-
-    return _doc_model, _doc_df, _doc_embeddings
-
-
-def suggest_procedures(query: str, top_k: int = 4, threshold: float = 0.5) -> Dict[str, Any]:
-    try:
-        model, df, embeddings = init_document_suggestion()
-        if model is None or df is None or embeddings is None:
-            return {'suggestions': [], 'explanation': 'Model not initialized', 'error': 'init_failed'}
-
-        link_base = os.getenv('PROCEDURE_LINK_BASE', 'https://dichvucong.gov.vn/thu-tuc/')
-
-        def _build_link(pid: Any, name: str) -> str:
-            slug = re.sub(r'[^a-zA-Z0-9\- ]', '', name.lower()).strip().replace(' ', '-')
-            return f'{link_base}{pid}-{slug}' if pid and str(pid).strip() else f'{link_base}{slug}'
-
-        norm_q = re.sub(r'[^\w\s]', '', query.lower()).strip()
-        label_hits = _query_map.get(norm_q, [])
-        suggestions: List[Dict[str, Any]] = []
-        for hit in label_hits[:top_k]:
-            pid = hit.get('procedure_id')
-            pname = hit.get('procedure_name')
-            suggestions.append({
-                'procedure_internal_id': pid,
-                'procedure_name': pname,
-                'procedure_code': hit.get('procedure_code'),
-                'label': hit.get('label'),
-                'similarity_score': 1.0,
-                'source': 'ranking_label',
-                'link': _build_link(pid, str(pname)),
-            })
-
-        remaining = top_k - len(suggestions)
-        if remaining > 0:
-            q_emb = model.encode(query, convert_to_tensor=True)
-            scores = cos_sim(q_emb, embeddings)[0].cpu().numpy().tolist()
-            existing_names = {s['procedure_name'] for s in suggestions}
-            scored = sorted(
-                [{'procedure_internal_id': int(df['ID'].iloc[i]) if 'ID' in df.columns else i,
-                  'procedure_name': df['NAME'].iloc[i],
-                  'procedure_code': None, 'label': None,
-                  'similarity_score': round(float(s), 4), 'source': 'embedding',
-                  'link': _build_link(int(df['ID'].iloc[i]) if 'ID' in df.columns else i, str(df['NAME'].iloc[i]))}
-                 for i, s in enumerate(scores) if s >= threshold],
-                key=lambda x: x['similarity_score'], reverse=True,
-            )
-            for item in scored:
-                if item['procedure_name'] not in existing_names:
-                    suggestions.append(item)
-                if len(suggestions) >= top_k:
-                    break
-
-        explanation = 'Không tìm thấy thủ tục phù hợp.' if not suggestions else 'Các thủ tục liên quan được đề xuất.'
-        return {'suggestions': suggestions, 'explanation': explanation, 'total_candidates': len(suggestions)}
-    except Exception as exc:
-        return {'suggestions': [], 'explanation': f'Lỗi: {exc}', 'error': 'exception'}
+    """Alias để server.py preload vẫn hoạt động."""
+    return init_suggest()
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────────

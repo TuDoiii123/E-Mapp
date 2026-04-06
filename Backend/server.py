@@ -68,6 +68,8 @@ _blueprints = [
     ('routes.voice_routes',         'voice_bp'),
     ('routes.rag_routes',           'rag_bp'),
     ('routes.queue_routes',         'queue_bp'),
+    ('routes.document_extract_routes', 'document_extract_bp'),
+    ('routes.map_routes',              'map_bp'),
 ]
 
 for module_path, bp_name in _blueprints:

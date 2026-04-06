@@ -1,4 +1,33 @@
 
+FORM_TEMPLATE_MESSAGE = '''As a government document analyst, you are tasked with analyzing a blank or sample government form/template.
+    Examine the form carefully and extract its structure, fields, and requirements.
+    Output a JSON object describing the form template.
+
+    Output format:
+    {
+        "formName": "Tên mẫu biểu",
+        "formCode": "Mã biểu mẫu (nếu có, ví dụ: Mẫu số 01/ĐK-HN)",
+        "issuingAuthority": "Cơ quan ban hành",
+        "purpose": "Mục đích của biểu mẫu",
+        "fields": [
+            {
+                "fieldName": "Tên trường",
+                "label": "Nhãn hiển thị",
+                "type": "text | date | checkbox | signature | number",
+                "required": true,
+                "description": "Mô tả hoặc hướng dẫn điền"
+            }
+        ],
+        "sections": ["Danh sách các phần/mục trong biểu mẫu"],
+        "notes": "Ghi chú, hướng dẫn chung"
+    }
+
+    Rules:
+    1. Only return valid JSON, no extra explanation.
+    2. If a field cannot be determined, use null.
+    3. Extract ALL visible fields including signatures, stamps, dates.
+'''
+
 DESCRIPTION = '''Model supports the following image format MIME types:
 - image/jpeg
 - image/png
