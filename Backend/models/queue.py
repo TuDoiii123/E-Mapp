@@ -1,10 +1,9 @@
 """
 Queue / Ticket model
-Lưu trữ hàng chờ theo từng cơ quan (agencyId) và loại dịch vụ (serviceId).
-Hỗ trợ JSON file-based storage + optional PostgreSQL.
+Lưu trữ hàng chờ: ưu tiên PostgreSQL, fallback JSON file.
 """
-import json
-from pathlib import Path
+import math
+import uuid
 from datetime import datetime
 from models.user import FileStorage
 
@@ -17,433 +16,517 @@ except Exception:
     text = None
     HAS_DB = False
 
-# Trạng thái vé
-STATUS_WAITING   = 'waiting'    # Đang chờ
-STATUS_CALLED    = 'called'     # Đã được gọi
-STATUS_SERVING   = 'serving'    # Đang phục vụ
-STATUS_DONE      = 'done'       # Hoàn thành
-STATUS_ABSENT    = 'absent'     # Vắng mặt khi gọi
-STATUS_CANCELLED = 'cancelled'  # Đã hủy
+# ── Trạng thái vé ─────────────────────────────────────────────────────────────
+STATUS_WAITING   = 'waiting'
+STATUS_CALLED    = 'called'
+STATUS_SERVING   = 'serving'
+STATUS_DONE      = 'done'
+STATUS_ABSENT    = 'absent'
+STATUS_CANCELLED = 'cancelled'
 
-ACTIVE_STATUSES  = {STATUS_WAITING, STATUS_CALLED, STATUS_SERVING}
+ACTIVE_STATUSES = {STATUS_WAITING, STATUS_CALLED, STATUS_SERVING}
 
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _today() -> str:
+    return datetime.now().strftime('%Y-%m-%d')
+
+def _now_iso() -> str:
+    return datetime.now().isoformat()
+
+def _use_db() -> bool:
+    if not HAS_DB or db is None:
+        return False
+    try:
+        db.session.execute(text('SELECT 1'))
+        return True
+    except Exception:
+        return False
+
+def _ticket_code(prefix: str, number: int) -> str:
+    return f"{prefix}{number:03d}"
+
+def _row_to_dict(row) -> dict:
+    """Convert SQLAlchemy Row → camelCase dict cho frontend."""
+    r = dict(row._mapping)
+    return {
+        'id':            r['id'],
+        'agencyId':      r['agency_id'],
+        'serviceId':     r['service_id'],
+        'serviceName':   r['service_name'],
+        'ticketNumber':  r['ticket_number'],
+        'prefix':        r['prefix'],
+        'ticketCode':    _ticket_code(r['prefix'], r['ticket_number']),
+        'userId':        r.get('user_id'),
+        'userName':      r.get('user_name', ''),
+        'counterNo':     r.get('counter_no'),
+        'status':        r['status'],
+        'priority':      r.get('priority', 0),
+        'estimatedWait': r.get('estimated_wait', 0),
+        'calledAt':      r['called_at'].isoformat() if r.get('called_at') else None,
+        'servedAt':      r['served_at'].isoformat() if r.get('served_at') else None,
+        'doneAt':        r['done_at'].isoformat()   if r.get('done_at')   else None,
+        'createdAt':     r['created_at'].isoformat() if r.get('created_at') else _now_iso(),
+        'updatedAt':     r['updated_at'].isoformat() if r.get('updated_at') else _now_iso(),
+        'date':          str(r.get('date', _today())),
+    }
+
+
+# ── QueueTicket ───────────────────────────────────────────────────────────────
 
 class QueueTicket:
-    """Mô hình vé số thứ tự"""
 
-    def __init__(self, data: dict):
-        now = datetime.now().isoformat()
-        self.id          = data.get('id', str(int(datetime.now().timestamp() * 1000)))
-        self.agencyId    = data.get('agencyId', '')       # ID cơ quan
-        self.serviceId   = data.get('serviceId', '')       # ID thủ tục
-        self.serviceName = data.get('serviceName', '')
-        self.ticketNumber= data.get('ticketNumber', 0)     # Số thứ tự (int)
-        self.prefix      = data.get('prefix', 'A')         # Tiền tố: A, B, C...
-        self.userId      = data.get('userId', '')
-        self.userName    = data.get('userName', '')
-        self.counterNo   = data.get('counterNo', None)     # Quầy phục vụ
-        self.status      = data.get('status', STATUS_WAITING)
-        self.priority    = data.get('priority', 0)         # 0=thường, 1=ưu tiên
-        self.estimatedWait = data.get('estimatedWait', 0)  # giây
-        self.calledAt    = data.get('calledAt', None)
-        self.servedAt    = data.get('servedAt', None)
-        self.doneAt      = data.get('doneAt', None)
-        self.createdAt   = data.get('createdAt', now)
-        self.updatedAt   = data.get('updatedAt', now)
-        # Ngày (YYYY-MM-DD) — để tách queue theo ngày
-        self.date        = data.get('date', datetime.now().strftime('%Y-%m-%d'))
-
-    def to_dict(self) -> dict:
-        return {
-            'id':            self.id,
-            'agencyId':      self.agencyId,
-            'serviceId':     self.serviceId,
-            'serviceName':   self.serviceName,
-            'ticketNumber':  self.ticketNumber,
-            'prefix':        self.prefix,
-            'ticketCode':    f"{self.prefix}{self.ticketNumber:03d}",
-            'userId':        self.userId,
-            'userName':      self.userName,
-            'counterNo':     self.counterNo,
-            'status':        self.status,
-            'priority':      self.priority,
-            'estimatedWait': self.estimatedWait,
-            'calledAt':      self.calledAt,
-            'servedAt':      self.servedAt,
-            'doneAt':        self.doneAt,
-            'createdAt':     self.createdAt,
-            'updatedAt':     self.updatedAt,
-            'date':          self.date,
-        }
-
-    # ── Helpers ──────────────────────────────────────────────────────────────
+    # ── JSON fallback helpers ─────────────────────────────────────────────────
 
     @staticmethod
-    def _today() -> str:
-        return datetime.now().strftime('%Y-%m-%d')
-
-    @staticmethod
-    def _all() -> list:
+    def _all_json() -> list:
         return FileStorage.read_json('queue_tickets.json')
 
     @staticmethod
-    def _save(tickets: list) -> None:
+    def _save_json(tickets: list) -> None:
         FileStorage.write_json('queue_tickets.json', tickets)
 
-    # ── CRUD ─────────────────────────────────────────────────────────────────
+    # ── next ticket number ────────────────────────────────────────────────────
 
     @staticmethod
-    def find_all(agency_id: str = None, date: str = None,
-                 status: str = None) -> list:
-        tickets = QueueTicket._all()
-        if agency_id:
-            tickets = [t for t in tickets if t.get('agencyId') == agency_id]
-        if date:
-            tickets = [t for t in tickets if t.get('date') == date]
-        if status:
-            tickets = [t for t in tickets if t.get('status') == status]
-        return sorted(tickets, key=lambda t: (t.get('priority', 0), t.get('ticketNumber', 0)))
+    def _next_number_db(agency_id: str, prefix: str, date: str) -> int:
+        row = db.session.execute(text("""
+            SELECT COALESCE(MAX(ticket_number), 0) + 1
+            FROM public.queue_tickets
+            WHERE agency_id = :aid AND prefix = :pfx AND date = :dt
+        """), {'aid': agency_id, 'pfx': prefix, 'dt': date}).fetchone()
+        return int(row[0]) if row else 1
+
+    @staticmethod
+    def _next_number_json(agency_id: str, prefix: str, date: str) -> int:
+        existing = [
+            t for t in QueueTicket._all_json()
+            if t.get('agencyId') == agency_id
+            and t.get('prefix') == prefix
+            and t.get('date') == date
+        ]
+        return (max(t.get('ticketNumber', 0) for t in existing) + 1) if existing else 1
+
+    # ── create ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def create(data: dict) -> dict:
+        date    = data.get('date', _today())
+        prefix  = (data.get('prefix') or 'A').upper()
+        aid     = data['agencyId']
+        sid     = data.get('serviceId', '')
+        uid     = data.get('userId')
+
+        if _use_db():
+            num = QueueTicket._next_number_db(aid, prefix, date)
+            tid = str(uuid.uuid4())
+            wait = QueueService.estimate_wait(aid, sid, data.get('priority', 0), prefix)
+            db.session.execute(text("""
+                INSERT INTO public.queue_tickets
+                    (id, agency_id, service_id, service_name, ticket_number, prefix,
+                     user_id, user_name, status, priority, estimated_wait, date)
+                VALUES
+                    (:id, :aid, :sid, :sname, :num, :pfx,
+                     :uid, :uname, 'waiting', :prio, :wait, :dt)
+            """), {
+                'id': tid, 'aid': aid, 'sid': sid,
+                'sname': data.get('serviceName', ''),
+                'num': num, 'pfx': prefix,
+                'uid': uid, 'uname': data.get('userName', ''),
+                'prio': data.get('priority', 0),
+                'wait': wait, 'dt': date,
+            })
+            db.session.commit()
+            row = db.session.execute(
+                text("SELECT * FROM public.queue_tickets WHERE id = :id"), {'id': tid}
+            ).fetchone()
+            return _row_to_dict(row)
+
+        # JSON fallback
+        tickets = QueueTicket._all_json()
+        num  = QueueTicket._next_number_json(aid, prefix, date)
+        tid  = str(uuid.uuid4())
+        wait = QueueService.estimate_wait(aid, sid, data.get('priority', 0), prefix)
+        ticket = {
+            'id': tid, 'agencyId': aid, 'serviceId': sid,
+            'serviceName': data.get('serviceName', ''),
+            'ticketNumber': num, 'prefix': prefix,
+            'ticketCode': _ticket_code(prefix, num),
+            'userId': uid, 'userName': data.get('userName', ''),
+            'counterNo': None, 'status': STATUS_WAITING,
+            'priority': data.get('priority', 0),
+            'estimatedWait': wait,
+            'calledAt': None, 'servedAt': None, 'doneAt': None,
+            'createdAt': _now_iso(), 'updatedAt': _now_iso(), 'date': date,
+        }
+        tickets.append(ticket)
+        QueueTicket._save_json(tickets)
+        return ticket
+
+    # ── find ──────────────────────────────────────────────────────────────────
 
     @staticmethod
     def find_by_id(ticket_id: str) -> dict | None:
-        for t in QueueTicket._all():
+        if _use_db():
+            row = db.session.execute(
+                text("SELECT * FROM public.queue_tickets WHERE id = :id"),
+                {'id': ticket_id}
+            ).fetchone()
+            return _row_to_dict(row) if row else None
+        for t in QueueTicket._all_json():
             if t.get('id') == ticket_id:
                 return t
         return None
 
     @staticmethod
     def find_by_user(user_id: str, date: str = None) -> list:
-        date = date or QueueTicket._today()
+        date = date or _today()
+        if _use_db():
+            rows = db.session.execute(text("""
+                SELECT * FROM public.queue_tickets
+                WHERE user_id = :uid AND date = :dt
+                ORDER BY created_at DESC
+            """), {'uid': user_id, 'dt': date}).fetchall()
+            return [_row_to_dict(r) for r in rows]
         return [
-            t for t in QueueTicket._all()
+            t for t in QueueTicket._all_json()
             if t.get('userId') == user_id and t.get('date') == date
         ]
 
     @staticmethod
-    def next_ticket_number(agency_id: str, prefix: str, date: str) -> int:
-        """Lấy số thứ tự tiếp theo của ngày hôm nay cho cơ quan + prefix"""
-        existing = [
-            t for t in QueueTicket._all()
-            if t.get('agencyId') == agency_id
-            and t.get('prefix') == prefix
-            and t.get('date') == date
-        ]
-        if not existing:
-            return 1
-        return max(t.get('ticketNumber', 0) for t in existing) + 1
+    def find_all(agency_id: str = None, date: str = None, status: str = None) -> list:
+        if _use_db():
+            where, params = [], {}
+            if agency_id: where.append('agency_id = :aid');  params['aid'] = agency_id
+            if date:      where.append('date = :dt');        params['dt']  = date
+            if status:    where.append('status = :st');      params['st']  = status
+            clause = ('WHERE ' + ' AND '.join(where)) if where else ''
+            rows = db.session.execute(text(f"""
+                SELECT * FROM public.queue_tickets {clause}
+                ORDER BY priority DESC, ticket_number ASC
+            """), params).fetchall()
+            return [_row_to_dict(r) for r in rows]
+
+        tickets = QueueTicket._all_json()
+        if agency_id: tickets = [t for t in tickets if t.get('agencyId') == agency_id]
+        if date:      tickets = [t for t in tickets if t.get('date') == date]
+        if status:    tickets = [t for t in tickets if t.get('status') == status]
+        return sorted(tickets, key=lambda t: (-t.get('priority', 0), t.get('ticketNumber', 0)))
 
     @staticmethod
-    def create(data: dict) -> dict:
-        tickets = QueueTicket._all()
-        date    = data.get('date', QueueTicket._today())
-        prefix  = data.get('prefix', 'A')
-        num     = QueueTicket.next_ticket_number(data['agencyId'], prefix, date)
-        data['ticketNumber'] = num
-        data['date']         = date
+    def _all() -> list:
+        """Dùng nội bộ bởi QueueService."""
+        return QueueTicket.find_all()
 
-        ticket = QueueTicket(data)
-        # Tính thời gian chờ ngay khi tạo
-        ticket.estimatedWait = QueueService.estimate_wait(
-            ticket.agencyId, ticket.serviceId, ticket.priority
-        )
-        tickets.append(ticket.to_dict())
-        QueueTicket._save(tickets)
-        return ticket.to_dict()
+    # ── update ────────────────────────────────────────────────────────────────
 
     @staticmethod
     def update(ticket_id: str, updates: dict) -> dict | None:
-        tickets = QueueTicket._all()
+        if _use_db():
+            # Map camelCase → snake_case
+            col_map = {
+                'status': 'status', 'counterNo': 'counter_no',
+                'calledAt': 'called_at', 'servedAt': 'served_at', 'doneAt': 'done_at',
+                'estimatedWait': 'estimated_wait', 'priority': 'priority',
+            }
+            sets, params = [], {'id': ticket_id}
+            for k, v in updates.items():
+                col = col_map.get(k)
+                if col:
+                    sets.append(f"{col} = :{k}")
+                    params[k] = v
+            if not sets:
+                return QueueTicket.find_by_id(ticket_id)
+            sets.append("updated_at = now()")
+            db.session.execute(
+                text(f"UPDATE public.queue_tickets SET {', '.join(sets)} WHERE id = :id"),
+                params
+            )
+            db.session.commit()
+            return QueueTicket.find_by_id(ticket_id)
+
+        tickets = QueueTicket._all_json()
         for i, t in enumerate(tickets):
             if t.get('id') == ticket_id:
                 t.update(updates)
-                t['updatedAt'] = datetime.now().isoformat()
-                QueueTicket._save(tickets)
+                t['updatedAt'] = _now_iso()
+                QueueTicket._save_json(tickets)
                 return t
         return None
 
-    @staticmethod
-    def delete(ticket_id: str) -> bool:
-        tickets = QueueTicket._all()
-        new_list = [t for t in tickets if t.get('id') != ticket_id]
-        if len(new_list) == len(tickets):
-            return False
-        QueueTicket._save(new_list)
-        return True
-
-    # ── Counter (quầy) ────────────────────────────────────────────────────────
+    # ── call_next ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def call_next(agency_id: str, counter_no: int,
-                  service_id: str = None) -> dict | None:
-        """Gọi vé tiếp theo cho một quầy"""
-        tickets = QueueTicket._all()
-        # Ưu tiên theo priority DESC, ticketNumber ASC
+    def call_next(agency_id: str, counter_no: int, service_id: str = None) -> dict | None:
+        if _use_db():
+            where = "agency_id = :aid AND status = 'waiting' AND date = :dt"
+            params: dict = {'aid': agency_id, 'dt': _today(), 'cnt': counter_no}
+            if service_id:
+                where += ' AND service_id = :sid'
+                params['sid'] = service_id
+            row = db.session.execute(text(f"""
+                SELECT * FROM public.queue_tickets
+                WHERE {where}
+                ORDER BY priority DESC, ticket_number ASC
+                LIMIT 1
+            """), params).fetchone()
+            if not row:
+                return None
+            ticket = _row_to_dict(row)
+            return QueueTicket.update(ticket['id'], {
+                'status': STATUS_CALLED,
+                'counterNo': counter_no,
+                'calledAt': _now_iso(),
+            })
+
+        tickets = QueueTicket._all_json()
         waiting = sorted(
             [
                 t for t in tickets
                 if t.get('agencyId') == agency_id
                 and t.get('status') == STATUS_WAITING
-                and t.get('date') == QueueTicket._today()
+                and t.get('date') == _today()
                 and (service_id is None or t.get('serviceId') == service_id)
             ],
             key=lambda t: (-t.get('priority', 0), t.get('ticketNumber', 0))
         )
         if not waiting:
             return None
-
-        next_ticket = waiting[0]
+        nxt = waiting[0]
         for t in tickets:
-            if t.get('id') == next_ticket['id']:
-                t['status']    = STATUS_CALLED
-                t['counterNo'] = counter_no
-                t['calledAt']  = datetime.now().isoformat()
-                t['updatedAt'] = datetime.now().isoformat()
-                QueueTicket._save(tickets)
+            if t.get('id') == nxt['id']:
+                t.update({'status': STATUS_CALLED, 'counterNo': counter_no,
+                           'calledAt': _now_iso(), 'updatedAt': _now_iso()})
+                QueueTicket._save_json(tickets)
+                return t
+        return None
+
+    # ── active check ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def active_for_user(user_id: str, agency_id: str) -> dict | None:
+        """Trả về vé đang active (chờ/gọi/phục vụ) của user tại cơ quan."""
+        for t in QueueTicket.find_by_user(user_id):
+            if t.get('agencyId') == agency_id and t.get('status') in ACTIVE_STATUSES:
                 return t
         return None
 
 
+# ── AgencyCounter ─────────────────────────────────────────────────────────────
+
 class AgencyCounter:
-    """Quầy phục vụ của cơ quan"""
 
     @staticmethod
-    def _all() -> list:
+    def _all_json() -> list:
         return FileStorage.read_json('agency_counters.json')
 
     @staticmethod
-    def _save(data: list) -> None:
+    def _save_json(data: list) -> None:
         FileStorage.write_json('agency_counters.json', data)
 
     @staticmethod
     def find_by_agency(agency_id: str) -> list:
-        return [c for c in AgencyCounter._all() if c.get('agencyId') == agency_id]
+        if _use_db():
+            rows = db.session.execute(text("""
+                SELECT * FROM public.agency_counters WHERE agency_id = :aid
+            """), {'aid': agency_id}).fetchall()
+            if rows:
+                return [dict(r._mapping) for r in rows]
+        return [c for c in AgencyCounter._all_json() if c.get('agencyId') == agency_id]
 
     @staticmethod
     def active_count(agency_id: str) -> int:
         counters = AgencyCounter.find_by_agency(agency_id)
-        active = [c for c in counters if c.get('isActive', True)]
+        active = [c for c in counters if c.get('isActive', c.get('is_active', True))]
         return max(len(active), 1)
 
     @staticmethod
-    def upsert(agency_id: str, counter_no: int, is_active: bool = True,
-               operator_name: str = '') -> dict:
-        counters = AgencyCounter._all()
+    def upsert(agency_id: str, counter_no: int,
+               is_active: bool = True, operator_name: str = '') -> dict:
+        if _use_db():
+            cid = str(uuid.uuid4())
+            db.session.execute(text("""
+                INSERT INTO public.agency_counters
+                    (id, agency_id, counter_no, is_active, operator_name)
+                VALUES (:id, :aid, :cnt, :active, :op)
+                ON CONFLICT (agency_id, counter_no) DO UPDATE SET
+                    is_active = EXCLUDED.is_active,
+                    operator_name = EXCLUDED.operator_name,
+                    updated_at = now()
+            """), {'id': cid, 'aid': agency_id, 'cnt': counter_no,
+                   'active': is_active, 'op': operator_name})
+            db.session.commit()
+            row = db.session.execute(text("""
+                SELECT * FROM public.agency_counters
+                WHERE agency_id = :aid AND counter_no = :cnt
+            """), {'aid': agency_id, 'cnt': counter_no}).fetchone()
+            return dict(row._mapping) if row else {}
+
+        counters = AgencyCounter._all_json()
         for c in counters:
             if c.get('agencyId') == agency_id and c.get('counterNo') == counter_no:
-                c['isActive']     = is_active
-                c['operatorName'] = operator_name
-                c['updatedAt']    = datetime.now().isoformat()
-                AgencyCounter._save(counters)
+                c.update({'isActive': is_active, 'operatorName': operator_name,
+                           'updatedAt': _now_iso()})
+                AgencyCounter._save_json(counters)
                 return c
-        new_counter = {
-            'id':           str(int(datetime.now().timestamp() * 1000)),
-            'agencyId':     agency_id,
-            'counterNo':    counter_no,
-            'isActive':     is_active,
-            'operatorName': operator_name,
-            'createdAt':    datetime.now().isoformat(),
-            'updatedAt':    datetime.now().isoformat(),
+        new_c = {
+            'id': str(uuid.uuid4()), 'agencyId': agency_id, 'counterNo': counter_no,
+            'isActive': is_active, 'operatorName': operator_name,
+            'createdAt': _now_iso(), 'updatedAt': _now_iso(),
         }
-        counters.append(new_counter)
-        AgencyCounter._save(counters)
-        return new_counter
+        counters.append(new_c)
+        AgencyCounter._save_json(counters)
+        return new_c
 
+
+# ── ServiceStats ──────────────────────────────────────────────────────────────
 
 class ServiceStats:
-    """Thống kê thời gian phục vụ theo lịch sử — dùng cho thuật toán tính chờ"""
-
-    FILE = 'service_stats.json'
-
-    @staticmethod
-    def _all() -> dict:
-        raw = FileStorage.read_json(ServiceStats.FILE)
-        if isinstance(raw, list):
-            return {}
-        return raw
-
-    @staticmethod
-    def _save(data: dict) -> None:
-        FileStorage.write_json(ServiceStats.FILE, data)
 
     @staticmethod
     def record_service_time(agency_id: str, service_id: str, seconds: float):
-        """Ghi nhận thời gian phục vụ thực tế để cải thiện ước tính"""
-        stats = ServiceStats._all()
-        key   = f"{agency_id}::{service_id}"
-        if key not in stats:
-            stats[key] = {'count': 0, 'total_seconds': 0, 'avg': 0}
-        entry = stats[key]
-        entry['count']         += 1
-        entry['total_seconds'] += seconds
-        entry['avg']            = entry['total_seconds'] / entry['count']
-        ServiceStats._save(stats)
+        if _use_db():
+            db.session.execute(text("""
+                INSERT INTO public.service_stats (agency_id, service_id, sample_count, total_seconds, avg_seconds)
+                VALUES (:aid, :sid, 1, :secs, :secs)
+                ON CONFLICT (agency_id, service_id) DO UPDATE SET
+                    sample_count  = service_stats.sample_count + 1,
+                    total_seconds = service_stats.total_seconds + :secs,
+                    avg_seconds   = (service_stats.total_seconds + :secs) / (service_stats.sample_count + 1),
+                    updated_at    = now()
+            """), {'aid': agency_id, 'sid': service_id, 'secs': seconds})
+            db.session.commit()
+            return
+
+        raw = FileStorage.read_json('service_stats.json')
+        stats = raw if isinstance(raw, dict) else {}
+        key = f"{agency_id}::{service_id}"
+        e = stats.get(key, {'count': 0, 'total_seconds': 0, 'avg': 0})
+        e['count'] += 1
+        e['total_seconds'] += seconds
+        e['avg'] = e['total_seconds'] / e['count']
+        stats[key] = e
+        FileStorage.write_json('service_stats.json', stats)
 
     @staticmethod
-    def avg_service_time(agency_id: str, service_id: str,
-                         default_secs: float = 420.0) -> float:
-        """Lấy thời gian phục vụ trung bình (giây). Mặc định 7 phút."""
-        stats = ServiceStats._all()
-        key   = f"{agency_id}::{service_id}"
-        entry = stats.get(key)
-        if entry and entry.get('count', 0) >= 5:
-            return float(entry['avg'])
+    def avg_service_time(agency_id: str, service_id: str, default_secs: float = 420.0) -> float:
+        if _use_db():
+            row = db.session.execute(text("""
+                SELECT avg_seconds, sample_count FROM public.service_stats
+                WHERE agency_id = :aid AND service_id = :sid
+            """), {'aid': agency_id, 'sid': service_id}).fetchone()
+            if row and row[1] >= 5:
+                return float(row[0])
+        else:
+            raw = FileStorage.read_json('service_stats.json')
+            stats = raw if isinstance(raw, dict) else {}
+            entry = stats.get(f"{agency_id}::{service_id}")
+            if entry and entry.get('count', 0) >= 5:
+                return float(entry['avg'])
         return default_secs
 
 
-class QueueService:
-    """Thuật toán tính toán thời gian chờ ước tính"""
+# ── QueueService ──────────────────────────────────────────────────────────────
 
-    # Hệ số giờ cao điểm (giờ → hệ số)
-    PEAK_FACTOR = {
-        8: 1.3, 9: 1.5, 10: 1.4, 11: 1.2,
-        14: 1.3, 15: 1.4, 16: 1.2,
-    }
-    # Hệ số độ phức tạp dịch vụ (prefix → hệ số)
-    SERVICE_COMPLEXITY = {
-        'A': 1.0,   # Hành chính thông thường
-        'B': 1.5,   # Đất đai, xây dựng
-        'C': 1.2,   # Tư pháp, hộ tịch
-        'D': 0.8,   # Xác nhận đơn giản
-        'P': 0.5,   # Ưu tiên — xử lý nhanh
-    }
+class QueueService:
+
+    PEAK_FACTOR = {8: 1.3, 9: 1.5, 10: 1.4, 11: 1.2, 14: 1.3, 15: 1.4, 16: 1.2}
+    SERVICE_COMPLEXITY = {'A': 1.0, 'B': 1.5, 'C': 1.2, 'D': 0.8, 'E': 1.0, 'P': 0.5}
+
+    @staticmethod
+    def _peak_factor() -> float:
+        return QueueService.PEAK_FACTOR.get(datetime.now().hour, 1.0)
 
     @staticmethod
     def estimate_wait(agency_id: str, service_id: str,
                       priority: int = 0, prefix: str = 'A') -> int:
-        """
-        Ước tính thời gian chờ (giây).
-
-        Công thức:
-            wait = ceil(tickets_ahead / counters) × avg_service_time
-                   × peak_factor × complexity_factor
-        """
-        today = QueueTicket._today()
-
-        # Đếm số vé đang chờ (cùng cơ quan, cùng ngày)
-        waiting = QueueTicket.find_all(
-            agency_id=agency_id, date=today, status=STATUS_WAITING
+        today = _today()
+        waiting = QueueTicket.find_all(agency_id=agency_id, date=today, status=STATUS_WAITING)
+        tickets_ahead = len(waiting) if priority == 0 else sum(
+            1 for t in waiting if t.get('priority', 0) > 0
         )
-        # Vé ưu tiên chen vào đầu
-        if priority == 0:
-            # Vé thường: đứng sau tất cả vé ưu tiên
-            tickets_ahead = len(waiting)
-        else:
-            # Vé ưu tiên: chỉ đứng sau các vé ưu tiên đã có
-            tickets_ahead = sum(1 for t in waiting if t.get('priority', 0) > 0)
-
         num_counters = AgencyCounter.active_count(agency_id)
         avg_time     = ServiceStats.avg_service_time(agency_id, service_id)
         peak_factor  = QueueService._peak_factor()
         complexity   = QueueService.SERVICE_COMPLEXITY.get(prefix, 1.0)
 
         if tickets_ahead == 0:
-            # Sắp được gọi, còn đang phục vụ người trước
             return int(avg_time * complexity * 0.5)
-
-        import math
-        wait = math.ceil(tickets_ahead / num_counters) * avg_time
-        wait *= peak_factor * complexity
+        wait = math.ceil(tickets_ahead / num_counters) * avg_time * peak_factor * complexity
         return int(wait)
 
     @staticmethod
-    def _peak_factor() -> float:
-        hour = datetime.now().hour
-        return QueueService.PEAK_FACTOR.get(hour, 1.0)
-
-    @staticmethod
     def queue_summary(agency_id: str) -> dict:
-        """Tóm tắt trạng thái hàng chờ của cơ quan"""
-        today   = QueueTicket._today()
-        all_day = QueueTicket.find_all(agency_id=agency_id, date=today)
+        today    = _today()
+        all_day  = QueueTicket.find_all(agency_id=agency_id, date=today)
 
-        waiting  = [t for t in all_day if t.get('status') == STATUS_WAITING]
-        called   = [t for t in all_day if t.get('status') == STATUS_CALLED]
-        serving  = [t for t in all_day if t.get('status') == STATUS_SERVING]
-        done     = [t for t in all_day if t.get('status') == STATUS_DONE]
+        waiting  = [t for t in all_day if t['status'] == STATUS_WAITING]
+        called   = [t for t in all_day if t['status'] == STATUS_CALLED]
+        serving  = [t for t in all_day if t['status'] == STATUS_SERVING]
+        done     = [t for t in all_day if t['status'] == STATUS_DONE]
 
-        # Số đang được gọi/phục vụ theo quầy
-        counters_busy = {}
-        for t in called + serving:
-            cn = t.get('counterNo')
-            if cn:
-                counters_busy[str(cn)] = {
-                    'ticketCode': t.get('ticketCode') or f"{t.get('prefix','A')}{t.get('ticketNumber',0):03d}",
-                    'status':     t.get('status'),
-                    'serviceName':t.get('serviceName', ''),
-                }
+        # now_serving: quầy đang phục vụ
+        now_serving = [
+            {
+                'counterNo':   t.get('counterNo'),
+                'ticketCode':  t.get('ticketCode') or _ticket_code(t.get('prefix', 'A'), t.get('ticketNumber', 0)),
+                'serviceName': t.get('serviceName', ''),
+            }
+            for t in (called + serving) if t.get('counterNo')
+        ]
 
-        avg_service = 0
-        if done:
-            served_times = []
-            for t in done:
-                if t.get('servedAt') and t.get('doneAt'):
-                    try:
-                        s = datetime.fromisoformat(t['servedAt'])
-                        d = datetime.fromisoformat(t['doneAt'])
-                        served_times.append((d - s).total_seconds())
-                    except Exception:
-                        pass
-            if served_times:
-                avg_service = int(sum(served_times) / len(served_times))
+        # avg service time
+        served_times = []
+        for t in done:
+            if t.get('servedAt') and t.get('doneAt'):
+                try:
+                    s = datetime.fromisoformat(t['servedAt'])
+                    d = datetime.fromisoformat(t['doneAt'])
+                    served_times.append((d - s).total_seconds())
+                except Exception:
+                    pass
+        avg_service = int(sum(served_times) / len(served_times)) if served_times else 0
 
-        total_waiting = len(waiting)
-        total_serving = len(serving) + len(called)
-
-        if total_waiting <= 5:
-            load_level = 'low'
-        elif total_waiting <= 15:
-            load_level = 'medium'
-        else:
-            load_level = 'high'
+        tw = len(waiting)
+        load_level = 'high' if tw > 15 else ('medium' if tw > 5 else 'low')
 
         return {
-            'agencyId':        agency_id,
-            'date':            today,
-            'totalWaiting':    total_waiting,
-            'totalCalled':     len(called),
-            'totalServing':    len(serving),
-            'totalDone':       len(done),
-            'activeCounters':  AgencyCounter.active_count(agency_id),
-            'countersBusy':    counters_busy,
+            'agencyId':          agency_id,
+            'date':              today,
+            'totalWaiting':      tw,
+            'totalCalled':       len(called),
+            'totalServing':      len(serving),
+            'totalDone':         len(done),
+            'activeCounters':    AgencyCounter.active_count(agency_id),
             'avgServiceTimeSec': avg_service,
-            'peakFactor':      QueueService._peak_factor(),
-            'loadLevel':       load_level,
-            'nowServing':      [
-                {
-                    'counterNo':  t.get('counterNo'),
-                    'ticketCode': t.get('ticketCode') or f"{t.get('prefix','A')}{t.get('ticketNumber',0):03d}",
-                    'serviceName':t.get('serviceName', ''),
-                }
-                for t in called + serving if t.get('counterNo')
-            ],
+            'peakFactor':        QueueService._peak_factor(),
+            'loadLevel':         load_level,
+            'nowServing':        now_serving,
         }
 
     @staticmethod
     def sync_to_postgres(agency_id: str, summary: dict) -> None:
-        """Upsert queue snapshot vào bảng agency_queue_realtime."""
-        if not HAS_DB or db is None:
+        """Upsert snapshot vào agency_queue_realtime (dùng cho map-overview nhanh)."""
+        if not _use_db():
             return
         try:
-            upsert_sql = text("""
+            db.session.execute(text("""
                 INSERT INTO public.agency_queue_realtime
                     (agency_id, total_waiting, total_serving, load_level, updated_at)
-                VALUES
-                    (:agency_id, :total_waiting, :total_serving, :load_level, now())
+                VALUES (:aid, :tw, :ts, :ll, now())
                 ON CONFLICT (agency_id) DO UPDATE SET
                     total_waiting = EXCLUDED.total_waiting,
                     total_serving = EXCLUDED.total_serving,
                     load_level    = EXCLUDED.load_level,
                     updated_at    = now()
-            """)
-            db.session.execute(upsert_sql, {
-                'agency_id':    agency_id,
-                'total_waiting': summary.get('totalWaiting', 0),
-                'total_serving': summary.get('totalServing', 0) + summary.get('totalCalled', 0),
-                'load_level':   summary.get('loadLevel', 'low'),
+            """), {
+                'aid': agency_id,
+                'tw':  summary.get('totalWaiting', 0),
+                'ts':  summary.get('totalServing', 0) + summary.get('totalCalled', 0),
+                'll':  summary.get('loadLevel', 'low'),
             })
             db.session.commit()
         except Exception:
-            try:
-                db.session.rollback()
-            except Exception:
-                pass
+            try: db.session.rollback()
+            except Exception: pass

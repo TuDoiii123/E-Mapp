@@ -1,15 +1,14 @@
+import json
 import os
 
 
 def process_document(file_path: str, original_name: str = None) -> str:
-    """Try to extract text from a document.
+    """Extract text/structured data from a document.
 
-    - If the file is a plain `.txt`, read and return its content.
-    - For other types (images, pdf), return None (placeholder for OCR integration).
+    - .txt  → read as plain text
+    - images / PDF → call Gemini via image_extractor (requires GEMINI_API_KEY)
 
-    This function is intentionally dependency-free so it will work without extra packages.
-    If you want OCR/PDF extraction, replace the implementation and add required packages
-    to `requirements.txt` (e.g., `pytesseract`, `pdfminer.six`, `PyMuPDF`).
+    Returns extracted content as a string, or None on failure.
     """
     if not file_path or not os.path.exists(file_path):
         return None
@@ -22,11 +21,12 @@ def process_document(file_path: str, original_name: str = None) -> str:
             with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
                 return f.read()
 
-        # Placeholder: if you later install OCR/PDF libraries, handle them here.
-        # Example: for images use pytesseract.image_to_string(Image.open(file_path))
-        # For PDF, use PyPDF2 or pdfminer.six to extract text.
+        if ext in ('jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf'):
+            from services.image_extractor import extract_document
+            result = extract_document(file_path)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+
         return None
     except Exception as e:
-        # Never raise from background worker; log and return None
         print(f"document_processor: failed to process {file_path}: {e}")
         return None

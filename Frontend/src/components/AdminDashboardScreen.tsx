@@ -6,7 +6,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ChevronLeft, Users, MapPin, FileText, BarChart3,
   Plus, Pencil, Trash2, Search, RefreshCw, AlertCircle,
-  CheckCircle, X, Save, Eye, EyeOff,
+  CheckCircle, X, Save, Eye, EyeOff, Calendar, ClipboardList,
+  ThumbsUp, ThumbsDown, MessageSquare,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -607,6 +608,289 @@ function ProceduresTab({ onToast }: { onToast(msg: string, ok: boolean): void })
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// TAB: HỒ SƠ
+// ════════════════════════════════════════════════════════════════════════════════
+const APP_STATUS_OPTIONS = [
+  { value: '', label: 'Tất cả' },
+  { value: 'submitted',        label: 'Đã nộp' },
+  { value: 'under_review',     label: 'Đang xét' },
+  { value: 'need_more_info',   label: 'Cần bổ sung' },
+  { value: 'approved',         label: 'Đã duyệt' },
+  { value: 'rejected',         label: 'Từ chối' },
+];
+const APP_STATUS_COLOR: Record<string, string> = {
+  submitted:      'bg-blue-100 text-blue-700',
+  under_review:   'bg-yellow-100 text-yellow-700',
+  need_more_info: 'bg-orange-100 text-orange-700',
+  approved:       'bg-green-100 text-green-700',
+  rejected:       'bg-red-100 text-red-700',
+};
+const APP_STATUS_LABEL: Record<string, string> = {
+  submitted:      'Đã nộp',
+  under_review:   'Đang xét',
+  need_more_info: 'Cần bổ sung',
+  approved:       'Đã duyệt',
+  rejected:       'Từ chối',
+};
+
+function ReviewModal({ app, onClose, onDone }: {
+  app: any; onClose(): void; onDone(action: string, note: string): void;
+}) {
+  const [action, setAction] = useState('');
+  const [note,   setNote]   = useState('');
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-gray-800">Xét duyệt hồ sơ</h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
+          <p className="font-medium text-gray-800">{app.procedureName || app.procedureId}</p>
+          <p className="text-gray-500">Người nộp: {app.applicantName || app.applicantId}</p>
+          <p className="text-gray-500">Mã: {app.id}</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { val: 'approve',          label: 'Duyệt',       icon: ThumbsUp,       cls: 'border-green-400 text-green-700 bg-green-50' },
+            { val: 'reject',           label: 'Từ chối',     icon: ThumbsDown,     cls: 'border-red-400 text-red-700 bg-red-50' },
+            { val: 'request_more_info',label: 'Yêu cầu bổ sung', icon: MessageSquare, cls: 'border-orange-400 text-orange-700 bg-orange-50' },
+          ].map(o => (
+            <button key={o.val}
+              className={`border-2 rounded-xl p-3 flex flex-col items-center gap-1 text-xs font-medium transition-all
+                ${action === o.val ? o.cls + ' ring-2 ring-offset-1' : 'border-gray-200 text-gray-600'}`}
+              onClick={() => setAction(o.val)}>
+              <o.icon className="w-5 h-5" />
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Ghi chú</label>
+          <textarea value={note} onChange={e => setNote(e.target.value)}
+            rows={3} placeholder="Nhập ghi chú (nếu có)..."
+            className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" />
+        </div>
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Hủy</Button>
+          <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+            disabled={!action}
+            onClick={() => action && onDone(action, note)}>
+            Xác nhận
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ApplicationsTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+  const [items,    setItems]    = useState<any[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [q,        setQ]        = useState('');
+  const [status,   setStatus]   = useState('');
+  const [page,     setPage]     = useState(1);
+  const [total,    setTotal]    = useState(0);
+  const [reviewing,setReviewing]= useState<any>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: Record<string, string> = { page: String(page), limit: '15' };
+      if (q)      params.q      = q;
+      if (status) params.status = status;
+      const r = await adminSvc.getApplications(params);
+      setItems(r.data || []);
+      setTotal(r.pagination?.total || r.total || 0);
+    } catch { /* bỏ qua */ }
+    finally { setLoading(false); }
+  }, [q, status, page]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleReview = async (action: string, note: string) => {
+    if (!reviewing) return;
+    try {
+      await adminSvc.reviewApplication(reviewing.id, action, note);
+      onToast('Đã cập nhật trạng thái hồ sơ', true);
+      setReviewing(null);
+      load();
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  return (
+    <div className="space-y-3 pt-2">
+      {reviewing && (
+        <ReviewModal app={reviewing}
+          onClose={() => setReviewing(null)}
+          onDone={handleReview} />
+      )}
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input value={q} onChange={e => { setQ(e.target.value); setPage(1); }}
+          placeholder="Tìm mã hồ sơ, tên, CCCD..."
+          className="w-full pl-9 pr-3 h-10 border border-gray-200 rounded-md text-sm bg-white" />
+      </div>
+
+      {/* Status filter */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+        {APP_STATUS_OPTIONS.map(o => (
+          <button key={o.value}
+            onClick={() => { setStatus(o.value); setPage(1); }}
+            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all
+              ${status === o.value
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-center text-gray-400 py-8 text-sm">Không có hồ sơ</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(app => (
+            <div key={app.id}
+              className="bg-white rounded-xl px-4 py-3 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">
+                    {app.procedureName || app.procedureId || 'Hồ sơ'}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate mt-0.5">
+                    {app.applicantName || app.applicantId} • {app.id}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {app.createdAt ? new Date(app.createdAt).toLocaleDateString('vi-VN') : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Badge className={`text-xs ${APP_STATUS_COLOR[app.currentStatus] || 'bg-gray-100 text-gray-600'}`}>
+                    {APP_STATUS_LABEL[app.currentStatus] || app.currentStatus}
+                  </Badge>
+                  <button className="text-gray-400 hover:text-blue-600 p-1"
+                    onClick={() => setReviewing(app)}>
+                    <ClipboardList className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {total > 15 && (
+        <div className="flex justify-center gap-3 pt-1">
+          <Button variant="outline" size="sm" disabled={page === 1}
+            onClick={() => setPage(p => p - 1)}>Trước</Button>
+          <span className="text-xs text-gray-500 self-center">
+            {page} / {Math.ceil(total / 15)}
+          </span>
+          <Button variant="outline" size="sm" disabled={page >= Math.ceil(total / 15)}
+            onClick={() => setPage(p => p + 1)}>Sau</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// TAB: LỊCH HẸN
+// ════════════════════════════════════════════════════════════════════════════════
+const APT_STATUS_COLOR: Record<string, string> = {
+  pending:   'bg-yellow-100 text-yellow-700',
+  completed: 'bg-green-100 text-green-700',
+  cancelled: 'bg-gray-100 text-gray-500',
+};
+const APT_STATUS_LABEL: Record<string, string> = {
+  pending:   'Chờ đến',
+  completed: 'Đã đến',
+  cancelled: 'Đã hủy',
+};
+
+function AppointmentsTab() {
+  const [items,   setItems]   = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter,  setFilter]  = useState('');
+  const [q,       setQ]       = useState('');
+
+  useEffect(() => {
+    adminSvc.getAppointments()
+      .then(r => setItems(r.appointments || r.data || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const displayed = items.filter(a => {
+    if (filter && a.status !== filter) return false;
+    if (q) {
+      const kw = q.toLowerCase();
+      return (a.fullName || '').toLowerCase().includes(kw)
+          || (a.phone || '').includes(kw)
+          || (a.id || '').toLowerCase().includes(kw);
+    }
+    return true;
+  });
+
+  return (
+    <div className="space-y-3 pt-2">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input value={q} onChange={e => setQ(e.target.value)}
+          placeholder="Tìm tên, SĐT, mã lịch hẹn..."
+          className="w-full pl-9 pr-3 h-10 border border-gray-200 rounded-md text-sm bg-white" />
+      </div>
+
+      <div className="flex gap-1.5">
+        {[
+          { value: '',          label: 'Tất cả' },
+          { value: 'pending',   label: 'Chờ đến' },
+          { value: 'completed', label: 'Đã đến' },
+          { value: 'cancelled', label: 'Đã hủy' },
+        ].map(o => (
+          <button key={o.value}
+            onClick={() => setFilter(o.value)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all
+              ${filter === o.value
+                ? 'bg-red-600 text-white'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
+      ) : displayed.length === 0 ? (
+        <p className="text-center text-gray-400 py-8 text-sm">Không có lịch hẹn</p>
+      ) : (
+        <div className="space-y-2">
+          {displayed.map(a => (
+            <div key={a.id} className="bg-white rounded-xl px-4 py-3 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">{a.fullName || 'Không rõ'}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{a.phone} • {a.date} {a.time}</p>
+                  <p className="text-xs text-gray-400 mt-0.5 truncate">{a.serviceCode || a.agencyId}</p>
+                </div>
+                <Badge className={`text-xs flex-shrink-0 ${APT_STATUS_COLOR[a.status] || 'bg-gray-100 text-gray-600'}`}>
+                  {APT_STATUS_LABEL[a.status] || a.status}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════════════════
 export function AdminDashboardScreen({ onNavigate }: Props) {
@@ -636,11 +920,13 @@ export function AdminDashboardScreen({ onNavigate }: Props) {
 
       <div className="px-4 pt-4">
         <Tabs defaultValue="overview">
-          <TabsList className="grid grid-cols-4 w-full h-10 mb-4">
-            <TabsTrigger value="overview"   className="text-xs">Tổng quan</TabsTrigger>
-            <TabsTrigger value="users"      className="text-xs">Tài khoản</TabsTrigger>
-            <TabsTrigger value="locations"  className="text-xs">Địa điểm</TabsTrigger>
-            <TabsTrigger value="procedures" className="text-xs">Thủ tục</TabsTrigger>
+          <TabsList className="grid grid-cols-6 w-full h-10 mb-4">
+            <TabsTrigger value="overview"      className="text-[10px] px-1">Tổng quan</TabsTrigger>
+            <TabsTrigger value="users"         className="text-[10px] px-1">Tài khoản</TabsTrigger>
+            <TabsTrigger value="locations"     className="text-[10px] px-1">Địa điểm</TabsTrigger>
+            <TabsTrigger value="procedures"    className="text-[10px] px-1">Thủ tục</TabsTrigger>
+            <TabsTrigger value="applications"  className="text-[10px] px-1">Hồ sơ</TabsTrigger>
+            <TabsTrigger value="appointments"  className="text-[10px] px-1">Lịch hẹn</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -654,6 +940,12 @@ export function AdminDashboardScreen({ onNavigate }: Props) {
           </TabsContent>
           <TabsContent value="procedures">
             <ProceduresTab onToast={showToast} />
+          </TabsContent>
+          <TabsContent value="applications">
+            <ApplicationsTab onToast={showToast} />
+          </TabsContent>
+          <TabsContent value="appointments">
+            <AppointmentsTab />
           </TabsContent>
         </Tabs>
       </div>

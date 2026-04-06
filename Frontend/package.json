@@ -2,6 +2,7 @@
       "name": "iOS App Screens Design",
       "version": "0.1.0",
       "private": true,
+      "type": "module",
       "dependencies": {
             "@fullcalendar/core": "^6.1.19",
             "@fullcalendar/daygrid": "^6.1.19",
@@ -38,6 +39,7 @@
             "cmdk": "^1.1.1",
             "embla-carousel-react": "^8.6.0",
             "input-otp": "^1.4.2",
+            "leaflet": "^1.9.4",
             "lucide-react": "^0.487.0",
             "next-themes": "^0.4.6",
             "react": "^18.3.1",
@@ -51,9 +53,12 @@
             "vaul": "^1.1.2"
       },
       "devDependencies": {
+            "@tailwindcss/vite": "^4.2.2",
+            "@types/leaflet": "^1.9.21",
             "@types/node": "^20.10.0",
             "@types/react-dom": "^19.2.2",
             "@vitejs/plugin-react-swc": "^3.10.2",
+            "tailwindcss": "^4.2.2",
             "vite": "6.3.5"
       },
       "scripts": {

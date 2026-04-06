@@ -1,10 +1,29 @@
 tools:
       - name: search_project_documents
-        description: "Tìm kiếm dữ liệu nội bộ theo từ khóa."
+        description: "Tìm kiếm tài liệu nội bộ, văn bản pháp luật, hướng dẫn hành chính theo từ khóa."
         parameters:
           query:
             type: string
             required: true
             description: "Chuỗi truy vấn hoặc từ khóa mô tả thông tin cần tìm"
-            example: "doanh thu Q2 2025 khu vực VN"
-        returns: "Danh sách bản ghi phù hợp"
+            example: "thủ tục đăng ký kết hôn tại xã"
+        returns: "Danh sách đoạn văn bản liên quan từ tài liệu nội bộ"
+
+      - name: suggest_procedures
+        description: >
+          Gợi ý các thủ tục hành chính / dịch vụ công phù hợp khi người dùng
+          mô tả nhu cầu hoặc hỏi về một loại giấy tờ, thủ tục. Sử dụng tool này
+          khi câu hỏi liên quan đến: đăng ký, xin cấp, làm giấy tờ, nộp hồ sơ,
+          thủ tục hành chính, dịch vụ công.
+        parameters:
+          query:
+            type: string
+            required: true
+            description: "Mô tả nhu cầu hoặc loại thủ tục người dùng muốn tìm"
+            example: "làm giấy khai sinh cho con"
+          top_k:
+            type: integer
+            required: false
+            description: "Số lượng gợi ý tối đa (mặc định 4)"
+            example: 4
+        returns: "Danh sách thủ tục hành chính phù hợp kèm tên, mã, điểm tương đồng và link"

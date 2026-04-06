@@ -296,7 +296,7 @@ class SemanticCache:
         self._db_loaded = True
         try:
             from models.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text  # type: ignore
             rows = db.session.execute(text("""
                 SELECT query_hash, query_text, query_vector, answer_text,
                        hit_count, created_at, last_hit_at, expires_at
@@ -332,7 +332,7 @@ class SemanticCache:
     def _persist_to_db(self, key: str, entry: CacheEntry) -> None:
         try:
             from models.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text  # type: ignore
             db.session.execute(text("""
                 INSERT INTO public.rag_semantic_cache
                     (query_hash, query_text, query_vector, answer_text,
@@ -366,7 +366,7 @@ class SemanticCache:
     def _persist_hit(self, key: str, entry: CacheEntry) -> None:
         try:
             from models.db import db
-            from sqlalchemy import text
+            from sqlalchemy import text  # type: ignore
             db.session.execute(text("""
                 UPDATE public.rag_semantic_cache
                 SET hit_count = :hits, last_hit_at = now()

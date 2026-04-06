@@ -2,13 +2,7 @@
  * QueueScreen — Người dùng lấy số thứ tự & theo dõi vé của mình
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Hash, Clock, CheckCircle, XCircle, RefreshCw,
-  ChevronLeft, Users, Ticket, AlertCircle,
-} from 'lucide-react';
-import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
+import { RefreshCw, XCircle, CheckCircle, Clock, Users } from 'lucide-react';
 import {
   takeTicket, getMyTickets, cancelTicket, getQueueSummary,
   formatWaitTime, QueueTicket, QueueSummary,
@@ -23,61 +17,51 @@ interface QueueScreenProps {
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   waiting:   { label: 'Đang chờ',     color: 'bg-yellow-100 text-yellow-800' },
-  called:    { label: 'Đã được gọi',  color: 'bg-blue-100 text-blue-800' },
-  serving:   { label: 'Đang phục vụ', color: 'bg-green-100 text-green-800' },
-  done:      { label: 'Hoàn thành',   color: 'bg-gray-100 text-gray-600' },
+  called:    { label: 'Đã được gọi',  color: 'bg-blue-100   text-blue-800'   },
+  serving:   { label: 'Đang phục vụ', color: 'bg-green-100  text-green-800'  },
+  done:      { label: 'Hoàn thành',   color: 'bg-gray-100   text-gray-600'   },
   absent:    { label: 'Vắng mặt',     color: 'bg-orange-100 text-orange-800' },
-  cancelled: { label: 'Đã hủy',       color: 'bg-red-100 text-red-600' },
+  cancelled: { label: 'Đã hủy',       color: 'bg-red-100    text-red-600'    },
 };
+
+const SERVICES = [
+  { id: 'svc-cccd',    name: 'Cấp CCCD / Hộ chiếu',           desc: 'Cấp mới, đổi, cấp lại căn cước công dân và hộ chiếu',           prefix: 'A', icon: 'fingerprint',   span: false },
+  { id: 'svc-datdai',  name: 'Thủ tục đất đai',                desc: 'Chuyển nhượng, đăng ký quyền sử dụng đất, tách thửa',            prefix: 'B', icon: 'foundation',    span: false },
+  { id: 'svc-hotich',  name: 'Đăng ký hộ tịch / Khai sinh',    desc: 'Khai sinh, kết hôn, khai tử và các thay đổi hộ tịch',           prefix: 'C', icon: 'family_history', span: false },
+  { id: 'svc-xacnhan', name: 'Xác nhận giấy tờ',               desc: 'Công chứng, chứng thực bản sao, xác nhận chữ ký',               prefix: 'D', icon: 'description',   span: false },
+  { id: 'svc-other',   name: 'Thủ tục khác',                   desc: 'Các loại giấy tờ hành chính khác không thuộc danh mục trên',    prefix: 'E', icon: 'more_horiz',    span: true  },
+];
 
 export function QueueScreen({ onNavigate, agencyId = 'default', agencyName = 'Cơ quan hành chính' }: QueueScreenProps) {
   const { user } = useAuth();
-  const [myTickets,   setMyTickets]   = useState<QueueTicket[]>([]);
-  const [summary,     setSummary]     = useState<QueueSummary | null>(null);
-  const [loading,     setLoading]     = useState(false);
-  const [taking,      setTaking]      = useState(false);
-  const [error,       setError]       = useState('');
-  const [selectedSvc, setSelectedSvc] = useState('');
-  const [svcName,     setSvcName]     = useState('Dịch vụ hành chính');
-
-  // Danh sách thủ tục mẫu — thực tế lấy từ API services
-  const services = [
-    { id: 'svc-cccd',    name: 'Cấp CCCD / Hộ chiếu',         prefix: 'A' },
-    { id: 'svc-datdai',  name: 'Thủ tục đất đai',              prefix: 'B' },
-    { id: 'svc-hotich',  name: 'Đăng ký hộ tịch / Khai sinh',  prefix: 'C' },
-    { id: 'svc-xacnhan', name: 'Xác nhận giấy tờ',             prefix: 'D' },
-    { id: 'svc-other',   name: 'Thủ tục khác',                 prefix: 'A' },
-  ];
+  const [myTickets,    setMyTickets]   = useState<QueueTicket[]>([]);
+  const [summary,      setSummary]     = useState<QueueSummary | null>(null);
+  const [loading,      setLoading]     = useState(false);
+  const [taking,       setTaking]      = useState(false);
+  const [error,        setError]       = useState('');
+  const [selectedSvc,  setSelectedSvc] = useState('');
+  const [svcName,      setSvcName]     = useState('');
+  const [newTicket,    setNewTicket]   = useState<QueueTicket | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [tickets, sum] = await Promise.all([
-        getMyTickets(),
-        getQueueSummary(agencyId),
-      ]);
+      const [tickets, sum] = await Promise.all([getMyTickets(), getQueueSummary(agencyId)]);
       setMyTickets(tickets);
       setSummary(sum);
-    } catch {
-      // bỏ qua lỗi tải
-    }
+    } catch { /* ignore */ }
   }, [agencyId]);
 
   useEffect(() => {
     loadData();
-    // Poll mỗi 30s khi không dùng WebSocket
-    const interval = setInterval(loadData, 30_000);
-    return () => clearInterval(interval);
+    const id = setInterval(loadData, 30_000);
+    return () => clearInterval(id);
   }, [loadData]);
 
   const handleTakeTicket = async () => {
-    if (!selectedSvc) {
-      setError('Vui lòng chọn thủ tục');
-      return;
-    }
-    setTaking(true);
-    setError('');
+    if (!selectedSvc) { setError('Vui lòng chọn thủ tục trước khi lấy số'); return; }
+    setTaking(true); setError('');
     try {
-      const svc    = services.find(s => s.id === selectedSvc);
+      const svc    = SERVICES.find(s => s.id === selectedSvc);
       const ticket = await takeTicket({
         agencyId,
         serviceId:   selectedSvc,
@@ -86,9 +70,10 @@ export function QueueScreen({ onNavigate, agencyId = 'default', agencyName = 'C�
         userName:    user?.fullName || '',
       });
       setMyTickets(prev => [ticket, ...prev]);
+      setNewTicket(ticket);
       await loadData();
     } catch (e: any) {
-      setError(e.message || 'Không thể lấy số');
+      setError(e.message || 'Không thể lấy số, vui lòng thử lại');
     } finally {
       setTaking(false);
     }
@@ -97,218 +82,307 @@ export function QueueScreen({ onNavigate, agencyId = 'default', agencyName = 'C�
   const handleCancel = async (ticketId: string) => {
     try {
       await cancelTicket(ticketId);
-      setMyTickets(prev => prev.map(t =>
-        t.id === ticketId ? { ...t, status: 'cancelled' } : t
-      ));
+      setMyTickets(prev => prev.map(t => t.id === ticketId ? { ...t, status: 'cancelled' } : t));
     } catch (e: any) {
       setError(e.message || 'Không thể hủy vé');
     }
   };
 
-  const activeTicket = myTickets.find(t =>
-    ['waiting', 'called', 'serving'].includes(t.status)
-  );
+  const activeTicket = myTickets.find(t => ['waiting', 'called', 'serving'].includes(t.status));
+  const historyTickets = myTickets.filter(t => ['done', 'absent', 'cancelled'].includes(t.status));
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Header */}
-      <div className="bg-red-600 text-white">
-        <div className="flex items-center gap-3 px-4 pt-12 pb-4">
-          <Button variant="ghost" size="sm" className="text-white hover:bg-red-700 p-2"
-            onClick={() => onNavigate('home')}>
-            <ChevronLeft className="w-5 h-5" />
-          </Button>
-          <div>
-            <h1 className="text-lg font-bold">Lấy số thứ tự</h1>
-            <p className="text-sm text-red-200">{agencyName}</p>
-          </div>
-          <Button variant="ghost" size="sm" className="ml-auto text-white hover:bg-red-700 p-2"
-            onClick={() => { setLoading(true); loadData().finally(() => setLoading(false)); }}>
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
-        </div>
-      </div>
+    <div className="bg-surface text-on-surface min-h-screen" style={{ fontFamily: "'Manrope', sans-serif" }}>
 
-      <div className="px-4 pt-4 space-y-4">
-        {/* Tóm tắt hàng chờ */}
+      {/* TopAppBar */}
+      <header className="fixed top-0 right-0 left-0 h-20 flex items-center justify-between px-8 md:px-12 w-full bg-[#fff4f4]/80 backdrop-blur-xl shadow-[0px_20px_40px_rgba(77,33,40,0.04)] z-40">
+        <div className="flex items-center gap-4">
+          <button onClick={() => onNavigate('home')} className="text-xl font-bold text-on-surface tracking-tighter hover:opacity-70 transition-opacity">
+            Dịch Vụ Công
+          </button>
+          <div className="h-6 w-[1px] bg-outline-variant/30 hidden md:block" />
+          <span className="font-bold text-lg text-primary hidden md:block">Thủ tục Hành chính</span>
+        </div>
+        <div className="flex items-center gap-6">
+          <button
+            onClick={() => { setLoading(true); loadData().finally(() => setLoading(false)); }}
+            className="text-on-surface hover:opacity-70 transition-opacity"
+            aria-label="Làm mới"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button onClick={() => onNavigate('notification')} className="relative text-on-surface hover:opacity-70 transition-opacity">
+            <span className="material-symbols-outlined">notifications</span>
+            <span className="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full" />
+          </button>
+          <button className="text-on-surface hover:opacity-70 transition-opacity">
+            <span className="material-symbols-outlined">account_circle</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Page content */}
+      <main className="relative pt-32 pb-20 px-6 md:px-12 max-w-5xl mx-auto">
+
+        {/* ── Active ticket banner ── */}
+        {activeTicket && (
+          <div className={`mb-8 rounded-xl p-6 border-2 ${
+            activeTicket.status === 'called'
+              ? 'border-blue-400 bg-blue-50 animate-pulse'
+              : 'border-primary/30 bg-surface-container-low'
+          }`}>
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              <div>
+                <p className="text-xs font-bold text-outline uppercase tracking-widest mb-1">Số của bạn</p>
+                <p className="text-6xl font-black text-primary leading-none">{activeTicket.ticketCode}</p>
+                <p className="text-sm text-on-surface-variant mt-2">{activeTicket.serviceName}</p>
+                <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-bold ${STATUS_LABELS[activeTicket.status]?.color}`}>
+                  {STATUS_LABELS[activeTicket.status]?.label}
+                </span>
+              </div>
+              <div className="text-right space-y-2">
+                {activeTicket.status === 'waiting' && (
+                  <div>
+                    <p className="text-xs text-on-surface-variant">Ước tính chờ</p>
+                    <p className="text-lg font-bold text-secondary flex items-center gap-1 justify-end">
+                      <Clock className="w-4 h-4" />
+                      {formatWaitTime(activeTicket.estimatedWait)}
+                    </p>
+                  </div>
+                )}
+                {activeTicket.counterNo && (
+                  <p className="text-sm font-semibold text-on-surface">Quầy {activeTicket.counterNo}</p>
+                )}
+                {activeTicket.status === 'called' && (
+                  <p className="text-base font-black text-blue-700">Đến quầy {activeTicket.counterNo} ngay!</p>
+                )}
+                {activeTicket.status === 'waiting' && (
+                  <button
+                    onClick={() => handleCancel(activeTicket.id)}
+                    className="flex items-center gap-1 text-sm text-error border border-error/40 px-3 py-1.5 rounded-lg hover:bg-error-container/20 transition-colors"
+                  >
+                    <XCircle className="w-4 h-4" /> Hủy vé
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Queue summary ── */}
         {summary && (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-4 mb-8">
             {[
-              { label: 'Đang chờ',    value: summary.totalWaiting,  color: 'text-yellow-600' },
-              { label: 'Đang phục vụ',value: summary.totalServing + summary.totalCalled, color: 'text-blue-600' },
-              { label: 'Xong hôm nay',value: summary.totalDone,     color: 'text-green-600' },
+              { label: 'Đang chờ',     value: summary.totalWaiting,                            color: 'text-yellow-600' },
+              { label: 'Đang phục vụ', value: summary.totalServing + summary.totalCalled,        color: 'text-blue-600'   },
+              { label: 'Xong hôm nay', value: summary.totalDone,                               color: 'text-green-600'  },
             ].map(item => (
-              <Card key={item.label} className="text-center p-3">
-                <p className={`text-2xl font-bold ${item.color}`}>{item.value}</p>
-                <p className="text-xs text-gray-500 mt-1">{item.label}</p>
-              </Card>
+              <div key={item.label} className="bg-surface-container-lowest rounded-xl p-4 text-center shadow-sm">
+                <p className={`text-3xl font-black ${item.color}`}>{item.value}</p>
+                <p className="text-xs text-on-surface-variant mt-1 font-medium">{item.label}</p>
+              </div>
             ))}
           </div>
         )}
 
-        {/* Đang phục vụ tại các quầy */}
+        {/* ── Now serving ── */}
         {summary && summary.nowServing.length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <Users className="w-4 h-4 text-green-500" /> Đang phục vụ
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-2">
-                {summary.nowServing.map(s => (
-                  <div key={s.counterNo}
-                    className="bg-green-50 rounded-lg p-2 text-center border border-green-200">
-                    <p className="text-xs text-gray-500">Quầy {s.counterNo}</p>
-                    <p className="text-xl font-bold text-green-700">{s.ticketCode}</p>
-                    <p className="text-xs text-gray-500 truncate">{s.serviceName}</p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+          <div className="mb-8 bg-surface-container-lowest rounded-xl p-5 shadow-sm">
+            <p className="text-xs font-black text-on-surface-variant uppercase tracking-widest mb-3 flex items-center gap-2">
+              <Users className="w-4 h-4 text-green-500" /> Đang phục vụ
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {summary.nowServing.map(s => (
+                <div key={s.counterNo} className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
+                  <p className="text-xs text-on-surface-variant">Quầy {s.counterNo}</p>
+                  <p className="text-2xl font-black text-green-700">{s.ticketCode}</p>
+                  <p className="text-xs text-on-surface-variant truncate">{s.serviceName}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
 
-        {/* Vé hiện tại của tôi */}
-        {activeTicket && (
-          <Card className="border-2 border-red-200 bg-red-50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-red-700 flex items-center gap-2">
-                <Ticket className="w-4 h-4" /> Vé của bạn
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-5xl font-bold text-red-600">{activeTicket.ticketCode}</p>
-                  <p className="text-sm text-gray-600 mt-1">{activeTicket.serviceName}</p>
-                  <Badge className={`mt-2 text-xs ${STATUS_LABELS[activeTicket.status]?.color}`}>
-                    {STATUS_LABELS[activeTicket.status]?.label}
-                  </Badge>
+        {/* ── Heading ── */}
+        <div className="mb-12 text-center">
+          <h2 className="text-4xl font-extrabold tracking-tight text-on-surface mb-2">Lấy số thứ tự mới</h2>
+          <p className="text-secondary font-medium opacity-80">
+            Vui lòng chọn loại thủ tục bạn cần thực hiện tại trung tâm.
+          </p>
+        </div>
+
+        {/* ── Procedure cards ── */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
+          {SERVICES.map(svc => {
+            const isSelected = selectedSvc === svc.id;
+            return (
+              <div
+                key={svc.id}
+                onClick={() => { setSelectedSvc(svc.id); setSvcName(svc.name); setError(''); }}
+                className={`group relative p-6 rounded-lg flex items-center gap-6 cursor-pointer transition-all duration-300
+                  ${svc.span ? 'md:col-span-2' : ''}
+                  ${isSelected
+                    ? 'bg-primary shadow-[0px_12px_32px_rgba(183,19,26,0.2)] scale-[1.01]'
+                    : 'bg-surface-container-lowest hover:bg-surface-container-highest'
+                  }`}
+              >
+                {/* Letter badge */}
+                <div className={`flex-shrink-0 w-16 h-16 rounded-lg flex items-center justify-center font-black text-2xl transition-colors
+                  ${isSelected
+                    ? 'bg-on-primary/20 text-on-primary'
+                    : 'bg-surface-container-low text-primary group-hover:bg-primary group-hover:text-on-primary'
+                  }`}>
+                  {svc.prefix}
                 </div>
-                <div className="text-right">
-                  {activeTicket.status === 'waiting' && (
-                    <>
-                      <p className="text-xs text-gray-500">Chờ ước tính</p>
-                      <p className="text-lg font-semibold text-orange-600 flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        {formatWaitTime(activeTicket.estimatedWait)}
-                      </p>
-                    </>
-                  )}
-                  {activeTicket.counterNo && (
-                    <p className="text-sm text-gray-600 mt-1">Quầy {activeTicket.counterNo}</p>
-                  )}
-                  {activeTicket.status === 'waiting' && (
-                    <Button variant="outline" size="sm"
-                      className="mt-2 text-red-600 border-red-300 text-xs"
-                      onClick={() => handleCancel(activeTicket.id)}>
-                      <XCircle className="w-3 h-3 mr-1" /> Hủy vé
-                    </Button>
-                  )}
-                </div>
-              </div>
-              {activeTicket.status === 'called' && (
-                <div className="mt-3 bg-blue-100 rounded-lg p-3 text-center">
-                  <p className="text-blue-700 font-semibold animate-pulse">
-                    Đến quầy {activeTicket.counterNo} ngay!
+
+                {/* Text */}
+                <div className="flex-1">
+                  <h3 className={`text-xl font-bold mb-1 ${isSelected ? 'text-on-primary' : 'text-on-surface'}`}>
+                    {svc.name}
+                  </h3>
+                  <p className={`text-sm ${isSelected ? 'text-on-primary/80' : 'text-secondary opacity-80'}`}>
+                    {svc.desc}
                   </p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
-        {/* Form lấy số mới */}
-        {!activeTicket && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <Hash className="w-4 h-4 text-red-500" /> Lấy số thứ tự mới
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <p className="text-xs text-gray-500 mb-2">Chọn thủ tục</p>
-                <div className="space-y-2">
-                  {services.map(svc => (
-                    <button key={svc.id}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-all ${
-                        selectedSvc === svc.id
-                          ? 'border-red-500 bg-red-50 text-red-700 font-medium'
-                          : 'border-gray-200 bg-white hover:border-gray-300'
-                      }`}
-                      onClick={() => { setSelectedSvc(svc.id); setSvcName(svc.name); setError(''); }}>
-                      <span className="inline-block w-7 h-5 text-center text-xs font-bold
-                        bg-gray-100 rounded mr-2 leading-5">{svc.prefix}</span>
-                      {svc.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                {/* Icon */}
+                <span className={`material-symbols-outlined ${isSelected ? 'text-on-primary/60' : 'text-outline-variant'}`}>
+                  {svc.icon}
+                </span>
 
-              {error && (
-                <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 rounded-lg p-2">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {error}
-                </div>
-              )}
-
-              <Button className="w-full bg-red-600 hover:bg-red-700 text-white"
-                onClick={handleTakeTicket} disabled={taking || !selectedSvc}>
-                {taking ? (
-                  <span className="flex items-center gap-2">
-                    <RefreshCw className="w-4 h-4 animate-spin" /> Đang lấy số...
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <Ticket className="w-4 h-4" /> Lấy số thứ tự
+                {/* Selected checkmark */}
+                {isSelected && (
+                  <span className="absolute top-3 right-3 w-6 h-6 bg-on-primary/20 rounded-full flex items-center justify-center">
+                    <span className="material-symbols-outlined text-on-primary text-[16px]">check</span>
                   </span>
                 )}
-              </Button>
-
-              {summary && summary.totalWaiting > 0 && (
-                <p className="text-xs text-center text-gray-500">
-                  Hiện có <strong>{summary.totalWaiting}</strong> người đang chờ —
-                  ước tính <strong>{formatWaitTime(summary.totalWaiting * (summary.avgServiceTimeSec || 420) / Math.max(summary.activeCounters, 1))}</strong>
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Lịch sử vé hôm nay */}
-        {myTickets.filter(t => ['done', 'absent', 'cancelled'].includes(t.status)).length > 0 && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold text-gray-700">Lịch sử hôm nay</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {myTickets
-                  .filter(t => ['done', 'absent', 'cancelled'].includes(t.status))
-                  .map(t => (
-                    <div key={t.id} className="flex items-center justify-between py-2
-                      border-b border-gray-100 last:border-0">
-                      <div className="flex items-center gap-3">
-                        {t.status === 'done'
-                          ? <CheckCircle className="w-4 h-4 text-green-500" />
-                          : <XCircle    className="w-4 h-4 text-red-400" />}
-                        <div>
-                          <p className="text-sm font-medium">{t.ticketCode}</p>
-                          <p className="text-xs text-gray-500">{t.serviceName}</p>
-                        </div>
-                      </div>
-                      <Badge className={`text-xs ${STATUS_LABELS[t.status]?.color}`}>
-                        {STATUS_LABELS[t.status]?.label}
-                      </Badge>
-                    </div>
-                  ))}
               </div>
-            </CardContent>
-          </Card>
+            );
+          })}
+        </div>
+
+        {/* ── Error ── */}
+        {error && (
+          <div className="mb-6 flex items-center gap-2 p-4 bg-error-container/20 border-l-4 border-error rounded-lg text-sm text-error">
+            <span className="material-symbols-outlined text-[18px]">error</span>
+            {error}
+          </div>
         )}
+
+        {/* ── CTA button ── */}
+        <div className="flex flex-col items-center gap-6">
+          <button
+            onClick={handleTakeTicket}
+            disabled={taking}
+            className="w-full max-w-md bg-gradient-to-br from-primary to-primary-container text-on-primary py-6 rounded-xl font-black text-2xl uppercase tracking-widest shadow-[0px_20px_40px_rgba(183,19,26,0.2)] hover:scale-[1.02] active:scale-95 transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100 flex items-center justify-center gap-3"
+          >
+            {taking ? (
+              <>
+                <RefreshCw className="w-6 h-6 animate-spin" />
+                Đang lấy số...
+              </>
+            ) : 'Lấy số thứ tự'}
+          </button>
+
+          <div className="flex items-center gap-2 text-on-surface-variant text-sm italic opacity-70">
+            <span className="material-symbols-outlined text-base">info</span>
+            <span>Vui lòng kiểm tra lại thông tin trước khi nhấn lấy số</span>
+          </div>
+
+          {summary && summary.totalWaiting > 0 && (
+            <p className="text-sm text-center text-on-surface-variant">
+              Hiện có <strong className="text-primary">{summary.totalWaiting}</strong> người đang chờ —
+              ước tính <strong className="text-secondary">{formatWaitTime(
+                summary.totalWaiting * (summary.avgServiceTimeSec || 420) / Math.max(summary.activeCounters, 1)
+              )}</strong>
+            </p>
+          )}
+        </div>
+
+        {/* ── Ticket history ── */}
+        {historyTickets.length > 0 && (
+          <div className="mt-16">
+            <p className="text-xs font-black text-on-surface-variant uppercase tracking-widest mb-4">Lịch sử hôm nay</p>
+            <div className="bg-surface-container-lowest rounded-xl overflow-hidden shadow-sm divide-y divide-outline-variant/10">
+              {historyTickets.map(t => (
+                <div key={t.id} className="flex items-center justify-between px-5 py-4">
+                  <div className="flex items-center gap-3">
+                    {t.status === 'done'
+                      ? <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                      : <XCircle    className="w-4 h-4 text-error flex-shrink-0" />}
+                    <div>
+                      <p className="text-sm font-bold text-on-surface">{t.ticketCode}</p>
+                      <p className="text-xs text-on-surface-variant">{t.serviceName}</p>
+                    </div>
+                  </div>
+                  <span className={`text-xs font-bold px-3 py-1 rounded-full ${STATUS_LABELS[t.status]?.color}`}>
+                    {STATUS_LABELS[t.status]?.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Decorative background */}
+      <div className="fixed bottom-0 right-0 w-1/3 h-1/2 -z-10 opacity-10 pointer-events-none"
+        style={{ maskImage: 'linear-gradient(to top left, black, transparent)', WebkitMaskImage: 'linear-gradient(to top left, black, transparent)' }}>
+        <div className="w-full h-full bg-gradient-to-tl from-primary to-transparent" />
       </div>
+
+      {/* ── Success Modal ── */}
+      {newTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-neutral-900/60 backdrop-blur-sm"
+            onClick={() => setNewTicket(null)}
+          />
+          {/* Modal */}
+          <div className="relative bg-surface-container-lowest w-full max-w-md rounded-xl shadow-2xl p-8 text-center">
+            {/* Icon */}
+            <div className="mb-6 flex justify-center">
+              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center">
+                <span className="material-symbols-outlined text-green-600 text-5xl"
+                  style={{ fontVariationSettings: "'FILL' 1" }}>
+                  check_circle
+                </span>
+              </div>
+            </div>
+
+            {/* Content */}
+            <h3 className="text-2xl font-extrabold text-on-surface mb-2">Lấy số thành công!</h3>
+            <div className="text-lg text-on-surface-variant mb-4">
+              Số thứ tự của bạn là:
+              <span className="text-primary font-black text-4xl block mt-2 tracking-widest">
+                {newTicket.ticketCode}
+              </span>
+            </div>
+            <p className="text-sm text-secondary opacity-80 leading-relaxed mb-2">
+              Thủ tục: <strong>{newTicket.serviceName}</strong>
+            </p>
+            {newTicket.estimatedWait != null && newTicket.estimatedWait > 0 && (
+              <p className="text-sm text-on-surface-variant mb-2">
+                Thời gian chờ ước tính: <strong className="text-secondary">{formatWaitTime(newTicket.estimatedWait)}</strong>
+              </p>
+            )}
+            <p className="text-sm text-on-surface-variant leading-relaxed mb-8">
+              Vui lòng theo dõi bảng điện tử tại sảnh chờ. Chúng tôi sẽ thông báo khi đến lượt bạn.
+            </p>
+
+            {/* Actions */}
+            <div className="space-y-3">
+              <button
+                onClick={() => setNewTicket(null)}
+                className="w-full bg-primary hover:opacity-90 active:scale-95 text-on-primary py-4 rounded-lg font-bold transition-all shadow-lg shadow-primary/20"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

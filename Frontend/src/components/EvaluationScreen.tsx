@@ -1,305 +1,611 @@
-import { useState, useEffect, useRef } from 'react';
-import { Star, Send, CheckCircle, Building, Calendar } from 'lucide-react';
-import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Badge } from './ui/badge';
-import { Textarea } from './ui/textarea';
-import { Label } from './ui/label';
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Star, Bell, User, FileText, Plus, Landmark, Car,
+  Building, Building2, BarChart3, ArrowRight,
+  CheckCircle, FolderOpen, ClipboardList,
+  History, UserCheck, Clock, Upload, Info,
+  CheckCircle2, FileImage, ArrowLeft, Phone, MessageCircle,
+} from 'lucide-react';
+
 interface EvaluationScreenProps {
   onNavigate: (screen: string) => void;
 }
 
+const TRANSACTIONS = [
+  {
+    id: 1,
+    agency: 'UBND Quận 1, TP. Hồ Chí Minh',
+    agencyShort: 'UBND Phường Hàng Mã',
+    date: '14/10/2023',
+    service: 'Đăng ký kết hôn',
+    status: 'evaluatable' as const,
+    deadline: '30/10/2023',
+    code: 'HM-2023-08542',
+    Icon: Landmark,
+    iconName: 'location_city',
+    updatedAgo: '2 giờ trước',
+  },
+  {
+    id: 2,
+    agency: 'Sở Giao thông Vận tải TP.HCM',
+    agencyShort: 'Sở GTVT TP.HCM',
+    date: '12/10/2023',
+    service: 'Cấp đổi Giấy phép lái xe',
+    status: 'processing' as const,
+    code: 'GT-2023-11203',
+    Icon: Car,
+    iconName: 'traffic',
+    updatedAgo: null,
+  },
+  {
+    id: 3,
+    agency: 'Văn phòng Đăng ký Đất đai',
+    agencyShort: 'VP Đăng ký Đất đai',
+    date: '05/10/2023',
+    service: 'Chuyển nhượng QSDĐ',
+    status: 'done' as const,
+    rating: 5,
+    code: 'DD-2023-09817',
+    Icon: Building,
+    iconName: 'map',
+    updatedAgo: null,
+  },
+];
+
+type Transaction = typeof TRANSACTIONS[number];
+
+/* ── Star rating row ── */
+function StarRow({
+  value, onChange, size = 'md',
+}: { value: number; onChange: (v: number) => void; size?: 'sm' | 'md' }) {
+  return (
+    <div className="flex gap-1">
+      {[1, 2, 3, 4, 5].map((s) => (
+        <button
+          key={s}
+          type="button"
+          aria-label={`${s} sao`}
+          onClick={() => onChange(s)}
+          className={`transition-transform hover:scale-110 ${
+            s <= value ? 'text-[#fdc003]' : 'text-[#de9ca4]'
+          }`}
+        >
+          <Star className={`fill-current ${size === 'sm' ? 'w-5 h-5' : 'w-6 h-6'}`} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
+   Main component
+══════════════════════════════════════════ */
 export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
-  const [selectedOffice, setSelectedOffice] = useState<any>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [ratings, setRatings] = useState({
-    attitude: 0,
-    speed: 0,
-    quality: 0
-  });
-  const [comment, setComment] = useState('');
-  const [submitted, setSubmitted] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, []);
 
-  const offices = [
-    {
-      id: 1,
-      name: 'UBND Quận 1',
-      address: '86 Lê Thánh Tôn, Quận 1, TP.HCM',
-      lastVisit: '2024-01-20',
-      services: ['Đăng ký kết hôn'],
-      completed: true,
-      rated: false
-    },
-    {
-      id: 2,
-      name: 'Sở GTVT TP.HCM',
-      address: '63 Lý Tự Trọng, Quận 1, TP.HCM',
-      lastVisit: '2024-01-22',
-      services: ['Giấy phép lái xe'],
-      completed: false,
-      rated: false
-    },
-    {
-      id: 3,
-      name: 'Sở Tài nguyên Môi trường',
-      address: '123 Lê Lợi, Quận 1, TP.HCM',
-      lastVisit: '2024-01-10',
-      services: ['Giấy phép môi trường'],
-      completed: true,
-      rated: true,
-      rating: 4.5
-    }
-  ];
+  const [activeTab,  setActiveTab]  = useState<'all' | 'pending' | 'done'>('all');
+  const [evalTarget, setEvalTarget] = useState<Transaction | null>(null);
 
-  const StarRating = ({ value, onChange, label }: { value: number; onChange: (rating: number) => void; label: string }) => {
+  const [submitted,      setSubmitted]      = useState(false);
+  const [comment,        setComment]        = useState('');
+  const [uploadedFiles,  setUploadedFiles]  = useState<File[]>([]);
+  const [ratings, setRatings] = useState({ attitude: 0, time: 0, facilities: 0 });
+
+  const avgRating = ratings.attitude && ratings.time && ratings.facilities
+    ? (ratings.attitude + ratings.time + ratings.facilities) / 3 : 0;
+
+  function openEval(tx: Transaction) {
+    if (tx.status !== 'evaluatable') return;
+    setEvalTarget(tx);
+    setSubmitted(false);
+    setRatings({ attitude: 0, time: 0, facilities: 0 });
+    setComment('');
+    setUploadedFiles([]);
+  }
+
+  function handleSubmit() {
+    if (!ratings.attitude || !ratings.time || !ratings.facilities) return;
+    setSubmitted(true);
+    timeoutRef.current = setTimeout(() => {
+      setEvalTarget(null);
+      setSubmitted(false);
+      setRatings({ attitude: 0, time: 0, facilities: 0 });
+      setComment('');
+      setUploadedFiles([]);
+    }, 2500);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) setUploadedFiles(Array.from(e.target.files));
+  }
+
+  const filtered = TRANSACTIONS.filter(tx =>
+    activeTab === 'pending' ? tx.status === 'evaluatable' :
+    activeTab === 'done'    ? tx.status === 'done' : true
+  );
+
+  /* ─────────────────── DETAIL VIEW ─────────────────── */
+  if (evalTarget) {
     return (
-      <div className="space-y-2">
-        <Label>{label}</Label>
-        <div className="flex gap-1">
-          {[1, 2, 3, 4, 5].map((star) => (
-            <button
-              key={star}
-              type="button"
-              onClick={() => onChange(star)}
-              className={`p-1 ${star <= value ? 'text-yellow-400' : 'text-gray-300'} hover:text-yellow-400 transition-colors`}
-            >
-              <Star className="w-6 h-6 fill-current" />
+      <div
+        className="bg-[#fff4f4] text-[#4d2128] min-h-screen flex flex-col"
+        style={{ fontFamily: "'Manrope', sans-serif" }}
+      >
+        {/* Header */}
+        <header className="flex items-center gap-4 w-full px-6 md:px-10 py-4 bg-[#fff4f4]/80 backdrop-blur-md sticky top-0 z-40 border-b border-[#de9ca4]/20">
+          <button
+            onClick={() => setEvalTarget(null)}
+            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#ffd9dd] transition-all text-[#9f364c]"
+            aria-label="Quay lại"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <nav className="flex items-center gap-1 text-xs text-[#9f364c] mb-0.5">
+              <span>Đánh giá</span>
+              <span className="material-symbols-outlined text-xs">chevron_right</span>
+              <span className="font-semibold text-[#4d2128]">Chi tiết</span>
+            </nav>
+            <h1 className="text-base font-black text-[#4d2128] truncate">{evalTarget.agencyShort}</h1>
+          </div>
+          <button
+            onClick={() => onNavigate('notifications')}
+            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#ffd9dd] transition-all text-[#9f364c]"
+          >
+            <span className="material-symbols-outlined">notifications</span>
+          </button>
+        </header>
+
+        <main className="flex-1 px-6 md:px-10 py-8 max-w-5xl mx-auto w-full">
+          <div className="space-y-6">
+
+            {/* Hero banner */}
+            <div className="bg-white rounded-2xl p-6 border border-[#de9ca4]/10 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-[#b7131a]/5 rounded-full -mr-10 -mt-10 blur-3xl pointer-events-none" />
+              <div className="relative z-10">
+                <span className="text-xs font-black uppercase tracking-widest text-[#9f364c] block mb-1">
+                  Đánh giá chất lượng dịch vụ
+                </span>
+                <h2 className="text-2xl font-extrabold text-[#4d2128] mb-2">{evalTarget.agencyShort}</h2>
+                <div className="flex items-center gap-2 text-[#9f364c]">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="text-sm">
+                    Thủ tục: <span className="font-bold text-[#b7131a]">{evalTarget.service}</span>
+                  </span>
+                </div>
+                <div className="mt-2 text-right md:text-left">
+                  <span className="text-xs text-[#824c54]/60 font-mono">Mã hồ sơ: {evalTarget.code}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Success state */}
+            {submitted ? (
+              <div className="bg-white rounded-2xl p-16 flex flex-col items-center text-center border border-[#de9ca4]/10">
+                <div className="w-20 h-20 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
+                  <CheckCircle className="w-12 h-12 text-emerald-500" />
+                </div>
+                <h2 className="text-2xl font-black text-[#4d2128] mb-2">Cảm ơn bạn!</h2>
+                <p className="text-[#9f364c] leading-relaxed max-w-md text-sm">
+                  Đánh giá của bạn đã được gửi thành công. Những góp ý này sẽ giúp cải thiện chất lượng dịch vụ công.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                {/* Left: criteria + comment */}
+                <div className="md:col-span-2 space-y-6">
+
+                  {/* Criteria */}
+                  <div className="bg-white rounded-2xl p-6 border border-[#de9ca4]/10">
+                    <h3 className="text-base font-bold text-[#4d2128] mb-6 flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-[#b7131a]" />
+                      Tiêu chí đánh giá chính
+                    </h3>
+                    <div className="space-y-6">
+                      {([
+                        { key: 'attitude',   label: 'Thái độ phục vụ', Icon: UserCheck },
+                        { key: 'time',       label: 'Thời gian xử lý', Icon: Clock     },
+                        { key: 'facilities', label: 'Cơ sở vật chất',  Icon: Building2 },
+                      ] as const).map(({ key, label, Icon }) => (
+                        <div key={key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-[#ffeced] rounded-xl flex items-center justify-center">
+                              <Icon className="w-5 h-5 text-[#b7131a]" />
+                            </div>
+                            <span className="font-bold text-[#4d2128] text-sm">{label}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <StarRow
+                              value={ratings[key]}
+                              onChange={(v) => setRatings(r => ({ ...r, [key]: v }))}
+                            />
+                            {ratings[key] > 0 && (
+                              <span className="text-xs text-[#9f364c] whitespace-nowrap hidden sm:block">
+                                {['','Rất tệ','Tệ','Bình thường','Tốt','Xuất sắc'][ratings[key]]}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Comment */}
+                  <div className="bg-white rounded-2xl p-6 border border-[#de9ca4]/10">
+                    <label className="text-base font-bold text-[#4d2128] mb-3 block">
+                      Nhận xét chi tiết
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={comment}
+                      onChange={e => setComment(e.target.value)}
+                      placeholder="Vui lòng chia sẻ thêm ý kiến của bạn về quá trình thực hiện thủ tục..."
+                      className="w-full bg-[#ffeced] border-none rounded-xl p-4 text-[#4d2128] placeholder:text-[#de9ca4] outline-none focus:ring-2 focus:ring-[#b7131a] resize-none text-sm"
+                    />
+                  </div>
+                </div>
+
+                {/* Right: upload + submit */}
+                <div className="space-y-6">
+
+                  {/* Upload evidence */}
+                  <div className="bg-white rounded-2xl p-6 border border-[#de9ca4]/10 flex flex-col items-center text-center">
+                    <div className="w-14 h-14 bg-[#ffeced] rounded-full flex items-center justify-center mb-3">
+                      <Upload className="w-6 h-6 text-[#b7131a]" />
+                    </div>
+                    <h4 className="font-bold text-[#4d2128] text-sm mb-1">Tải lên bằng chứng</h4>
+                    <p className="text-xs text-[#9f364c] mb-4 px-2">
+                      Đính kèm ảnh phiếu tiếp nhận hoặc tài liệu liên quan.
+                    </p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept="image/*,.pdf"
+                      aria-label="Tải lên bằng chứng"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full border-2 border-dashed border-[#de9ca4] p-4 rounded-xl bg-[#ffeced]/50 hover:bg-[#ffeced] transition-colors group"
+                    >
+                      <span className="material-symbols-outlined text-[#9f364c] group-hover:text-[#b7131a] transition-colors">
+                        photo_camera
+                      </span>
+                      <div className="text-[10px] uppercase font-bold text-[#9f364c] group-hover:text-[#b7131a] transition-colors mt-1">
+                        Chọn tệp tin
+                      </div>
+                    </button>
+                    {uploadedFiles.length > 0 && (
+                      <div className="w-full mt-3 space-y-1">
+                        {uploadedFiles.map((f, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs text-[#9f364c] bg-[#ffeced] px-2 py-1.5 rounded-lg">
+                            <FileImage className="w-3.5 h-3.5 text-[#b7131a] flex-shrink-0" />
+                            <span className="truncate">{f.name}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Average preview */}
+                  {avgRating > 0 && (
+                    <div className="bg-white rounded-2xl p-4 border border-[#de9ca4]/10 flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#824c54]/60">Điểm TB</span>
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-0.5">
+                          {[1,2,3,4,5].map(s => (
+                            <Star key={s} className={`w-4 h-4 fill-current ${s <= Math.round(avgRating) ? 'text-[#fdc003]' : 'text-[#ffd2d6]'}`} />
+                          ))}
+                        </div>
+                        <span className="text-sm font-bold text-[#4d2128]">{avgRating.toFixed(1)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Submit */}
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!ratings.attitude || !ratings.time || !ratings.facilities}
+                    className="w-full py-4 bg-gradient-to-br from-[#b7131a] to-[#ff766b] hover:opacity-90 text-white font-black uppercase tracking-widest text-sm shadow-lg shadow-[#b7131a]/20 active:scale-95 transition-all flex items-center justify-center gap-2 rounded-2xl disabled:opacity-40 disabled:pointer-events-none group"
+                  >
+                    GỬI ĐÁNH GIÁ
+                    <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">send</span>
+                  </button>
+
+                </div>
+              </div>
+            )}
+
+            {/* Guidance note */}
+            <div className="bg-[#ffeced] rounded-2xl p-5 flex items-start gap-3">
+              <Info className="w-5 h-5 text-[#b7131a] flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-[#9f364c] leading-relaxed">
+                Cảm ơn quý công dân đã đóng góp ý kiến. Thông tin phản hồi của quý vị sẽ được bảo mật và sử dụng để cải thiện chất lượng phục vụ tại các cơ quan hành chính nhà nước.
+              </p>
+            </div>
+
+          </div>
+        </main>
+
+        {/* Mobile bottom nav */}
+        <nav className="md:hidden fixed bottom-0 left-0 w-full bg-[#fff4f4]/90 backdrop-blur-md border-t border-[#ffeced] flex justify-around items-center py-3 px-2 z-50">
+          {([
+            { label: 'Trang chủ', icon: 'home',          active: false, action: () => onNavigate('home') },
+            { label: 'Hồ sơ',     icon: 'description',   active: false, action: () => {} },
+            { label: 'Thông báo', icon: 'notifications',  active: false, action: () => {} },
+            { label: 'Đánh giá',  icon: 'star',           active: true,  action: () => {} },
+          ]).map(({ label, icon, active, action }) => (
+            <button key={label} onClick={action} className={`flex flex-col items-center gap-1 transition-colors ${active ? 'text-[#b7131a]' : 'text-[#4d2128]/60'}`}>
+              <span className="material-symbols-outlined text-[22px]" style={{ fontVariationSettings: active ? "'FILL' 1" : "'FILL' 0" }}>{icon}</span>
+              <span className="text-[10px] font-bold">{label}</span>
             </button>
           ))}
-        </div>
-        <p className="text-sm text-gray-600">
-          {value === 0 ? 'Chưa đánh giá' :
-           value === 1 ? 'Rất không hài lòng' :
-           value === 2 ? 'Không hài lòng' :
-           value === 3 ? 'Bình thường' :
-           value === 4 ? 'Hài lòng' : 'Rất hài lòng'}
-        </p>
-      </div>
-    );
-  };
-
-  const handleSubmitEvaluation = () => {
-    if (ratings.attitude > 0 && ratings.speed > 0 && ratings.quality > 0) {
-      setSubmitted(true);
-      timeoutRef.current = setTimeout(() => {
-        setSelectedOffice(null);
-        setSubmitted(false);
-        setRatings({ attitude: 0, speed: 0, quality: 0 });
-        setComment('');
-      }, 2000);
-    }
-  };
-
-  if (submitted) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md text-center">
-          <CardContent className="p-6">
-            <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
-            <h2 className="mb-2">Cảm ơn bạn!</h2>
-            <p className="text-gray-600 mb-4">
-              Đánh giá của bạn đã được gửi thành công. Những góp ý này sẽ giúp cải thiện chất lượng dịch vụ công.
-            </p>
-            <Button onClick={() => setSubmitted(false)} className="w-full">
-              Tiếp tục đánh giá
-            </Button>
-          </CardContent>
-        </Card>
+        </nav>
       </div>
     );
   }
 
+  /* ─────────────────── LIST VIEW ─────────────────── */
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* iOS Status Bar Space */}
-      
-      {/* iOS Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 py-4">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Đánh giá cơ quan</h1>
-          <p className="text-gray-600">Góp ý chất lượng dịch vụ công</p>
+    <div
+      className="bg-[#fff4f4] text-[#4d2128] min-h-screen flex flex-col"
+      style={{ fontFamily: "'Manrope', sans-serif" }}
+    >
+      {/* ── TopNavBar ── */}
+      <header className="flex justify-between items-end w-full px-6 md:px-12 py-6 bg-[#fff4f4]/80 backdrop-blur-md sticky top-0 z-40 border-b border-[#de9ca4]/20">
+        <div>
+          <button
+            onClick={() => onNavigate('home')}
+            className="flex items-center gap-1.5 text-sm text-[#9f364c] hover:text-[#b7131a] transition-colors mb-2"
+          >
+            <ArrowLeft className="w-4 h-4" /> Trang chủ
+          </button>
+          <h1 className="text-3xl md:text-4xl font-bold text-[#4d2128] tracking-tight">
+            Đánh giá cơ quan nhà nước
+          </h1>
         </div>
-      </div>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => onNavigate('notifications')}
+            className="p-2 bg-[#ffeced] rounded-full hover:bg-[#ffd9dd] transition-colors"
+          >
+            <span className="material-symbols-outlined text-[#4d2128]">notifications</span>
+          </button>
+        </div>
+      </header>
 
-      <div className="px-4 pb-6">
-        {selectedOffice ? (
-          // Evaluation form
-          <div className="space-y-6">
-            <Button 
-              variant="ghost" 
-              onClick={() => setSelectedOffice(null)}
-              className="mb-4"
-            >
-              ← Quay lại
-            </Button>
+      <main className="flex-1 px-6 md:px-12 py-10 max-w-6xl mx-auto w-full space-y-16">
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Đánh giá dịch vụ</CardTitle>
-                <div className="text-sm text-gray-600">
-                  <p>{selectedOffice.name}</p>
-                  <p>{selectedOffice.address}</p>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <StarRating
-                  value={ratings.attitude}
-                  onChange={(rating) => setRatings({ ...ratings, attitude: rating })}
-                  label="Thái độ phục vụ"
-                />
-
-                <StarRating
-                  value={ratings.speed}
-                  onChange={(rating) => setRatings({ ...ratings, speed: rating })}
-                  label="Tốc độ xử lý"
-                />
-
-                <StarRating
-                  value={ratings.quality}
-                  onChange={(rating) => setRatings({ ...ratings, quality: rating })}
-                  label="Chất lượng kết quả"
-                />
-
-                <div className="space-y-2">
-                  <Label>Nhận xét chi tiết (không bắt buộc)</Label>
-                  <Textarea
-                    placeholder="Chia sẻ trải nghiệm của bạn..."
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    rows={4}
-                  />
-                </div>
-
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="mb-2">Tổng đánh giá</h4>
-                  <div className="flex items-center gap-2">
-                    <div className="flex">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <Star 
-                          key={star}
-                          className={`w-5 h-5 ${
-                            star <= Math.round((ratings.attitude + ratings.speed + ratings.quality) / 3)
-                              ? 'text-yellow-400 fill-current' 
-                              : 'text-gray-300'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                    <span>
-                      {((ratings.attitude + ratings.speed + ratings.quality) / 3).toFixed(1)}/5
-                    </span>
-                  </div>
-                </div>
-
-                <Button 
-                  onClick={handleSubmitEvaluation}
-                  disabled={!ratings.attitude || !ratings.speed || !ratings.quality}
-                  className="w-full"
-                >
-                  <Send className="w-4 h-4 mr-2" />
-                  Gửi đánh giá
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        ) : (
-          // Offices list
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2>Cơ quan đã từng tiếp xúc</h2>
-              <Badge variant="outline">{offices.length} cơ quan</Badge>
+        {/* ── KPI Cards ── */}
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          {/* Average Rating */}
+          <div className="bg-white p-8 rounded-xl shadow-[0px_20px_40px_rgba(77,33,40,0.06)] relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <span className="material-symbols-outlined text-6xl">stars</span>
             </div>
+            <p className="text-sm font-semibold text-[#9f364c] mb-4 uppercase tracking-wider">
+              Điểm đánh giá trung bình
+            </p>
+            <div className="flex items-baseline gap-2">
+              <h3 className="text-5xl font-black text-[#4d2128]">4.2</h3>
+              <span className="text-xl font-medium text-[#9f364c]">/ 5.0</span>
+            </div>
+            <div className="flex mt-4 gap-0.5 text-[#fdc003]">
+              {[1,2,3,4].map(i => (
+                <span key={i} className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
+              ))}
+              <span className="material-symbols-outlined text-xl">star_half</span>
+            </div>
+          </div>
 
-            <div className="space-y-3">
-              {offices.map((office) => (
-                <Card 
-                  key={office.id}
-                  className={`cursor-pointer transition-all ${
-                    office.completed && !office.rated ? 'ring-2 ring-blue-200' : ''
+          {/* Total Evaluations */}
+          <div className="bg-white p-8 rounded-xl shadow-[0px_20px_40px_rgba(77,33,40,0.06)] relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <span className="material-symbols-outlined text-6xl">groups</span>
+            </div>
+            <p className="text-sm font-semibold text-[#9f364c] mb-4 uppercase tracking-wider">
+              Tổng số đánh giá
+            </p>
+            <h3 className="text-5xl font-black text-[#4d2128]">1.245</h3>
+            <p className="text-sm text-[#9f364c] mt-4 flex items-center gap-1">
+              <span className="material-symbols-outlined text-xs text-green-600">trending_up</span>
+              <span className="text-green-600 font-bold">+12%</span> so với tháng trước
+            </p>
+          </div>
+
+          {/* Satisfaction Rate */}
+          <div className="bg-white p-8 rounded-xl shadow-[0px_20px_40px_rgba(77,33,40,0.06)] relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+              <span className="material-symbols-outlined text-6xl">sentiment_satisfied</span>
+            </div>
+            <p className="text-sm font-semibold text-[#9f364c] mb-4 uppercase tracking-wider">
+              Mức độ hài lòng
+            </p>
+            <h3 className="text-5xl font-black text-[#4d2128]">89%</h3>
+            <div className="mt-6">
+              <div className="h-2 w-full bg-[#ffd9dd] rounded-full overflow-hidden">
+                <div className="h-full bg-gradient-to-r from-[#b7131a] to-[#ff766b] w-[89%] rounded-full" />
+              </div>
+              <div className="flex justify-between mt-2 text-[10px] font-bold text-[#9f364c] uppercase tracking-widest">
+                <span>Cần cải thiện</span>
+                <span>Tuyệt vời</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Recent Interfaces ── */}
+        <section>
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-2xl font-bold text-[#4d2128] tracking-tight">Giao diện gần đây</h2>
+            <div className="flex items-center gap-4">
+              {(['all','pending','done'] as const).map((tab, i) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`text-sm px-1 pb-0.5 transition-colors ${
+                    activeTab === tab
+                      ? 'font-bold text-[#b7131a] border-b-2 border-[#b7131a]'
+                      : 'font-medium text-[#9f364c] hover:text-[#b7131a]'
                   }`}
-                  onClick={() => {
-                    if (office.completed && !office.rated) {
-                      setSelectedOffice(office);
-                    }
-                  }}
                 >
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h3>{office.name}</h3>
-                        <p className="text-sm text-gray-600">{office.address}</p>
-                      </div>
-                      
-                      <div className="text-right">
-                        {office.rated ? (
-                          <div className="flex items-center gap-1">
-                            <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                            <span className="text-sm">{office.rating}</span>
-                          </div>
-                        ) : office.completed ? (
-                          <Badge className="bg-blue-100 text-blue-800">
-                            Có thể đánh giá
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline">
-                            Đang xử lý
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4 text-sm text-gray-600">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-4 h-4" />
-                        {office.lastVisit}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Building className="w-4 h-4" />
-                        {office.services.join(', ')}
-                      </div>
-                    </div>
-
-                    {office.completed && !office.rated && (
-                      <div className="mt-3 p-2 bg-blue-50 rounded text-sm text-blue-700">
-                        💡 Bấm để đánh giá chất lượng dịch vụ
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                  {['Tất cả', 'Chờ đánh giá', 'Đã hoàn tất'][i]}
+                </button>
               ))}
             </div>
+          </div>
 
-            <Card>
-              <CardContent className="p-4 text-center">
-                <p className="text-gray-600 mb-3">
-                  Đánh giá của bạn giúp cải thiện chất lượng dịch vụ công
-                </p>
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div>
-                    <div className="text-lg">4.2</div>
-                    <div>Điểm TB</div>
+          <div className="bg-[#ffeced] rounded-xl p-2 space-y-2">
+            {filtered.map((tx) => (
+              <div
+                key={tx.id}
+                className={`bg-white rounded-lg p-6 flex flex-col md:flex-row items-center justify-between transition-all group
+                  ${tx.status === 'evaluatable' ? 'hover:bg-[#fff4f4] cursor-pointer' : ''}
+                  ${tx.status === 'processing'  ? 'opacity-70' : ''}
+                `}
+                onClick={() => tx.status === 'evaluatable' && openEval(tx)}
+              >
+                <div className="flex items-center gap-6 mb-4 md:mb-0">
+                  <div className={`w-14 h-14 rounded-xl bg-[#ffd9dd] flex items-center justify-center ${
+                    tx.status === 'processing' ? 'text-[#9f364c]/40' : 'text-[#b7131a]'
+                  } ${tx.status === 'evaluatable' ? 'group-hover:scale-105' : ''} transition-transform`}>
+                    <span
+                      className="material-symbols-outlined text-3xl"
+                      style={{ fontVariationSettings: "'FILL' 0" }}
+                    >
+                      {tx.iconName}
+                    </span>
                   </div>
                   <div>
-                    <div className="text-lg">1,245</div>
-                    <div>Đánh giá</div>
-                  </div>
-                  <div>
-                    <div className="text-lg">89%</div>
-                    <div>Hài lòng</div>
+                    <h4 className="text-lg font-bold text-[#4d2128] group-hover:text-[#b7131a] transition-colors">
+                      {tx.agency}
+                    </h4>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      {tx.status === 'evaluatable' && (
+                        <>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">
+                            Có thể đánh giá
+                          </span>
+                          {tx.updatedAgo && (
+                            <span className="text-xs text-[#9f364c] italic">Cập nhật {tx.updatedAgo}</span>
+                          )}
+                        </>
+                      )}
+                      {tx.status === 'processing' && (
+                        <>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                            Đang xử lý
+                          </span>
+                          <span className="text-xs text-[#9f364c]">Yêu cầu đã gửi vào {tx.date}</span>
+                        </>
+                      )}
+                      {tx.status === 'done' && (
+                        <>
+                          <div className="flex gap-0.5 text-[#fdc003]">
+                            {[1,2,3,4,5].map(s => (
+                              <span
+                                key={s}
+                                className="material-symbols-outlined text-xs"
+                                style={{ fontVariationSettings: s <= (tx.rating ?? 0) ? "'FILL' 1" : "'FILL' 0" }}
+                              >
+                                star
+                              </span>
+                            ))}
+                          </div>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+                            Đã hoàn tất
+                          </span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+
+                <div className="mt-0 md:mt-0 shrink-0">
+                  {tx.status === 'evaluatable' && (
+                    <button
+                      onClick={e => { e.stopPropagation(); openEval(tx); }}
+                      className="px-6 py-3 bg-gradient-to-br from-[#b7131a] to-[#ff766b] text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all"
+                    >
+                      Đánh giá ngay
+                    </button>
+                  )}
+                  {tx.status === 'processing' && (
+                    <button
+                      disabled
+                      className="px-6 py-3 bg-[#ffd9dd] text-[#9f364c]/50 rounded-xl font-bold text-sm cursor-not-allowed"
+                    >
+                      Chờ phản hồi
+                    </button>
+                  )}
+                  {tx.status === 'done' && (
+                    <button className="px-6 py-3 bg-[#ffc2c9] text-[#852139] rounded-xl font-bold text-sm hover:bg-[#ffd9dd] transition-colors">
+                      Xem kết quả
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
-        )}
-      </div>
+        </section>
+
+        {/* ── CTA Banner ── */}
+        <section className="relative rounded-2xl overflow-hidden h-64 flex items-center shadow-2xl">
+          <div className="absolute inset-0 bg-gradient-to-r from-[#b7131a] to-[#ff766b]" />
+          <div className="absolute inset-0 opacity-10 pointer-events-none"
+            style={{ backgroundImage: 'repeating-linear-gradient(45deg,#fff 0,#fff 1px,transparent 0,transparent 50%)', backgroundSize: '20px 20px' }}
+          />
+          <div className="relative z-10 px-10 md:px-16 w-full flex flex-col md:flex-row justify-between items-center gap-8">
+            <div className="text-center md:text-left max-w-lg">
+              <h2 className="text-3xl font-black text-white leading-tight mb-3">
+                Góp ý của bạn thay đổi diện mạo công sở
+              </h2>
+              <p className="text-white/80 font-medium italic text-sm">
+                Sự hài lòng của người dân là thước đo hiệu quả của chính quyền.
+              </p>
+            </div>
+            <button className="bg-white text-[#b7131a] px-10 py-4 rounded-xl font-black text-sm tracking-widest uppercase hover:bg-[#fff4f4] transition-all shadow-xl hover:-translate-y-1 active:scale-95 whitespace-nowrap flex items-center gap-2">
+              GỬI PHẢN ÁNH KIẾN NGHỊ
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </section>
+
+      </main>
+
+      {/* ── Footer ── */}
+      <footer className="mt-auto py-8 px-12 border-t border-[#de9ca4]/10 flex flex-col md:flex-row justify-between items-center text-xs text-[#9f364c] font-medium opacity-60">
+        <p>© 2024 Cổng dịch vụ công Quốc gia. All rights reserved.</p>
+        <div className="flex gap-6 mt-4 md:mt-0">
+          {['Điều khoản sử dụng', 'Chính sách bảo mật', 'Liên hệ hỗ trợ'].map((t) => (
+            <button key={t} className="hover:text-[#b7131a] transition-colors">{t}</button>
+          ))}
+        </div>
+      </footer>
+
+      {/* ── Mobile Bottom Nav ── */}
+      <nav className="md:hidden fixed bottom-0 left-0 w-full bg-[#fff4f4]/90 backdrop-blur-md border-t border-[#ffeced] flex justify-around items-center py-3 px-2 z-50">
+        {([
+          { label: 'Trang chủ', icon: 'home',          active: false, action: () => onNavigate('home') },
+          { label: 'Hồ sơ',     icon: 'description',   active: false, action: () => {} },
+          { label: 'Thông báo', icon: 'notifications',  active: false, action: () => {} },
+          { label: 'Đánh giá',  icon: 'star',           active: true,  action: () => {} },
+        ]).map(({ label, icon, active, action }) => (
+          <button key={label} onClick={action} className={`flex flex-col items-center gap-1 transition-colors ${active ? 'text-[#b7131a]' : 'text-[#4d2128]/60'}`}>
+            <span className="material-symbols-outlined text-[22px]" style={{ fontVariationSettings: active ? "'FILL' 1" : "'FILL' 0" }}>{icon}</span>
+            <span className="text-[10px] font-bold">{label}</span>
+          </button>
+        ))}
+      </nav>
+
     </div>
   );
 }

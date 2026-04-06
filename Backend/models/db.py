@@ -132,6 +132,134 @@ def init_db(app):
         except Exception as e:
             print('Warning: ensuring RAG/CAG tables failed:', e)
 
+        # ── Submission tables ─────────────────────────────────────────────────
+        try:
+            submission_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.applications (
+                id              VARCHAR(80) PRIMARY KEY,
+                applicant_id    VARCHAR(80) NOT NULL,
+                service_id      VARCHAR(255),
+                status          VARCHAR(50) NOT NULL DEFAULT 'draft',
+                data            JSONB        NOT NULL DEFAULT '{}',
+                signature_type  VARCHAR(50),
+                submitted_at    TIMESTAMPTZ,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_applicant
+                ON public.applications(applicant_id);
+            CREATE INDEX IF NOT EXISTS idx_app_status
+                ON public.applications(status);
+            CREATE INDEX IF NOT EXISTS idx_app_service
+                ON public.applications(service_id);
+
+            CREATE TABLE IF NOT EXISTS public.application_documents (
+                id              VARCHAR(80) PRIMARY KEY,
+                application_id  VARCHAR(80) NOT NULL
+                    REFERENCES public.applications(id) ON DELETE CASCADE,
+                requirement_id  VARCHAR(80),
+                filename        VARCHAR(255) NOT NULL,
+                original_name   VARCHAR(255),
+                mime_type       VARCHAR(100),
+                size            BIGINT,
+                storage_path    VARCHAR(500),
+                processed_text  TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_appdoc_app
+                ON public.application_documents(application_id);
+
+            CREATE TABLE IF NOT EXISTS public.application_status_history (
+                id              SERIAL PRIMARY KEY,
+                application_id  VARCHAR(80) NOT NULL
+                    REFERENCES public.applications(id) ON DELETE CASCADE,
+                status          VARCHAR(50) NOT NULL,
+                note            TEXT,
+                by              VARCHAR(80),
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_apphist_app
+                ON public.application_status_history(application_id);
+
+            CREATE TABLE IF NOT EXISTS public.service_requirements (
+                id              VARCHAR(80) PRIMARY KEY,
+                service_id      VARCHAR(255) NOT NULL,
+                doc_name        VARCHAR(255) NOT NULL,
+                doc_description TEXT,
+                is_required     BOOLEAN NOT NULL DEFAULT TRUE,
+                doc_type        VARCHAR(50) NOT NULL DEFAULT 'original',
+                order_index     INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_req_service
+                ON public.service_requirements(service_id);
+            ''')
+            db.session.execute(submission_ddl)
+            db.session.commit()
+            print('Submission tables OK')
+        except Exception as e:
+            print('Warning: ensuring submission tables failed:', e)
+            db.session.rollback()
+
+        # ── Queue tables ──────────────────────────────────────────────────────
+        try:
+            queue_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.queue_tickets (
+                id              VARCHAR(80)  PRIMARY KEY,
+                agency_id       VARCHAR(120) NOT NULL,
+                service_id      VARCHAR(120) NOT NULL DEFAULT '',
+                service_name    VARCHAR(255) NOT NULL DEFAULT '',
+                ticket_number   INTEGER      NOT NULL,
+                prefix          VARCHAR(5)   NOT NULL DEFAULT 'A',
+                user_id         VARCHAR(80),
+                user_name       VARCHAR(255) NOT NULL DEFAULT '',
+                counter_no      INTEGER,
+                status          VARCHAR(30)  NOT NULL DEFAULT 'waiting',
+                priority        INTEGER      NOT NULL DEFAULT 0,
+                estimated_wait  INTEGER      NOT NULL DEFAULT 0,
+                called_at       TIMESTAMPTZ,
+                served_at       TIMESTAMPTZ,
+                done_at         TIMESTAMPTZ,
+                date            DATE         NOT NULL DEFAULT CURRENT_DATE,
+                created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_qt_agency_date
+                ON public.queue_tickets(agency_id, date);
+            CREATE INDEX IF NOT EXISTS idx_qt_user
+                ON public.queue_tickets(user_id, date);
+            CREATE INDEX IF NOT EXISTS idx_qt_status
+                ON public.queue_tickets(status, agency_id, date);
+
+            CREATE TABLE IF NOT EXISTS public.agency_counters (
+                id              VARCHAR(80)  PRIMARY KEY,
+                agency_id       VARCHAR(120) NOT NULL,
+                counter_no      INTEGER      NOT NULL,
+                is_active       BOOLEAN      NOT NULL DEFAULT TRUE,
+                operator_name   VARCHAR(255) NOT NULL DEFAULT '',
+                created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                UNIQUE (agency_id, counter_no)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ac_agency
+                ON public.agency_counters(agency_id);
+
+            CREATE TABLE IF NOT EXISTS public.service_stats (
+                agency_id       VARCHAR(120) NOT NULL,
+                service_id      VARCHAR(120) NOT NULL,
+                sample_count    INTEGER      NOT NULL DEFAULT 0,
+                total_seconds   FLOAT        NOT NULL DEFAULT 0,
+                avg_seconds     FLOAT        NOT NULL DEFAULT 420,
+                updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                PRIMARY KEY (agency_id, service_id)
+            );
+            ''')
+            db.session.execute(queue_ddl)
+            db.session.commit()
+            print('Queue tables OK')
+        except Exception as e:
+            print('Warning: ensuring queue tables failed:', e)
+            db.session.rollback()
+
     return db
 
 

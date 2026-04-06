@@ -1,21 +1,52 @@
-import { TrendingUp, Clock, AlertTriangle, CheckCircle, Users, FileText, MapPin, Lightbulb, ArrowLeft } from 'lucide-react';
+import { TrendingUp, Clock, AlertTriangle, CheckCircle, Users, FileText, MapPin, Lightbulb, ArrowLeft, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { Button } from './ui/button';
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import * as adminSvc from '../services/adminService';
+
 interface AnalyticsScreenProps {
   onNavigate: (screen: string) => void;
 }
 
 export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
+  const [myApps,       setMyApps]       = useState<any[]>([]);
+  const [systemData,   setSystemData]   = useState<any>(null);
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      adminSvc.getMyApplications().catch(() => ({ data: [] })),
+      adminSvc.getStats().catch(() => ({ data: null })),
+    ]).then(([myRes, sysRes]) => {
+      setMyApps(myRes.data || []);
+      setSystemData(sysRes.data || null);
+    }).finally(() => setLoadingStats(false));
+  }, []);
+
+  const completed   = myApps.filter(a => a.currentStatus === 'approved').length;
+  const inProgress  = myApps.filter(a => ['submitted','under_review'].includes(a.currentStatus)).length;
+  const needInfo    = myApps.filter(a => a.currentStatus === 'need_more_info').length;
+  const total       = myApps.length;
+
   const personalStats = {
-    totalDocuments: 5,
-    completed: 3,
-    inProgress: 2,
+    totalDocuments:    total,
+    completed,
+    inProgress,
     avgProcessingTime: 8,
-    successRate: 95
+    successRate:       total > 0 ? Math.round((completed / total) * 100) : 0,
   };
+
+  const processWarnings = myApps
+    .filter(a => a.currentStatus === 'need_more_info')
+    .map(a => ({
+      id:         a.id,
+      title:      'Cần bổ sung hồ sơ',
+      content:    `Hồ sơ "${a.procedureName || a.procedureId}" yêu cầu bổ sung thêm tài liệu.`,
+      severity:   'warning',
+      documentId: a.id,
+    }));
 
   const aiSuggestions = [
     {
@@ -47,29 +78,12 @@ export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
     }
   ];
 
-  const processWarnings = [
-    {
-      id: 1,
-      title: 'Hồ sơ chậm tiến độ',
-      content: 'Giấy phép lái xe đã 5 ngày chưa có phản hồi. Bình thường là 3-4 ngày.',
-      severity: 'warning',
-      documentId: 'HS002'
-    },
-    {
-      id: 2,
-      title: 'Sắp hết hạn bổ sung',
-      content: 'Hồ sơ CCCD cần bổ sung trong 3 ngày nữa.',
-      severity: 'urgent',
-      documentId: 'HS003'
-    }
-  ];
-
-  const systemStats = [
-    { label: 'Hồ sơ được xử lý hôm nay', value: '1,234', change: '+12%', positive: true },
-    { label: 'Thời gian xử lý trung bình', value: '6.5 ngày', change: '-1.2 ngày', positive: true },
-    { label: 'Tỷ lệ hài lòng', value: '94.2%', change: '+2.1%', positive: true },
-    { label: 'Cơ quan hoạt động', value: '98/102', change: '4 bảo trì', positive: false }
-  ];
+  const systemStats = systemData ? [
+    { label: 'Tổng người dùng',         value: String(systemData.totalUsers ?? '–'),          change: '', positive: true },
+    { label: 'Hồ sơ đang chờ duyệt',    value: String(systemData.pendingApplications ?? '–'), change: '', positive: false },
+    { label: 'Tổng hồ sơ',              value: String(systemData.totalApplications ?? '–'),   change: '', positive: true },
+    { label: 'Vé xếp hàng hôm nay',     value: String(systemData.ticketsToday ?? '–'),        change: '', positive: true },
+  ] : [];
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
@@ -115,34 +129,48 @@ export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
         {/* Personal Statistics */}
         <div>
           <h2 className="mb-4">Thống kê cá nhân</h2>
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl mb-1">{personalStats.completed}</div>
-                <div className="text-sm text-gray-600">Hồ sơ hoàn thành</div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4 text-center">
-                <div className="text-2xl mb-1">{personalStats.inProgress}</div>
-                <div className="text-sm text-gray-600">Đang xử lý</div>
-              </CardContent>
-            </Card>
-          </div>
+          {loadingStats ? (
+            <div className="flex justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-2xl mb-1">{personalStats.completed}</div>
+                    <div className="text-sm text-gray-600">Hồ sơ đã duyệt</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4 text-center">
+                    <div className="text-2xl mb-1">{personalStats.inProgress}</div>
+                    <div className="text-sm text-gray-600">Đang xử lý</div>
+                  </CardContent>
+                </Card>
+              </div>
 
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span>Tiến độ hoàn thành</span>
-                <span>{Math.round((personalStats.completed / personalStats.totalDocuments) * 100)}%</span>
-              </div>
-              <Progress value={(personalStats.completed / personalStats.totalDocuments) * 100} />
-              <div className="flex justify-between text-sm text-gray-600 mt-2">
-                <span>{personalStats.completed}/{personalStats.totalDocuments} hồ sơ</span>
-                <span>Thời gian TB: {personalStats.avgProcessingTime} ngày</span>
-              </div>
-            </CardContent>
-          </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span>Tiến độ hoàn thành</span>
+                    <span>
+                      {personalStats.totalDocuments > 0
+                        ? Math.round((personalStats.completed / personalStats.totalDocuments) * 100)
+                        : 0}%
+                    </span>
+                  </div>
+                  <Progress value={
+                    personalStats.totalDocuments > 0
+                      ? (personalStats.completed / personalStats.totalDocuments) * 100
+                      : 0
+                  } />
+                  <div className="flex justify-between text-sm text-gray-600 mt-2">
+                    <span>{personalStats.completed}/{personalStats.totalDocuments} hồ sơ</span>
+                    {needInfo > 0 && <span className="text-orange-600">{needInfo} cần bổ sung</span>}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
 
         {/* AI Suggestions */}
@@ -221,30 +249,36 @@ export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
         {/* System Statistics */}
         <div>
           <h2 className="mb-4">Thống kê hệ thống</h2>
-          <div className="grid grid-cols-1 gap-3">
-            {systemStats.map((stat, index) => (
-              <Card key={index}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-600">{stat.label}</p>
-                      <p className="text-lg">{stat.value}</p>
+          {loadingStats ? (
+            <div className="flex justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
+          ) : systemStats.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">Không thể tải thống kê hệ thống</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3">
+              {systemStats.map((stat, index) => (
+                <Card key={index}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-600">{stat.label}</p>
+                        <p className="text-lg font-semibold text-gray-800">{stat.value}</p>
+                      </div>
+                      <div className={`text-sm flex items-center gap-1 ${
+                        stat.positive ? 'text-green-600' : 'text-orange-600'
+                      }`}>
+                        {stat.positive ? (
+                          <TrendingUp className="w-4 h-4" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4" />
+                        )}
+                        {stat.change}
+                      </div>
                     </div>
-                    <div className={`text-sm flex items-center gap-1 ${
-                      stat.positive ? 'text-green-600' : 'text-orange-600'
-                    }`}>
-                      {stat.positive ? (
-                        <TrendingUp className="w-4 h-4" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4" />
-                      )}
-                      {stat.change}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Quick Actions */}
