@@ -94,7 +94,6 @@ class Application:
         docs = app.get('documents', [])
         docs.append(doc_id)
         Application.update(app_id, {'documents': docs})
-        # return updated application dict
         return Application.find_by_id(app_id)
 
     @staticmethod

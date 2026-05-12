@@ -1,5 +1,8 @@
 import json
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def process_document(file_path: str, original_name: str = None) -> str:
@@ -28,5 +31,5 @@ def process_document(file_path: str, original_name: str = None) -> str:
 
         return None
     except Exception as e:
-        print(f"document_processor: failed to process {file_path}: {e}")
+        logger.warning("Failed to process %s: %s", file_path, e)
         return None

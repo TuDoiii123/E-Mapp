@@ -208,12 +208,11 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             const audioEl = new Audio(`data:${dialog.audio.mimeType || 'audio/mpeg'};base64,${dialog.audio.base64}`);
             audioRef.current = audioEl;
             void audioEl.play();
-          } catch (e) { console.warn('Audio playback failed:', e); }
+          } catch { /* audio non-critical */ }
         }
 
       } else {
         const response = await chatbotAPI.sendMessage({ message: trimmed, sessionId: sessionId ?? undefined, intent: mode === 'administrative_qa' ? 'administrative_qa' : undefined, speak: true });
-        if (response.warnings?.length) console.warn('[chatbotAPI]', response.warnings.join(' | '));
         const nextSessionId = response.data?.sessionId ?? sessionId;
         const normalizedSessionId = nextSessionId && nextSessionId.trim().length > 0 ? nextSessionId : null;
         if (sessionId == null && normalizedSessionId) {
@@ -240,7 +239,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
             const audioEl = new Audio(`data:${response.data.audio.mimeType || 'audio/mpeg'};base64,${response.data.audio.base64}`);
             audioRef.current = audioEl;
             void audioEl.play();
-          } catch (e) { console.warn('Audio playback failed:', e); }
+          } catch { /* audio non-critical */ }
         }
       }
     } catch (error) {
@@ -272,7 +271,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                   const audioEl = new Audio(`data:${dialog.audio.mimeType || 'audio/mpeg'};base64,${dialog.audio.base64}`);
                   audioRef.current = audioEl;
                   void audioEl.play();
-                } catch (e) { console.warn('Audio playback failed:', e); }
+                } catch { /* audio non-critical */ }
               }
             } else { setInputText(stt.text); }
           } else { appendBotMessage(stt.message || 'Không nhận diện được giọng nói.'); }

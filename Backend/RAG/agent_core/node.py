@@ -69,7 +69,6 @@ def _load_tool_for_role() -> List[Dict[str, Any]]:
 
         tools = data.get("tools", [])
         if not isinstance(tools, list):
-            # Invalid schema, return empty to avoid crashing
             return []
 
         # Chuẩn hóa thông tin
@@ -84,7 +83,6 @@ def _load_tool_for_role() -> List[Dict[str, Any]]:
         return normalized_tools
 
     except Exception:
-        # Any parsing error -> return empty tools to keep the system running
         return []
 
 def _load_memory(session_id: str) -> str:
@@ -237,25 +235,20 @@ def task_analyzer(state: MultiRoleAgentState) -> None:
     if not user_question or not base_prompt:
         raise ValueError("task_analyzer: state thiếu user_question hoặc base_prompt")
 
-    # chuẩn hoá role_tools thành list of dicts
     normalized_role_tools = _normalize_role_tools(role_tools_raw)
 
-    # gọi LLM
     analyzer = GeminiAnalyzerLLM()
     raw_response = analyzer.analyze_task(base_prompt=base_prompt, user_question=user_question, role_tools=normalized_role_tools)
 
     state["llm_analysis"] = raw_response
     parsed = _extract_json_from_text(raw_response)
-    required_raw = []
     if isinstance(parsed, dict) and "required_tools" in parsed:
         required_raw = parsed["required_tools"]
     elif isinstance(parsed, list):
-        # LLM trả trực tiếp 1 list
         required_raw = parsed
     else:
         required_raw = []
 
-    # validate & normalize
     required_tools_normalized = _validate_and_format_required_tools(required_raw, normalized_role_tools)
 
     state["required_tools"] = required_tools_normalized
@@ -285,18 +278,11 @@ def tool_executor(state: MultiRoleAgentState) -> None:
 
         try:
             result = tool_func(**params)
-
         except Exception as e:
             result = f"❌ Lỗi khi thực thi {tool_name}: {str(e)}"
 
-        # Lưu lại kết quả vào danh sách tool_results
-        tool_results.append({
-            "tool_name": tool_name,
-            "params": params,
-            "result": result
-        })
+        tool_results.append({"tool_name": tool_name, "params": params, "result": result})
 
-    # Cập nhật state
     state["tool_results"] = tool_results
 
 def llm_response(state: MultiRoleAgentState) -> None:
@@ -309,17 +295,15 @@ def llm_response(state: MultiRoleAgentState) -> None:
     user_question = state.get("user_input", "")
     tool_results = state.get("tool_results", [])
 
-    # --- Kiểm tra dữ liệu đầu vào ---
     if not base_prompt or not user_question:
         raise ValueError("❌ llm_response: thiếu base_prompt hoặc user_question trong state.")
 
-    # --- Chuẩn bị nội dung tool_results (dạng dễ đọc cho LLM) ---
-    if tool_results:
-        formatted_tool_results = json.dumps(tool_results, ensure_ascii=False, indent=2)
-    else:
-        formatted_tool_results = "Không có tool nào được gọi hoặc không có kết quả."
+    formatted_tool_results = (
+        json.dumps(tool_results, ensure_ascii=False, indent=2)
+        if tool_results
+        else "Không có tool nào được gọi hoặc không có kết quả."
+    )
 
-    # --- Xây dựng prompt tổng hợp ---
     system_prompt = f"""
 Bạn là AI assistant đảm nhận vai trò trả lời câu hỏi người dùng về kiến thúc và tài liệu liên quan đến thủ tục hành chính công.
 Dưới đây là prompt hướng dẫn của vai trò này:
@@ -346,12 +330,8 @@ Nhiệm vụ của bạn:
 - Nếu không có dữ liệu hoặc dữ liệu mâu thuẫn, hãy trả lời một cách trung lập.
 """
 
-    # --- Gọi LLM tổng hợp ---
     synthesizer = GeminiSynthesizerLLM()
-    final_answer = synthesizer.run(system_prompt)
-
-    # --- Cập nhật vào state ---
-    state["final_answer"] = final_answer.strip()
+    state["final_answer"] = synthesizer.run(system_prompt).strip()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
