@@ -1,6 +1,9 @@
 node_modules/
 .env
 data/
+!RAG/data/
+!RAG/data/*.xlsx
+!RAG/data/*.py
 *.log
 .DS_Store
 
