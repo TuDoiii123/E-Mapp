@@ -140,6 +140,38 @@ def _auto_seed_procedures():
 
 threading.Thread(target=_auto_seed_procedures, daemon=True).start()
 
+
+# ── Auto-seed queue data (counters, stats, realtime) ─────────────────────────
+def _auto_seed_queue_data():
+    """Seed agency_counters, service_stats, agency_queue_realtime nếu chưa có."""
+    try:
+        with app.app_context():
+            from models.db import db
+            from sqlalchemy import text as _text
+            count = db.session.execute(
+                _text('SELECT COUNT(*) FROM public.agency_counters')
+            ).scalar() or 0
+            if count == 0:
+                log.info('[AutoSeed] agency_counters empty — running seed_queue_data...')
+                import sys as _sys, os as _os
+                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), 'scripts'))
+                from seed_queue_data import (
+                    seed_agency_counters, seed_agency_queue_realtime,
+                    seed_service_stats, seed_form_templates,
+                )
+                seed_agency_counters(db.session, _text)
+                seed_agency_queue_realtime(db.session, _text)
+                seed_service_stats(db.session, _text)
+                seed_form_templates(db.session, _text)
+                log.info('[AutoSeed] queue data seeded OK')
+            else:
+                log.debug(f'[AutoSeed] agency_counters OK ({count} rows)')
+    except Exception as e:
+        log.warning(f'[AutoSeed] queue seed failed (run manually): {e}')
+
+threading.Thread(target=_auto_seed_queue_data, daemon=True).start()
+
+
 # ── RAG session cleanup (chạy mỗi 6 giờ, xóa sessions > 30 ngày) ─────────────
 def _cleanup_rag_sessions():
     while True:
