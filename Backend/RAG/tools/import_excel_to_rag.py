@@ -46,6 +46,17 @@ EXCEL_FILES = [
     'faq_dau_tu.xlsx',
     'faq_khieu_nai.xlsx',
     'faq_nong_nghiep.xlsx',
+    # Batch 3
+    'faq_ngan_hang.xlsx',
+    'faq_ho_tich_2.xlsx',
+    'faq_dat_dai_2.xlsx',
+    'faq_lao_dong_2.xlsx',
+    'faq_thue_2.xlsx',
+    'faq_giao_thong_2.xlsx',
+    'faq_xay_dung_2.xlsx',
+    'faq_xa_hoi.xlsx',
+    'faq_pccc.xlsx',
+    'faq_vien_thong.xlsx',
 ]
 
 
