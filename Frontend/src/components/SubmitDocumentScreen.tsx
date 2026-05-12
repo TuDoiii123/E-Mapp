@@ -14,10 +14,10 @@ import React from 'react';
 import { API_BASE_URL, getToken } from '../services/api';
 import { proceduresAPI, Procedure as ProcedureData } from '../services/proceduresService';
 import {
-  ArrowLeft, CheckCircle, Upload, FileText, Clock, CreditCard,
-  ShieldCheck, Phone, X, Building2, FolderOpen, Download,
-  ChevronRight, MessageCircle, Info, Eye, Trash2, CloudUpload,
-  Paperclip, Smartphone, HardDrive, Send, ShieldAlert, Image,
+  ArrowLeft, CheckCircle, Upload, FileText,
+  ShieldCheck, Phone, X, FolderOpen,
+  Trash2, CloudUpload,
+  Paperclip, Smartphone, HardDrive, Image,
   RefreshCw, AlertCircle,
 } from 'lucide-react';
 
@@ -99,7 +99,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
   // Form fields
   const [submitting,     setSubmitting]     = useState(false);
   const [agreed,         setAgreed]         = useState(false);
-  const [notes,          setNotes]          = useState('');
+  const [notes] = useState('');
   const [contactPhone,   setContactPhone]   = useState('');
   const [contactEmail,   setContactEmail]   = useState('');
   const [contactAddress, setContactAddress] = useState('');

@@ -2,12 +2,11 @@
  * SearchDocumentScreen — Tra cứu hồ sơ
  * Kết nối API thật: GET /api/applications/search và /api/applications/my
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
-  Search, FileText, Clock, CheckCircle2, AlertCircle,
+  Clock, CheckCircle2, AlertCircle,
   Phone, MessageCircle, RefreshCw, X, ChevronRight, ArrowLeft,
-  HelpCircle, Headphones, Bell, User, Home,
-  LayoutList, FolderX,
+  FolderX,
 } from 'lucide-react';
 
 import { API_BASE_URL, getToken } from '../services/api';
@@ -187,13 +186,6 @@ function AppDetail({ app, onBack, onNavigate }: {
   );
 }
 
-// ── Sidebar nav items ─────────────────────────────────────────────────────────
-const SIDEBAR_ITEMS = [
-  { label: 'Tất cả',      value: '',          Icon: LayoutList  },
-  { label: 'Đang xử lý',  value: 'in_review', Icon: Clock       },
-  { label: 'Cần bổ sung', value: 'more_info', Icon: AlertCircle },
-  { label: 'Đã duyệt',    value: 'approved',  Icon: CheckCircle2},
-];
 
 const FILTER_CHIPS = [
   { label: 'TẤT CẢ',      value: '' },
