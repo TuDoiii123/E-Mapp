@@ -314,9 +314,6 @@ def forgot_password():
         user = User.find_by_email(email)
         if user:
             log.info(f'[auth] Forgot password request for email: {email[:3]}***')
-            # TODO: Generate reset token, send email
-            # reset_token = secrets.token_urlsafe(32)
-            # send_reset_email(email, reset_token)
 
         # Luôn trả về thành công dù email có tồn tại hay không
         return jsonify({

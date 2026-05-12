@@ -161,8 +161,6 @@ def _fetch_session_messages(session_id: str) -> List[Dict[str, Any]]:
         return []
 
 
-# SuggestProcedure — logic đã chuyển sang RAG/tools/suggest.py
-# init_suggest và suggest_procedures được import ở đầu file
 def init_document_suggestion():
     """Alias để server.py preload vẫn hoạt động."""
     return init_suggest()
