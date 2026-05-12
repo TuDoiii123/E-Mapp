@@ -27,6 +27,7 @@ _MODEL_PATH  = _RAG_DIR / 'models' / 'Vietnamese_Embedding'
 _COLLECTION  = 'faqs_collection'
 
 EXCEL_FILES = [
+    # Batch 1
     'faq_ho_tich.xlsx',
     'faq_dat_dai.xlsx',
     'faq_cccd_cu_tru.xlsx',
@@ -36,6 +37,15 @@ EXCEL_FILES = [
     'faq_thue.xlsx',
     'faq_xay_dung.xlsx',
     'faq_chung.xlsx',
+    # Batch 2
+    'faq_tu_phap.xlsx',
+    'faq_lao_dong.xlsx',
+    'faq_y_te.xlsx',
+    'faq_giao_duc.xlsx',
+    'faq_moi_truong.xlsx',
+    'faq_dau_tu.xlsx',
+    'faq_khieu_nai.xlsx',
+    'faq_nong_nghiep.xlsx',
 ]
 
 
