@@ -22,3 +22,15 @@ Frontend/.vite/
 # OS
 .DS_Store
 Thumbs.db
+
+# Diagrams (PlantUML - chỉ dùng locally)
+*.puml
+
+# Build artifacts
+Frontend/build/
+
+# Large model weights
+*.safetensors
+*.bin
+*.gguf
+sentencepiece.bpe.model

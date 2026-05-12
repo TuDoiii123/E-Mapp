@@ -2,12 +2,17 @@
  * Queue Service — REST API calls + WebSocket client
  * Tối ưu độ trễ: binary JSON, delta updates, heartbeat 15s
  */
+import { API_BASE_URL, getToken } from './api';
 
-const BASE_URL = 'http://localhost:8888/api/queue';
-const WS_BASE  = 'ws://localhost:8888/ws/queue';
+const BASE_URL = `${API_BASE_URL}/queue`;
+// Tự động đổi http→ws / https→wss và /api→/ws/queue khi deploy
+const WS_BASE = API_BASE_URL
+  .replace(/^https/, 'wss')
+  .replace(/^http/, 'ws')
+  .replace(/\/api$/, '/ws/queue');
 
 function authHeaders(): Record<string, string> {
-  const token = localStorage.getItem('token');
+  const token = getToken();
   return token
     ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
     : { 'Content-Type': 'application/json' };

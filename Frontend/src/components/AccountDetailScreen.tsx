@@ -35,7 +35,8 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
     avatar: '',
   });
 
-  const [editForm, setEditForm] = useState({ ...userInfo });
+  const [editForm,   setEditForm]   = useState({ ...userInfo });
+  const [saveError,  setSaveError]  = useState('');
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
     newPassword: '',
@@ -48,6 +49,7 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
   };
 
   const handleSave = async () => {
+    setSaveError('');
     try {
       await authAPI.updateProfile({
         fullName: editForm.fullName,
@@ -58,7 +60,7 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
       setIsEditing(false);
       await refreshProfile();
     } catch (err: any) {
-      // Keep editing open so user sees the issue
+      setSaveError(err.message || 'Cập nhật thất bại. Vui lòng thử lại.');
     }
   };
 

@@ -7,7 +7,7 @@ import {
   ChevronLeft, Users, MapPin, FileText, BarChart3,
   Plus, Pencil, Trash2, Search, RefreshCw, AlertCircle,
   CheckCircle, X, Save, Eye, EyeOff, Calendar, ClipboardList,
-  ThumbsUp, ThumbsDown, MessageSquare,
+  ThumbsUp, ThumbsDown, MessageSquare, Bot, Zap, ShieldAlert,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -613,22 +613,22 @@ function ProceduresTab({ onToast }: { onToast(msg: string, ok: boolean): void })
 const APP_STATUS_OPTIONS = [
   { value: '', label: 'Tất cả' },
   { value: 'submitted',        label: 'Đã nộp' },
-  { value: 'under_review',     label: 'Đang xét' },
-  { value: 'need_more_info',   label: 'Cần bổ sung' },
+  { value: 'in_review',     label: 'Đang xét' },
+  { value: 'more_info',   label: 'Cần bổ sung' },
   { value: 'approved',         label: 'Đã duyệt' },
   { value: 'rejected',         label: 'Từ chối' },
 ];
 const APP_STATUS_COLOR: Record<string, string> = {
   submitted:      'bg-blue-100 text-blue-700',
-  under_review:   'bg-yellow-100 text-yellow-700',
-  need_more_info: 'bg-orange-100 text-orange-700',
+  in_review:   'bg-yellow-100 text-yellow-700',
+  more_info: 'bg-orange-100 text-orange-700',
   approved:       'bg-green-100 text-green-700',
   rejected:       'bg-red-100 text-red-700',
 };
 const APP_STATUS_LABEL: Record<string, string> = {
   submitted:      'Đã nộp',
-  under_review:   'Đang xét',
-  need_more_info: 'Cần bổ sung',
+  in_review:   'Đang xét',
+  more_info: 'Cần bổ sung',
   approved:       'Đã duyệt',
   rejected:       'Từ chối',
 };
@@ -891,6 +891,568 @@ function AppointmentsTab() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
+// TAB: CHATBOT CONFIG
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── Persona ───────────────────────────────────────────────────────────────────
+function PersonaForm({ initial, onSave, onClose }: {
+  initial?: any; onSave(data: any): void; onClose(): void;
+}) {
+  const [form, setForm] = useState({
+    name:        initial?.name        || '',
+    description: initial?.description || '',
+    tone:        initial?.tone        || 'formal',
+    greeting:    initial?.greeting    || '',
+    farewell:    initial?.farewell    || '',
+    language:    initial?.language    || 'vi',
+  });
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 space-y-3 max-h-[85vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-bold text-gray-800">{initial ? 'Sửa Persona' : 'Thêm Persona'}</h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Tên *</label>
+          <Input value={form.name} onChange={set('name')} className="mt-1 h-10" placeholder="VD: Trợ lý Dịch vụ Công" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Mô tả</label>
+          <Input value={form.description} onChange={set('description')} className="mt-1 h-10" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Phong cách (tone)</label>
+          <select value={form.tone} onChange={set('tone')}
+            className="mt-1 w-full h-10 border border-gray-200 rounded-md px-3 text-sm bg-white">
+            <option value="formal">Trang trọng (formal)</option>
+            <option value="friendly">Thân thiện (friendly)</option>
+            <option value="neutral">Trung lập (neutral)</option>
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Lời chào mở đầu</label>
+          <textarea value={form.greeting} onChange={set('greeting')} rows={3}
+            className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Lời tạm biệt</label>
+          <Input value={form.farewell} onChange={set('farewell')} className="mt-1 h-10" />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Hủy</Button>
+          <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => onSave(form)}>
+            <Save className="w-4 h-4 mr-1.5" /> Lưu
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PersonasSection({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+  const [items,   setItems]   = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<any>(null);
+  const [adding,  setAdding]  = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await adminSvc.getChatbotPersonas();
+      setItems(r.data || []);
+    } catch { }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async (data: any) => {
+    try {
+      if (editing) { await adminSvc.updateChatbotPersona(editing.id, data); onToast('Đã cập nhật persona', true); }
+      else         { await adminSvc.createChatbotPersona(data);             onToast('Đã thêm persona', true); }
+      setEditing(null); setAdding(false); load();
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  const handleActivate = async (id: string) => {
+    try {
+      await adminSvc.activateChatbotPersona(id);
+      onToast('Đã kích hoạt persona', true);
+      load();
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await adminSvc.deleteChatbotPersona(id);
+      onToast('Đã xóa persona', true); load();
+    } catch (e: any) { onToast(e.message, false); }
+    finally { setConfirm(null); }
+  };
+
+  const handleSeed = async () => {
+    try {
+      await adminSvc.seedChatbotDefaults();
+      onToast('Đã seed dữ liệu mặc định', true); load();
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  return (
+    <div className="space-y-2">
+      {(editing || adding) && (
+        <PersonaForm initial={editing} onSave={handleSave}
+          onClose={() => { setEditing(null); setAdding(false); }} />
+      )}
+      {confirm && (
+        <ConfirmDialog msg="Xóa persona này?"
+          onYes={() => handleDelete(confirm)} onNo={() => setConfirm(null)} />
+      )}
+      <div className="flex gap-2">
+        <Button className="bg-red-600 hover:bg-red-700 text-white h-9 px-3 text-xs flex-1"
+          onClick={() => setAdding(true)}>
+          <Plus className="w-3.5 h-3.5 mr-1" /> Thêm Persona
+        </Button>
+        <Button variant="outline" className="h-9 px-3 text-xs"
+          onClick={handleSeed} title="Tạo data mặc định">
+          <Zap className="w-3.5 h-3.5 mr-1" /> Seed mặc định
+        </Button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-center text-gray-400 py-6 text-sm">Chưa có persona</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(p => (
+            <div key={p.id}
+              className={`bg-white rounded-xl px-4 py-3 shadow-sm border-l-4 ${p.is_active ? 'border-green-500' : 'border-transparent'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Bot className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <p className="text-sm font-semibold text-gray-800 truncate">{p.name}</p>
+                    {p.is_active && <Badge className="text-[10px] bg-green-100 text-green-700">Active</Badge>}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5 truncate pl-6">{p.description || p.tone}</p>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {!p.is_active && (
+                    <button className="text-xs text-green-600 font-medium px-2 py-1 rounded-lg hover:bg-green-50 transition-colors"
+                      onClick={() => handleActivate(p.id)}>Kích hoạt</button>
+                  )}
+                  <button className="text-gray-400 hover:text-blue-600 p-1"
+                    onClick={() => setEditing(p)}><Pencil className="w-3.5 h-3.5" /></button>
+                  <button className="text-gray-400 hover:text-red-500 p-1"
+                    onClick={() => setConfirm(p.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Prompts ───────────────────────────────────────────────────────────────────
+const PROMPT_TYPES = [
+  { value: '',               label: 'Tất cả' },
+  { value: 'system',         label: 'System' },
+  { value: 'nlu',            label: 'NLU' },
+  { value: 'rag_answer',     label: 'RAG Answer' },
+  { value: 'dialog_confirm', label: 'Xác nhận' },
+  { value: 'error_fallback', label: 'Fallback' },
+];
+
+function PromptForm({ initial, onSave, onClose }: {
+  initial?: any; onSave(data: any): void; onClose(): void;
+}) {
+  const [form, setForm] = useState({
+    type:        initial?.type        || 'system',
+    name:        initial?.name        || '',
+    content:     initial?.content     || '',
+    description: initial?.description || '',
+  });
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 space-y-3 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-bold text-gray-800">{initial ? 'Sửa Prompt' : 'Thêm Prompt'}</h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-500">Loại *</label>
+            <select value={form.type} onChange={set('type')}
+              className="mt-1 w-full h-10 border border-gray-200 rounded-md px-3 text-sm bg-white">
+              {PROMPT_TYPES.slice(1).map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500">Tên *</label>
+            <Input value={form.name} onChange={set('name')} className="mt-1 h-10" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Nội dung prompt *</label>
+          <textarea value={form.content} onChange={set('content')} rows={10}
+            className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-xs font-mono resize-y" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Mô tả</label>
+          <Input value={form.description} onChange={set('description')} className="mt-1 h-10" />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Hủy</Button>
+          <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => onSave(form)}>
+            <Save className="w-4 h-4 mr-1.5" /> Lưu
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PromptsSection({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+  const [items,    setItems]    = useState<any[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [typeFilter, setTypeFilter] = useState('');
+  const [editing,  setEditing]  = useState<any>(null);
+  const [adding,   setAdding]   = useState(false);
+  const [confirm,  setConfirm]  = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await adminSvc.getChatbotPrompts(typeFilter || undefined);
+      setItems(r.data || []);
+    } catch { }
+    finally { setLoading(false); }
+  }, [typeFilter]);
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async (data: any) => {
+    try {
+      if (editing) { await adminSvc.updateChatbotPrompt(editing.id, data); onToast('Đã cập nhật prompt', true); }
+      else         { await adminSvc.createChatbotPrompt(data);             onToast('Đã thêm prompt', true); }
+      setEditing(null); setAdding(false); load();
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await adminSvc.deleteChatbotPrompt(id);
+      onToast('Đã xóa prompt', true); load();
+    } catch (e: any) { onToast(e.message, false); }
+    finally { setConfirm(null); }
+  };
+
+  const TYPE_COLOR: Record<string, string> = {
+    system:         'bg-purple-100 text-purple-700',
+    nlu:            'bg-blue-100 text-blue-700',
+    rag_answer:     'bg-indigo-100 text-indigo-700',
+    dialog_confirm: 'bg-orange-100 text-orange-700',
+    error_fallback: 'bg-red-100 text-red-700',
+  };
+
+  return (
+    <div className="space-y-2">
+      {(editing || adding) && (
+        <PromptForm initial={editing} onSave={handleSave}
+          onClose={() => { setEditing(null); setAdding(false); }} />
+      )}
+      {confirm && (
+        <ConfirmDialog msg="Xóa prompt này?"
+          onYes={() => handleDelete(confirm)} onNo={() => setConfirm(null)} />
+      )}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 overflow-x-auto flex-1 pb-0.5 no-scrollbar">
+          {PROMPT_TYPES.map(t => (
+            <button key={t.value}
+              onClick={() => setTypeFilter(t.value)}
+              className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all
+                ${typeFilter === t.value ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <Button className="bg-red-600 hover:bg-red-700 text-white h-8 px-2.5 text-xs flex-shrink-0"
+          onClick={() => setAdding(true)}>
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-center text-gray-400 py-6 text-sm">Chưa có prompt</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(p => (
+            <div key={p.id} className="bg-white rounded-xl shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex-1 min-w-0 mr-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge className={`text-[10px] ${TYPE_COLOR[p.type] || 'bg-gray-100 text-gray-600'}`}>{p.type}</Badge>
+                    <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
+                  </div>
+                  {p.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{p.description}</p>}
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button className="text-gray-400 hover:text-gray-600 p-1"
+                    onClick={() => setExpanded(expanded === p.id ? null : p.id)}>
+                    <Eye className="w-3.5 h-3.5" />
+                  </button>
+                  <button className="text-gray-400 hover:text-blue-600 p-1"
+                    onClick={() => setEditing(p)}><Pencil className="w-3.5 h-3.5" /></button>
+                  <button className="text-gray-400 hover:text-red-500 p-1"
+                    onClick={() => setConfirm(p.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+              {expanded === p.id && (
+                <div className="px-4 pb-3 border-t border-gray-100">
+                  <pre className="text-[10px] text-gray-600 bg-gray-50 rounded-lg p-3 mt-2 whitespace-pre-wrap font-mono overflow-x-auto max-h-48">
+                    {p.content}
+                  </pre>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Rules ─────────────────────────────────────────────────────────────────────
+const RULE_CATEGORIES = [
+  { value: '',            label: 'Tất cả' },
+  { value: 'behavior',   label: 'Hành vi' },
+  { value: 'restriction',label: 'Giới hạn' },
+  { value: 'format',     label: 'Định dạng' },
+  { value: 'greeting',   label: 'Lời chào' },
+  { value: 'escalation', label: 'Chuyển tiếp' },
+];
+
+function RuleForm({ initial, onSave, onClose }: {
+  initial?: any; onSave(data: any): void; onClose(): void;
+}) {
+  const [form, setForm] = useState({
+    category: initial?.category  || 'behavior',
+    rule_text: initial?.rule_text || '',
+    priority: initial?.priority  || 0,
+  });
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: k === 'priority' ? Number(e.target.value) : e.target.value }));
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 space-y-3 max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-bold text-gray-800">{initial ? 'Sửa Rule' : 'Thêm Rule'}</h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-500">Loại</label>
+            <select value={form.category} onChange={set('category')}
+              className="mt-1 w-full h-10 border border-gray-200 rounded-md px-3 text-sm bg-white">
+              {RULE_CATEGORIES.slice(1).map(c => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500">Độ ưu tiên</label>
+            <Input type="number" value={form.priority} onChange={set('priority')} className="mt-1 h-10" />
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-gray-500">Nội dung rule *</label>
+          <textarea value={form.rule_text} onChange={set('rule_text')} rows={4}
+            className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm resize-none"
+            placeholder="VD: Chỉ trả lời các câu hỏi liên quan đến dịch vụ công." />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Hủy</Button>
+          <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => onSave(form)}>
+            <Save className="w-4 h-4 mr-1.5" /> Lưu
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RulesSection({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+  const [items,      setItems]      = useState<any[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [catFilter,  setCatFilter]  = useState('');
+  const [editing,    setEditing]    = useState<any>(null);
+  const [adding,     setAdding]     = useState(false);
+  const [confirm,    setConfirm]    = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await adminSvc.getChatbotRules(catFilter || undefined);
+      setItems(r.data || []);
+    } catch { }
+    finally { setLoading(false); }
+  }, [catFilter]);
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async (data: any) => {
+    try {
+      if (editing) { await adminSvc.updateChatbotRule(editing.id, data); onToast('Đã cập nhật rule', true); }
+      else         { await adminSvc.createChatbotRule(data);             onToast('Đã thêm rule', true); }
+      setEditing(null); setAdding(false); load();
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await adminSvc.deleteChatbotRule(id);
+      onToast('Đã xóa rule', true); load();
+    } catch (e: any) { onToast(e.message, false); }
+    finally { setConfirm(null); }
+  };
+
+  const handleToggle = async (rule: any) => {
+    try {
+      await adminSvc.updateChatbotRule(rule.id, { is_active: !rule.is_active });
+      onToast(rule.is_active ? 'Đã tắt rule' : 'Đã bật rule', true);
+      load();
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  const CAT_COLOR: Record<string, string> = {
+    behavior:    'bg-blue-100 text-blue-700',
+    restriction: 'bg-red-100 text-red-700',
+    format:      'bg-yellow-100 text-yellow-700',
+    greeting:    'bg-green-100 text-green-700',
+    escalation:  'bg-orange-100 text-orange-700',
+  };
+
+  return (
+    <div className="space-y-2">
+      {(editing || adding) && (
+        <RuleForm initial={editing} onSave={handleSave}
+          onClose={() => { setEditing(null); setAdding(false); }} />
+      )}
+      {confirm && (
+        <ConfirmDialog msg="Xóa rule này?"
+          onYes={() => handleDelete(confirm)} onNo={() => setConfirm(null)} />
+      )}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 overflow-x-auto flex-1 pb-0.5 no-scrollbar">
+          {RULE_CATEGORIES.map(c => (
+            <button key={c.value}
+              onClick={() => setCatFilter(c.value)}
+              className={`flex-shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium transition-all
+                ${catFilter === c.value ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {c.label}
+            </button>
+          ))}
+        </div>
+        <Button className="bg-red-600 hover:bg-red-700 text-white h-8 px-2.5 text-xs flex-shrink-0"
+          onClick={() => setAdding(true)}>
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
+      ) : items.length === 0 ? (
+        <p className="text-center text-gray-400 py-6 text-sm">Chưa có rule</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(r => (
+            <div key={r.id}
+              className={`bg-white rounded-xl px-4 py-3 shadow-sm ${!r.is_active ? 'opacity-50' : ''}`}>
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge className={`text-[10px] ${CAT_COLOR[r.category] || 'bg-gray-100 text-gray-600'}`}>
+                      {r.category}
+                    </Badge>
+                    <span className="text-[10px] text-gray-400">p={r.priority}</span>
+                    {!r.is_active && <span className="text-[10px] text-gray-400 italic">off</span>}
+                  </div>
+                  <p className="text-xs text-gray-700 leading-relaxed">{r.rule_text}</p>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                  <button
+                    className={`p-1 rounded transition-colors ${r.is_active ? 'text-green-500 hover:text-green-700' : 'text-gray-300 hover:text-gray-500'}`}
+                    onClick={() => handleToggle(r)} title={r.is_active ? 'Tắt' : 'Bật'}>
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                  </button>
+                  <button className="text-gray-400 hover:text-blue-600 p-1"
+                    onClick={() => setEditing(r)}><Pencil className="w-3.5 h-3.5" /></button>
+                  <button className="text-gray-400 hover:text-red-500 p-1"
+                    onClick={() => setConfirm(r.id)}><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ChatbotTab wrapper ────────────────────────────────────────────────────────
+function ChatbotTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+  const [section, setSection] = useState<'personas' | 'prompts' | 'rules'>('personas');
+
+  const handleInvalidateCache = async () => {
+    try {
+      await adminSvc.invalidateChatbotCache();
+      onToast('Cache NLU đã được xóa', true);
+    } catch (e: any) { onToast(e.message, false); }
+  };
+
+  return (
+    <div className="space-y-3 pt-2">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-1.5">
+          {[
+            { key: 'personas', label: 'Persona' },
+            { key: 'prompts',  label: 'Prompts' },
+            { key: 'rules',    label: 'Rules' },
+          ].map(s => (
+            <button key={s.key}
+              onClick={() => setSection(s.key as typeof section)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all
+                ${section === s.key ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={handleInvalidateCache}
+          className="text-[10px] text-gray-400 hover:text-orange-600 flex items-center gap-1 transition-colors"
+          title="Xóa cache prompt NLU">
+          <RefreshCw className="w-3 h-3" /> Xóa cache
+        </button>
+      </div>
+
+      {section === 'personas' && <PersonasSection onToast={onToast} />}
+      {section === 'prompts'  && <PromptsSection  onToast={onToast} />}
+      {section === 'rules'    && <RulesSection     onToast={onToast} />}
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ════════════════════════════════════════════════════════════════════════════════
 export function AdminDashboardScreen({ onNavigate }: Props) {
@@ -920,14 +1482,19 @@ export function AdminDashboardScreen({ onNavigate }: Props) {
 
       <div className="px-4 pt-4">
         <Tabs defaultValue="overview">
-          <TabsList className="grid grid-cols-6 w-full h-10 mb-4">
-            <TabsTrigger value="overview"      className="text-[10px] px-1">Tổng quan</TabsTrigger>
-            <TabsTrigger value="users"         className="text-[10px] px-1">Tài khoản</TabsTrigger>
-            <TabsTrigger value="locations"     className="text-[10px] px-1">Địa điểm</TabsTrigger>
-            <TabsTrigger value="procedures"    className="text-[10px] px-1">Thủ tục</TabsTrigger>
-            <TabsTrigger value="applications"  className="text-[10px] px-1">Hồ sơ</TabsTrigger>
-            <TabsTrigger value="appointments"  className="text-[10px] px-1">Lịch hẹn</TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto no-scrollbar mb-4">
+            <TabsList className="flex w-max min-w-full h-10">
+              <TabsTrigger value="overview"      className="text-[10px] px-2.5 flex-shrink-0">Tổng quan</TabsTrigger>
+              <TabsTrigger value="users"         className="text-[10px] px-2.5 flex-shrink-0">Tài khoản</TabsTrigger>
+              <TabsTrigger value="locations"     className="text-[10px] px-2.5 flex-shrink-0">Địa điểm</TabsTrigger>
+              <TabsTrigger value="procedures"    className="text-[10px] px-2.5 flex-shrink-0">Thủ tục</TabsTrigger>
+              <TabsTrigger value="applications"  className="text-[10px] px-2.5 flex-shrink-0">Hồ sơ</TabsTrigger>
+              <TabsTrigger value="appointments"  className="text-[10px] px-2.5 flex-shrink-0">Lịch hẹn</TabsTrigger>
+              <TabsTrigger value="chatbot"       className="text-[10px] px-2.5 flex-shrink-0 gap-1">
+                <Bot className="w-3 h-3" /> Chatbot
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="overview">
             <OverviewTab />
@@ -946,6 +1513,9 @@ export function AdminDashboardScreen({ onNavigate }: Props) {
           </TabsContent>
           <TabsContent value="appointments">
             <AppointmentsTab />
+          </TabsContent>
+          <TabsContent value="chatbot">
+            <ChatbotTab onToast={showToast} />
           </TabsContent>
         </Tabs>
       </div>

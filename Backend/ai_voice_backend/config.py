@@ -16,8 +16,10 @@ TTS_PITCH        = float(os.getenv('GOOGLE_TTS_PITCH', '0.0'))
 
 # ── Google Cloud STT ────────────────────────────────────────────────────────
 STT_LANGUAGE     = os.getenv('GOOGLE_STT_LANGUAGE', 'vi-VN')
-STT_MOCK         = os.getenv('VOICE_STT_DEV_MOCK', '1') == '1'
-STT_DEFAULT_MOCK = 'đặt lịch làm căn cước công dân ngày mai lúc 9 giờ'
+# Dev mock STT — mặc định OFF để không ảnh hưởng production
+# Set VOICE_STT_DEV_MOCK=1 trong .env khi test local không có Google Cloud
+STT_MOCK         = os.getenv('VOICE_STT_DEV_MOCK', '0') == '1'
+STT_DEFAULT_MOCK = os.getenv('VOICE_STT_MOCK_TEXT', 'đặt lịch làm căn cước công dân ngày mai lúc 9 giờ')
 
 # ── Dialog ──────────────────────────────────────────────────────────────────
 DIALOG_TTS_ENABLED = os.getenv('VOICE_DIALOG_TTS', '0') == '1'

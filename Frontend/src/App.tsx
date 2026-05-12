@@ -29,10 +29,18 @@ const NO_FAB_SCREENS = ['login', 'register', 'forgot-password', 'chatbot', 'queu
 function AppContent() {
   const [currentScreen, setCurrentScreen] = useState('home');
   const [screenParams, setScreenParams] = useState<any>(null);
-  const { isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  useEffect(() => {}, [isAuthenticated, isLoading]);
+  // Lắng nghe 401 từ api.ts → tự động đăng xuất và về login
+  useEffect(() => {
+    const onAuthLogout = () => {
+      logout();
+      setCurrentScreen('login');
+      setScreenParams(null);
+    };
+    window.addEventListener('auth:logout', onAuthLogout);
+    return () => window.removeEventListener('auth:logout', onAuthLogout);
+  }, [logout]);
 
   const handleLogin = () => {
     setCurrentScreen('home');
@@ -70,8 +78,16 @@ function AppContent() {
 
     // Public screens that don't require authentication
     const publicScreens = ['login', 'forgot-password', 'register'];
-    
-    // Skip auth check — bypass login for now
+
+    // Auth guard: redirect unauthenticated users to login
+    if (!isAuthenticated && !publicScreens.includes(currentScreen)) {
+      return <LoginScreen onLogin={handleLogin} onNavigate={handleNavigate} />;
+    }
+
+    // Admin guard: non-admin cannot access admin dashboard
+    if (currentScreen === 'admin' && user?.role !== 'admin') {
+      return <HomeScreen onNavigate={handleNavigateWithParams} />;
+    }
 
     switch (currentScreen) {
       case 'login':
@@ -112,15 +128,15 @@ function AppContent() {
         return (
           <QueueScreen
             onNavigate={handleNavigateWithParams}
-            agencyId={screenParams?.agencyId || 'default'}
-            agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công'}
+            agencyId={screenParams?.agencyId || 'ubnd-thanhhoa'}
+            agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công tỉnh Thanh Hóa'}
           />
         );
       case 'queue-display':
         return (
           <QueueDisplayScreen
             onNavigate={handleNavigate}
-            agencyId={screenParams?.agencyId || 'default'}
+            agencyId={screenParams?.agencyId || 'ubnd-thanhhoa'}
             agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công tỉnh Thanh Hóa'}
           />
         );
@@ -128,7 +144,7 @@ function AppContent() {
         return (
           <QueueStaffScreen
             onNavigate={handleNavigateWithParams}
-            agencyId={screenParams?.agencyId || 'default'}
+            agencyId={screenParams?.agencyId || 'ubnd-thanhhoa'}
             agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công'}
           />
         );

@@ -237,12 +237,24 @@ def queue_summary(agency_id: str):
 @queue_bp.route('/list/<agency_id>', methods=['GET'])
 def queue_list(agency_id: str):
     _, role = _current_user()
-    if role != 'admin':
-        return _err('Cần quyền admin', 403)
+    if role not in ('admin', 'staff'):
+        return _err('Cần quyền admin hoặc staff', 403)
     date   = request.args.get('date', _today())
     status = request.args.get('status')
+    page   = max(int(request.args.get('page', 1)), 1)
+    limit  = min(int(request.args.get('limit', 100)), 500)
+
     tickets = QueueTicket.find_all(agency_id=agency_id, date=date, status=status)
-    return jsonify({'success': True, 'data': tickets, 'total': len(tickets)})
+    total   = len(tickets)
+    offset  = (page - 1) * limit
+    tickets = tickets[offset: offset + limit]
+
+    return jsonify({
+        'success': True,
+        'data': tickets,
+        'total': total,
+        'pagination': {'page': page, 'limit': limit, 'total': total},
+    })
 
 
 # ── REST: Quầy gọi số ────────────────────────────────────────────────────────
@@ -369,6 +381,8 @@ def map_overview():
             FROM public.agency_queue_realtime
         """)).fetchall()
         for row in rows:
+            if not row[0]:
+                continue
             result[row[0]] = {
                 'agencyId':     row[0],
                 'totalWaiting': row[1],

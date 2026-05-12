@@ -1,52 +1,47 @@
-import asyncio
+"""
+VNeID verification service.
+
+TODO: Thay thế bằng VNeID API thật khi có credentials:
+  - Endpoint: https://dichvucong.gov.vn/api/vneid/verify
+  - Docs: https://dichvucong.gov.vn/developer
+
+Hiện tại: mock cho phép demo/dev.
+"""
+import os
 from datetime import datetime
 
 
-async def verify_vneid(cccd_number: str):
-    """Mock VNeID verification for demo purposes."""
-    # Simulate network delay
-    await asyncio.sleep(0.25)
-
+def verify_vneid(cccd_number: str) -> dict | None:
+    """Xác thực CCCD qua VNeID. Mock trả về thông tin demo."""
     if not cccd_number or len(str(cccd_number)) != 12 or not str(cccd_number).isdigit():
         return None
-
     return {
-        'id': f'vneid_{cccd_number}',
-        'cccdNumber': cccd_number,
-        'verified': True,
-        'verifiedAt': datetime.utcnow().isoformat() + 'Z',
-        'fullName': None,
-        'dateOfBirth': None,
-        'address': None
+        'id':           f'vneid_{cccd_number}',
+        'cccdNumber':   cccd_number,
+        'verified':     True,
+        'verifiedAt':   datetime.utcnow().isoformat() + 'Z',
+        'fullName':     'Nguyễn Văn A',
+        'dateOfBirth':  '1990-01-01',
+        'address':      'Thanh Hóa, Việt Nam',
     }
 
 
-async def get_vneid_user_info(vneid_id: str):
-    await asyncio.sleep(0.15)
+def get_vneid_user_info(vneid_id: str) -> dict | None:
     if not vneid_id:
         return None
     return {
-        'id': vneid_id,
-        'verified': True,
+        'id':                vneid_id,
+        'verified':          True,
         'verificationLevel': 'level2',
-        'verifiedAt': datetime.utcnow().isoformat() + 'Z'
+        'verifiedAt':        datetime.utcnow().isoformat() + 'Z',
     }
 
 
-async def is_vneid_available():
+def is_vneid_available() -> bool:
     return True
 
 
-# Synchronous wrappers for earlier code that expects sync functions
-def verifyVNeID(cccd_number: str):
-    import asyncio
-    return asyncio.get_event_loop().run_until_complete(verify_vneid(cccd_number))
-
-
-def getVNeIDUserInfo(vneid_id: str):
-    import asyncio
-    return asyncio.get_event_loop().run_until_complete(get_vneid_user_info(vneid_id))
-
-
-def isVNeIDAvailable():
-    return True
+# Backward-compat aliases (tên cũ camelCase)
+verifyVNeID       = verify_vneid
+getVNeIDUserInfo  = get_vneid_user_info
+isVNeIDAvailable  = is_vneid_available

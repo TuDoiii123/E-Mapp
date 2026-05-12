@@ -1,58 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Star, Bell, User, FileText, Plus, Landmark, Car,
-  Building, Building2, BarChart3, ArrowRight,
-  CheckCircle, FolderOpen, ClipboardList,
-  History, UserCheck, Clock, Upload, Info,
-  CheckCircle2, FileImage, ArrowLeft, Phone, MessageCircle,
+  Star, BarChart3, ArrowRight, CheckCircle, Upload,
+  Info, CheckCircle2, FileImage, ArrowLeft, Building2,
+  UserCheck, Clock, RefreshCw,
 } from 'lucide-react';
+import * as adminSvc from '../services/adminService';
 
 interface EvaluationScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-const TRANSACTIONS = [
-  {
-    id: 1,
-    agency: 'UBND Quận 1, TP. Hồ Chí Minh',
-    agencyShort: 'UBND Phường Hàng Mã',
-    date: '14/10/2023',
-    service: 'Đăng ký kết hôn',
-    status: 'evaluatable' as const,
-    deadline: '30/10/2023',
-    code: 'HM-2023-08542',
-    Icon: Landmark,
-    iconName: 'location_city',
-    updatedAgo: '2 giờ trước',
-  },
-  {
-    id: 2,
-    agency: 'Sở Giao thông Vận tải TP.HCM',
-    agencyShort: 'Sở GTVT TP.HCM',
-    date: '12/10/2023',
-    service: 'Cấp đổi Giấy phép lái xe',
-    status: 'processing' as const,
-    code: 'GT-2023-11203',
-    Icon: Car,
-    iconName: 'traffic',
-    updatedAgo: null,
-  },
-  {
-    id: 3,
-    agency: 'Văn phòng Đăng ký Đất đai',
-    agencyShort: 'VP Đăng ký Đất đai',
-    date: '05/10/2023',
-    service: 'Chuyển nhượng QSDĐ',
-    status: 'done' as const,
-    rating: 5,
-    code: 'DD-2023-09817',
-    Icon: Building,
-    iconName: 'map',
-    updatedAgo: null,
-  },
-];
+type TxStatus = 'evaluatable' | 'processing' | 'done';
 
-type Transaction = typeof TRANSACTIONS[number];
+interface Transaction {
+  id:            string;
+  applicationId: string;
+  agency:        string;
+  agencyShort:   string;
+  service:       string;
+  status:        TxStatus;
+  code:          string;
+  rating?:       number;
+  updatedAt?:    string | null;
+}
 
 /* ── Star rating row ── */
 function StarRow({
@@ -81,50 +51,100 @@ function StarRow({
    Main component
 ══════════════════════════════════════════ */
 export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, []);
 
-  const [activeTab,  setActiveTab]  = useState<'all' | 'pending' | 'done'>('all');
-  const [evalTarget, setEvalTarget] = useState<Transaction | null>(null);
+  const [loading,     setLoading]    = useState(true);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [stats, setStats] = useState({ totalEvaluations: 0, avgRating: 0, satisfactionRate: 0 });
 
-  const [submitted,      setSubmitted]      = useState(false);
-  const [comment,        setComment]        = useState('');
-  const [uploadedFiles,  setUploadedFiles]  = useState<File[]>([]);
+  const [activeTab,   setActiveTab]   = useState<'all' | 'pending' | 'done'>('all');
+  const [evalTarget,  setEvalTarget]  = useState<Transaction | null>(null);
+
+  const [submitted,     setSubmitted]     = useState(false);
+  const [submitting,    setSubmitting]    = useState(false);
+  const [submitError,   setSubmitError]   = useState('');
+  const [comment,       setComment]       = useState('');
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [ratings, setRatings] = useState({ attitude: 0, time: 0, facilities: 0 });
 
   const avgRating = ratings.attitude && ratings.time && ratings.facilities
     ? (ratings.attitude + ratings.time + ratings.facilities) / 3 : 0;
 
+  useEffect(() => {
+    Promise.all([
+      adminSvc.getEvaluations().catch(() => ({ data: { evaluatable: [], pastEvaluations: [] } })),
+      adminSvc.getEvaluationStats().catch(() => ({ data: { totalEvaluations: 0, avgRating: 0, satisfactionRate: 0 } })),
+    ]).then(([evalRes, statsRes]) => {
+      const items: any[] = evalRes?.data?.evaluatable || [];
+      setTransactions(items.map((item: any) => ({
+        id:            item.id,
+        applicationId: item.applicationId,
+        agency:        item.agency || 'Cơ quan hành chính',
+        agencyShort:   item.agency ? item.agency.split(',')[0].trim() : 'Cơ quan',
+        service:       item.service || 'Thủ tục hành chính',
+        status:        item.status as TxStatus,
+        code:          item.code || item.id?.slice(0, 8).toUpperCase(),
+        rating:        item.rating,
+        updatedAt:     item.updatedAt,
+      })));
+      const sd = statsRes?.data;
+      if (sd) setStats(sd);
+    }).finally(() => setLoading(false));
+  }, []);
+
   function openEval(tx: Transaction) {
     if (tx.status !== 'evaluatable') return;
     setEvalTarget(tx);
     setSubmitted(false);
+    setSubmitError('');
     setRatings({ attitude: 0, time: 0, facilities: 0 });
     setComment('');
     setUploadedFiles([]);
   }
 
-  function handleSubmit() {
-    if (!ratings.attitude || !ratings.time || !ratings.facilities) return;
-    setSubmitted(true);
-    timeoutRef.current = setTimeout(() => {
-      setEvalTarget(null);
-      setSubmitted(false);
-      setRatings({ attitude: 0, time: 0, facilities: 0 });
-      setComment('');
-      setUploadedFiles([]);
-    }, 2500);
+  async function handleSubmit() {
+    if (!ratings.attitude || !ratings.time || !ratings.facilities || !evalTarget) return;
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await adminSvc.submitEvaluation({
+        applicationId:    evalTarget.applicationId,
+        attitudeRating:   ratings.attitude,
+        timeRating:       ratings.time,
+        facilitiesRating: ratings.facilities,
+        comment,
+      });
+      setSubmitted(true);
+      // Update local state so the card shows 'done'
+      setTransactions(prev => prev.map(t =>
+        t.id === evalTarget.id
+          ? { ...t, status: 'done', rating: Math.round((ratings.attitude + ratings.time + ratings.facilities) / 3) }
+          : t
+      ));
+      timeoutRef.current = setTimeout(() => {
+        setEvalTarget(null);
+        setSubmitted(false);
+        setRatings({ attitude: 0, time: 0, facilities: 0 });
+        setComment('');
+        setUploadedFiles([]);
+      }, 2500);
+    } catch (err: any) {
+      setSubmitError(err.message || 'Gửi đánh giá thất bại. Vui lòng thử lại.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     if (e.target.files) setUploadedFiles(Array.from(e.target.files));
   }
 
-  const filtered = TRANSACTIONS.filter(tx =>
+  const filtered = transactions.filter(tx =>
     activeTab === 'pending' ? tx.status === 'evaluatable' :
     activeTab === 'done'    ? tx.status === 'done' : true
   );
@@ -146,19 +166,8 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex-1 min-w-0">
-            <nav className="flex items-center gap-1 text-xs text-[#9f364c] mb-0.5">
-              <span>Đánh giá</span>
-              <span className="material-symbols-outlined text-xs">chevron_right</span>
-              <span className="font-semibold text-[#4d2128]">Chi tiết</span>
-            </nav>
             <h1 className="text-base font-black text-[#4d2128] truncate">{evalTarget.agencyShort}</h1>
           </div>
-          <button
-            onClick={() => onNavigate('notifications')}
-            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-[#ffd9dd] transition-all text-[#9f364c]"
-          >
-            <span className="material-symbols-outlined">notifications</span>
-          </button>
         </header>
 
         <main className="flex-1 px-6 md:px-10 py-8 max-w-5xl mx-auto w-full">
@@ -274,14 +283,9 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
                     />
                     <button
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full border-2 border-dashed border-[#de9ca4] p-4 rounded-xl bg-[#ffeced]/50 hover:bg-[#ffeced] transition-colors group"
+                      className="w-full border-2 border-dashed border-[#de9ca4] p-4 rounded-xl bg-[#ffeced]/50 hover:bg-[#ffeced] transition-colors"
                     >
-                      <span className="material-symbols-outlined text-[#9f364c] group-hover:text-[#b7131a] transition-colors">
-                        photo_camera
-                      </span>
-                      <div className="text-[10px] uppercase font-bold text-[#9f364c] group-hover:text-[#b7131a] transition-colors mt-1">
-                        Chọn tệp tin
-                      </div>
+                      <div className="text-[10px] uppercase font-bold text-[#9f364c]">Chọn tệp tin</div>
                     </button>
                     {uploadedFiles.length > 0 && (
                       <div className="w-full mt-3 space-y-1">
@@ -310,14 +314,17 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
                     </div>
                   )}
 
+                  {submitError && (
+                    <p className="text-xs text-red-600 text-center">{submitError}</p>
+                  )}
+
                   {/* Submit */}
                   <button
                     onClick={handleSubmit}
-                    disabled={!ratings.attitude || !ratings.time || !ratings.facilities}
-                    className="w-full py-4 bg-gradient-to-br from-[#b7131a] to-[#ff766b] hover:opacity-90 text-white font-black uppercase tracking-widest text-sm shadow-lg shadow-[#b7131a]/20 active:scale-95 transition-all flex items-center justify-center gap-2 rounded-2xl disabled:opacity-40 disabled:pointer-events-none group"
+                    disabled={!ratings.attitude || !ratings.time || !ratings.facilities || submitting}
+                    className="w-full py-4 bg-gradient-to-br from-[#b7131a] to-[#ff766b] hover:opacity-90 text-white font-black uppercase tracking-widest text-sm shadow-lg shadow-[#b7131a]/20 active:scale-95 transition-all flex items-center justify-center gap-2 rounded-2xl disabled:opacity-40 disabled:pointer-events-none"
                   >
-                    GỬI ĐÁNH GIÁ
-                    <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">send</span>
+                    {submitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'GỬI ĐÁNH GIÁ'}
                   </button>
 
                 </div>
@@ -334,21 +341,6 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
 
           </div>
         </main>
-
-        {/* Mobile bottom nav */}
-        <nav className="md:hidden fixed bottom-0 left-0 w-full bg-[#fff4f4]/90 backdrop-blur-md border-t border-[#ffeced] flex justify-around items-center py-3 px-2 z-50">
-          {([
-            { label: 'Trang chủ', icon: 'home',          active: false, action: () => onNavigate('home') },
-            { label: 'Hồ sơ',     icon: 'description',   active: false, action: () => {} },
-            { label: 'Thông báo', icon: 'notifications',  active: false, action: () => {} },
-            { label: 'Đánh giá',  icon: 'star',           active: true,  action: () => {} },
-          ]).map(({ label, icon, active, action }) => (
-            <button key={label} onClick={action} className={`flex flex-col items-center gap-1 transition-colors ${active ? 'text-[#b7131a]' : 'text-[#4d2128]/60'}`}>
-              <span className="material-symbols-outlined text-[22px]" style={{ fontVariationSettings: active ? "'FILL' 1" : "'FILL' 0" }}>{icon}</span>
-              <span className="text-[10px] font-bold">{label}</span>
-            </button>
-          ))}
-        </nav>
       </div>
     );
   }
@@ -395,15 +387,18 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
               Điểm đánh giá trung bình
             </p>
             <div className="flex items-baseline gap-2">
-              <h3 className="text-5xl font-black text-[#4d2128]">4.2</h3>
+              <h3 className="text-5xl font-black text-[#4d2128]">
+                {loading ? '–' : stats.avgRating.toFixed(1)}
+              </h3>
               <span className="text-xl font-medium text-[#9f364c]">/ 5.0</span>
             </div>
-            <div className="flex mt-4 gap-0.5 text-[#fdc003]">
-              {[1,2,3,4].map(i => (
-                <span key={i} className="material-symbols-outlined text-xl" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
-              ))}
-              <span className="material-symbols-outlined text-xl">star_half</span>
-            </div>
+            {!loading && stats.avgRating > 0 && (
+              <div className="flex mt-4 gap-0.5 text-[#fdc003]">
+                {[1,2,3,4,5].map(s => (
+                  <Star key={s} className={`w-5 h-5 fill-current ${s <= Math.round(stats.avgRating) ? 'text-[#fdc003]' : 'text-[#ffd2d6]'}`} />
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Total Evaluations */}
@@ -414,11 +409,9 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
             <p className="text-sm font-semibold text-[#9f364c] mb-4 uppercase tracking-wider">
               Tổng số đánh giá
             </p>
-            <h3 className="text-5xl font-black text-[#4d2128]">1.245</h3>
-            <p className="text-sm text-[#9f364c] mt-4 flex items-center gap-1">
-              <span className="material-symbols-outlined text-xs text-green-600">trending_up</span>
-              <span className="text-green-600 font-bold">+12%</span> so với tháng trước
-            </p>
+            <h3 className="text-5xl font-black text-[#4d2128]">
+              {loading ? '–' : stats.totalEvaluations.toLocaleString('vi-VN')}
+            </h3>
           </div>
 
           {/* Satisfaction Rate */}
@@ -429,23 +422,30 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
             <p className="text-sm font-semibold text-[#9f364c] mb-4 uppercase tracking-wider">
               Mức độ hài lòng
             </p>
-            <h3 className="text-5xl font-black text-[#4d2128]">89%</h3>
-            <div className="mt-6">
-              <div className="h-2 w-full bg-[#ffd9dd] rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-[#b7131a] to-[#ff766b] w-[89%] rounded-full" />
+            <h3 className="text-5xl font-black text-[#4d2128]">
+              {loading ? '–' : `${stats.satisfactionRate}%`}
+            </h3>
+            {!loading && (
+              <div className="mt-6">
+                <div className="h-2 w-full bg-[#ffd9dd] rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#b7131a] to-[#ff766b] rounded-full transition-all"
+                    style={{ width: `${stats.satisfactionRate}%` }}
+                  />
+                </div>
+                <div className="flex justify-between mt-2 text-[10px] font-bold text-[#9f364c] uppercase tracking-widest">
+                  <span>Cần cải thiện</span>
+                  <span>Tuyệt vời</span>
+                </div>
               </div>
-              <div className="flex justify-between mt-2 text-[10px] font-bold text-[#9f364c] uppercase tracking-widest">
-                <span>Cần cải thiện</span>
-                <span>Tuyệt vời</span>
-              </div>
-            </div>
+            )}
           </div>
         </section>
 
-        {/* ── Recent Interfaces ── */}
+        {/* ── Transaction list ── */}
         <section>
           <div className="flex items-center justify-between mb-8">
-            <h2 className="text-2xl font-bold text-[#4d2128] tracking-tight">Giao diện gần đây</h2>
+            <h2 className="text-2xl font-bold text-[#4d2128] tracking-tight">Hồ sơ đã hoàn tất</h2>
             <div className="flex items-center gap-4">
               {(['all','pending','done'] as const).map((tab, i) => (
                 <button
@@ -457,104 +457,92 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
                       : 'font-medium text-[#9f364c] hover:text-[#b7131a]'
                   }`}
                 >
-                  {['Tất cả', 'Chờ đánh giá', 'Đã hoàn tất'][i]}
+                  {['Tất cả', 'Chờ đánh giá', 'Đã đánh giá'][i]}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="bg-[#ffeced] rounded-xl p-2 space-y-2">
-            {filtered.map((tx) => (
-              <div
-                key={tx.id}
-                className={`bg-white rounded-lg p-6 flex flex-col md:flex-row items-center justify-between transition-all group
-                  ${tx.status === 'evaluatable' ? 'hover:bg-[#fff4f4] cursor-pointer' : ''}
-                  ${tx.status === 'processing'  ? 'opacity-70' : ''}
-                `}
-                onClick={() => tx.status === 'evaluatable' && openEval(tx)}
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <RefreshCw className="w-6 h-6 animate-spin text-[#9f364c]" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-white rounded-xl p-12 text-center text-[#9f364c]">
+              <p className="text-lg font-bold mb-2">Chưa có hồ sơ nào</p>
+              <p className="text-sm">Hồ sơ đã được duyệt sẽ xuất hiện ở đây để bạn đánh giá.</p>
+              <button
+                onClick={() => onNavigate('submit')}
+                className="mt-6 px-6 py-3 bg-gradient-to-br from-[#b7131a] to-[#ff766b] text-white rounded-xl font-bold text-sm"
               >
-                <div className="flex items-center gap-6 mb-4 md:mb-0">
-                  <div className={`w-14 h-14 rounded-xl bg-[#ffd9dd] flex items-center justify-center ${
-                    tx.status === 'processing' ? 'text-[#9f364c]/40' : 'text-[#b7131a]'
-                  } ${tx.status === 'evaluatable' ? 'group-hover:scale-105' : ''} transition-transform`}>
-                    <span
-                      className="material-symbols-outlined text-3xl"
-                      style={{ fontVariationSettings: "'FILL' 0" }}
-                    >
-                      {tx.iconName}
-                    </span>
-                  </div>
-                  <div>
-                    <h4 className="text-lg font-bold text-[#4d2128] group-hover:text-[#b7131a] transition-colors">
-                      {tx.agency}
-                    </h4>
-                    <div className="flex items-center gap-3 mt-1 flex-wrap">
-                      {tx.status === 'evaluatable' && (
-                        <>
+                Nộp hồ sơ mới
+              </button>
+            </div>
+          ) : (
+            <div className="bg-[#ffeced] rounded-xl p-2 space-y-2">
+              {filtered.map((tx) => (
+                <div
+                  key={tx.id}
+                  className={`bg-white rounded-lg p-6 flex flex-col md:flex-row items-center justify-between transition-all group
+                    ${tx.status === 'evaluatable' ? 'hover:bg-[#fff4f4] cursor-pointer' : ''}
+                    ${tx.status === 'processing'  ? 'opacity-70' : ''}
+                  `}
+                  onClick={() => tx.status === 'evaluatable' && openEval(tx)}
+                >
+                  <div className="flex items-center gap-6 mb-4 md:mb-0">
+                    <div className={`w-14 h-14 rounded-xl bg-[#ffd9dd] flex items-center justify-center ${
+                      tx.status === 'processing' ? 'text-[#9f364c]/40' : 'text-[#b7131a]'
+                    } ${tx.status === 'evaluatable' ? 'group-hover:scale-105' : ''} transition-transform`}>
+                      <span className="material-symbols-outlined text-3xl" style={{ fontVariationSettings: "'FILL' 0" }}>
+                        assignment
+                      </span>
+                    </div>
+                    <div>
+                      <h4 className="text-lg font-bold text-[#4d2128] group-hover:text-[#b7131a] transition-colors">
+                        {tx.agency || 'Cơ quan hành chính'}
+                      </h4>
+                      <p className="text-sm text-[#9f364c] mt-0.5">{tx.service}</p>
+                      <div className="flex items-center gap-3 mt-1 flex-wrap">
+                        {tx.status === 'evaluatable' && (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">
                             Có thể đánh giá
                           </span>
-                          {tx.updatedAgo && (
-                            <span className="text-xs text-[#9f364c] italic">Cập nhật {tx.updatedAgo}</span>
-                          )}
-                        </>
-                      )}
-                      {tx.status === 'processing' && (
-                        <>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                            Đang xử lý
-                          </span>
-                          <span className="text-xs text-[#9f364c]">Yêu cầu đã gửi vào {tx.date}</span>
-                        </>
-                      )}
-                      {tx.status === 'done' && (
-                        <>
-                          <div className="flex gap-0.5 text-[#fdc003]">
-                            {[1,2,3,4,5].map(s => (
-                              <span
-                                key={s}
-                                className="material-symbols-outlined text-xs"
-                                style={{ fontVariationSettings: s <= (tx.rating ?? 0) ? "'FILL' 1" : "'FILL' 0" }}
-                              >
-                                star
-                              </span>
-                            ))}
-                          </div>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
-                            Đã hoàn tất
-                          </span>
-                        </>
-                      )}
+                        )}
+                        {tx.status === 'done' && (
+                          <>
+                            <div className="flex gap-0.5 text-[#fdc003]">
+                              {[1,2,3,4,5].map(s => (
+                                <Star key={s} className={`w-3.5 h-3.5 fill-current ${s <= (tx.rating ?? 0) ? 'text-[#fdc003]' : 'text-[#ffd2d6]'}`} />
+                              ))}
+                            </div>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800">
+                              Đã đánh giá
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="mt-0 md:mt-0 shrink-0">
-                  {tx.status === 'evaluatable' && (
-                    <button
-                      onClick={e => { e.stopPropagation(); openEval(tx); }}
-                      className="px-6 py-3 bg-gradient-to-br from-[#b7131a] to-[#ff766b] text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all"
-                    >
-                      Đánh giá ngay
-                    </button>
-                  )}
-                  {tx.status === 'processing' && (
-                    <button
-                      disabled
-                      className="px-6 py-3 bg-[#ffd9dd] text-[#9f364c]/50 rounded-xl font-bold text-sm cursor-not-allowed"
-                    >
-                      Chờ phản hồi
-                    </button>
-                  )}
-                  {tx.status === 'done' && (
-                    <button className="px-6 py-3 bg-[#ffc2c9] text-[#852139] rounded-xl font-bold text-sm hover:bg-[#ffd9dd] transition-colors">
-                      Xem kết quả
-                    </button>
-                  )}
+                  <div className="shrink-0">
+                    {tx.status === 'evaluatable' && (
+                      <button
+                        onClick={e => { e.stopPropagation(); openEval(tx); }}
+                        className="px-6 py-3 bg-gradient-to-br from-[#b7131a] to-[#ff766b] text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all"
+                      >
+                        Đánh giá ngay
+                      </button>
+                    )}
+                    {tx.status === 'done' && (
+                      <span className="px-6 py-3 bg-[#ffc2c9] text-[#852139] rounded-xl font-bold text-sm">
+                        Đã hoàn tất
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* ── CTA Banner ── */}
@@ -572,8 +560,11 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
                 Sự hài lòng của người dân là thước đo hiệu quả của chính quyền.
               </p>
             </div>
-            <button className="bg-white text-[#b7131a] px-10 py-4 rounded-xl font-black text-sm tracking-widest uppercase hover:bg-[#fff4f4] transition-all shadow-xl hover:-translate-y-1 active:scale-95 whitespace-nowrap flex items-center gap-2">
-              GỬI PHẢN ÁNH KIẾN NGHỊ
+            <button
+              onClick={() => onNavigate('chatbot')}
+              className="bg-white text-[#b7131a] px-10 py-4 rounded-xl font-black text-sm tracking-widest uppercase hover:bg-[#fff4f4] transition-all shadow-xl hover:-translate-y-1 active:scale-95 whitespace-nowrap flex items-center gap-2"
+            >
+              HỎI AI TRỢ LÝ
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -583,28 +574,13 @@ export function EvaluationScreen({ onNavigate }: EvaluationScreenProps) {
 
       {/* ── Footer ── */}
       <footer className="mt-auto py-8 px-12 border-t border-[#de9ca4]/10 flex flex-col md:flex-row justify-between items-center text-xs text-[#9f364c] font-medium opacity-60">
-        <p>© 2024 Cổng dịch vụ công Quốc gia. All rights reserved.</p>
+        <p>© 2024 Cổng dịch vụ công tỉnh Thanh Hóa. All rights reserved.</p>
         <div className="flex gap-6 mt-4 md:mt-0">
           {['Điều khoản sử dụng', 'Chính sách bảo mật', 'Liên hệ hỗ trợ'].map((t) => (
             <button key={t} className="hover:text-[#b7131a] transition-colors">{t}</button>
           ))}
         </div>
       </footer>
-
-      {/* ── Mobile Bottom Nav ── */}
-      <nav className="md:hidden fixed bottom-0 left-0 w-full bg-[#fff4f4]/90 backdrop-blur-md border-t border-[#ffeced] flex justify-around items-center py-3 px-2 z-50">
-        {([
-          { label: 'Trang chủ', icon: 'home',          active: false, action: () => onNavigate('home') },
-          { label: 'Hồ sơ',     icon: 'description',   active: false, action: () => {} },
-          { label: 'Thông báo', icon: 'notifications',  active: false, action: () => {} },
-          { label: 'Đánh giá',  icon: 'star',           active: true,  action: () => {} },
-        ]).map(({ label, icon, active, action }) => (
-          <button key={label} onClick={action} className={`flex flex-col items-center gap-1 transition-colors ${active ? 'text-[#b7131a]' : 'text-[#4d2128]/60'}`}>
-            <span className="material-symbols-outlined text-[22px]" style={{ fontVariationSettings: active ? "'FILL' 1" : "'FILL' 0" }}>{icon}</span>
-            <span className="text-[10px] font-bold">{label}</span>
-          </button>
-        ))}
-      </nav>
 
     </div>
   );

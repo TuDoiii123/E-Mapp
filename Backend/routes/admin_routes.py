@@ -1,18 +1,22 @@
 """
 Admin Routes — CRUD tài khoản, địa điểm, thủ tục + review hồ sơ
 """
-from flask import Blueprint, request, jsonify
+import uuid
 from datetime import datetime
+from flask import Blueprint, request, jsonify
+from sqlalchemy import text
+from werkzeug.security import generate_password_hash
 
-from models.application import Application
-from models.status_tracking import StatusTracking
 from models.user import User, FileStorage
 from models.location import Location
+from models.db import db
 from logger import get_logger
 
 log = get_logger('admin_routes')
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+
+_USER_COLS = 'id, cccd_number, full_name, date_of_birth, phone, email, role, is_vneid_verified, vneid_id, created_at, updated_at'
 
 
 def _require_admin():
@@ -23,13 +27,55 @@ def _require_admin():
     return None
 
 
+def _write_audit(action: str, resource: str, resource_id: str = None, detail: dict = None):
+    """Ghi audit log vào DB — không raise exception nếu thất bại."""
+    try:
+        import json as _json
+        db.session.execute(
+            text('''INSERT INTO public.audit_logs
+                        (actor_id, actor_role, action, resource, resource_id, detail, ip)
+                    VALUES (:actor, :role, :action, :res, :res_id, :detail::jsonb, :ip)'''),
+            {
+                'actor':  getattr(request, 'user_id', None),
+                'role':   getattr(request, 'role', None),
+                'action': action,
+                'res':    resource,
+                'res_id': resource_id,
+                'detail': _json.dumps(detail or {}, ensure_ascii=False),
+                'ip':     request.headers.get('X-Forwarded-For', request.remote_addr or '')[:45],
+            }
+        )
+        db.session.commit()
+    except Exception as e:
+        log.warning(f'[AUDIT] write failed: {e}')
+        try: db.session.rollback()
+        except Exception: pass
+
+
+def _row_to_user(r) -> dict:
+    """Chuyển row PostgreSQL → dict camelCase (không có password)."""
+    return {
+        'id':              r[0],
+        'cccdNumber':      r[1],
+        'fullName':        r[2],
+        'dateOfBirth':     r[3],
+        'phone':           r[4],
+        'email':           r[5],
+        'role':            r[6],
+        'isVNeIDVerified': bool(r[7]),
+        'vneidId':         r[8],
+        'createdAt':       r[9].isoformat() if r[9] else None,
+        'updatedAt':       r[10].isoformat() if r[10] else None,
+    }
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # 1. HỒ SƠ — Review
 # ════════════════════════════════════════════════════════════════════════════════
 
 @admin_bp.route('/applications/review', methods=['POST'])
 def review_application():
-    """Admin duyệt / từ chối hồ sơ"""
+    """Admin duyệt / từ chối hồ sơ — thao tác trực tiếp trên PostgreSQL."""
     err = _require_admin()
     if err:
         return err
@@ -42,10 +88,6 @@ def review_application():
         if not application_id or not action:
             return jsonify({'success': False, 'message': 'Thiếu dữ liệu'}), 400
 
-        app = Application.find_by_id(application_id)
-        if not app:
-            return jsonify({'success': False, 'message': 'Hồ sơ không tìm thấy'}), 404
-
         allowed_actions = ['approve', 'reject', 'request_more_info']
         if action not in allowed_actions:
             return jsonify({'success': False, 'message': 'Action không hợp lệ'}), 400
@@ -53,51 +95,78 @@ def review_application():
         status_map = {'approve': 'approved', 'reject': 'rejected', 'request_more_info': 'more_info'}
         status = status_map[action]
 
-        Application.update(application_id, {'currentStatus': status})
-        StatusTracking.create({'applicationId': application_id, 'status': status,
-                               'note': note, 'by': request.user_id})
+        # Kiểm tra hồ sơ tồn tại trong PostgreSQL
+        row = db.session.execute(
+            text('SELECT id, status FROM public.applications WHERE id = :id'),
+            {'id': application_id}
+        ).fetchone()
+        if not row:
+            return jsonify({'success': False, 'message': 'Hồ sơ không tìm thấy'}), 404
+
+        # Cập nhật trạng thái
+        db.session.execute(
+            text('UPDATE public.applications SET status = :status, updated_at = now() WHERE id = :id'),
+            {'status': status, 'id': application_id}
+        )
+        # Ghi lịch sử
+        db.session.execute(
+            text('''INSERT INTO public.application_status_history
+                        (application_id, status, note, by)
+                    VALUES (:app_id, :status, :note, :by)'''),
+            {'app_id': application_id, 'status': status,
+             'note': note or f'Admin cập nhật: {status}', 'by': request.user_id}
+        )
+        db.session.commit()
+
+        log.info(f'[AUDIT] admin={request.user_id} action={action} '
+                 f'application={application_id} new_status={status}')
+        _write_audit(action, 'application', application_id,
+                     {'status': status, 'note': note, 'previous': row[1]})
 
         return jsonify({'success': True, 'message': 'Đã cập nhật trạng thái',
                         'data': {'applicationId': application_id, 'status': status}})
     except Exception as e:
+        db.session.rollback()
         log.error(f'admin_routes error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 2. TÀI KHOẢN — CRUD
+# 2. TÀI KHOẢN — CRUD (PostgreSQL)
 # ════════════════════════════════════════════════════════════════════════════════
 
 @admin_bp.route('/users', methods=['GET'])
 def list_users():
-    """Danh sách tất cả người dùng"""
+    """Danh sách tất cả người dùng từ PostgreSQL."""
     err = _require_admin()
     if err:
         return err
     try:
-        users = FileStorage.read_json('users.json')
-        # Ẩn password
-        safe = [{k: v for k, v in u.items() if k != 'password'} for u in users]
-
-        # Lọc theo role
         role = request.args.get('role')
-        if role:
-            safe = [u for u in safe if u.get('role') == role]
+        q    = (request.args.get('q') or '').strip().lower() or None
 
-        # Tìm kiếm theo tên / CCCD
-        q = (request.args.get('q') or '').strip().lower()
+        conditions, params = [], {}
+        if role:
+            conditions.append('role = :role')
+            params['role'] = role
         if q:
-            safe = [u for u in safe
-                    if q in (u.get('fullName') or '').lower()
-                    or q in (u.get('cccdNumber') or '').lower()
-                    or q in (u.get('email') or '').lower()]
+            conditions.append('(LOWER(full_name) LIKE :q OR cccd_number LIKE :q OR LOWER(email) LIKE :q)')
+            params['q'] = f'%{q}%'
+
+        where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+        rows = db.session.execute(
+            text(f'SELECT {_USER_COLS} FROM public.users {where} ORDER BY created_at DESC'),
+            params
+        ).fetchall()
+
+        users = [_row_to_user(r) for r in rows]
 
         page  = max(int(request.args.get('page', 1)), 1)
         limit = min(int(request.args.get('limit', 20)), 100)
-        total = len(safe)
-        safe  = safe[(page - 1) * limit: page * limit]
+        total = len(users)
+        users = users[(page - 1) * limit: page * limit]
 
-        return jsonify({'success': True, 'data': safe,
+        return jsonify({'success': True, 'data': users,
                         'pagination': {'page': page, 'limit': limit, 'total': total}})
     except Exception as e:
         log.error(f'admin_routes error: {e}', exc_info=True)
@@ -117,7 +186,7 @@ def get_user(user_id: str):
 
 @admin_bp.route('/users', methods=['POST'])
 def create_user():
-    """Admin tạo tài khoản mới (ví dụ: tạo tài khoản nhân viên)"""
+    """Admin tạo tài khoản mới."""
     err = _require_admin()
     if err:
         return err
@@ -128,7 +197,7 @@ def create_user():
             if not data.get(field):
                 return jsonify({'success': False, 'message': f'Thiếu trường: {field}'}), 400
 
-        data['id'] = str(int(datetime.now().timestamp() * 1000))
+        data['id'] = str(uuid.uuid4())
         user = User.create(data)
         return jsonify({'success': True, 'data': user}), 201
     except ValueError as e:
@@ -141,13 +210,12 @@ def create_user():
 
 @admin_bp.route('/users/<user_id>', methods=['PUT'])
 def update_user(user_id: str):
-    """Admin cập nhật thông tin / đổi role người dùng"""
+    """Admin cập nhật thông tin / đổi role người dùng."""
     err = _require_admin()
     if err:
         return err
     try:
         data = request.get_json() or {}
-        # Không cho đổi password qua route này
         data.pop('password', None)
         user = User.update(user_id, data)
         return jsonify({'success': True, 'data': user})
@@ -161,30 +229,31 @@ def update_user(user_id: str):
 
 @admin_bp.route('/users/<user_id>', methods=['DELETE'])
 def delete_user(user_id: str):
-    """Admin xóa tài khoản (soft: đặt role = disabled)"""
+    """Admin xóa tài khoản khỏi PostgreSQL."""
     err = _require_admin()
     if err:
         return err
     try:
-        user = User.find_by_id(user_id)
-        if not user:
-            return jsonify({'success': False, 'message': 'Không tìm thấy'}), 404
-        # Ngăn admin tự xóa chính mình
         if user_id == request.user_id:
             return jsonify({'success': False, 'message': 'Không thể xóa tài khoản đang dùng'}), 400
 
-        users = FileStorage.read_json('users.json')
-        new_list = [u for u in users if u.get('id') != user_id]
-        FileStorage.write_json('users.json', new_list)
+        result = db.session.execute(
+            text('DELETE FROM public.users WHERE id = :id'),
+            {'id': user_id}
+        )
+        if result.rowcount == 0:
+            return jsonify({'success': False, 'message': 'Không tìm thấy'}), 404
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Đã xóa tài khoản'})
     except Exception as e:
+        db.session.rollback()
         log.error(f'admin_routes error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @admin_bp.route('/users/<user_id>/reset-password', methods=['POST'])
 def reset_password(user_id: str):
-    """Admin đặt lại mật khẩu"""
+    """Admin đặt lại mật khẩu trong PostgreSQL."""
     err = _require_admin()
     if err:
         return err
@@ -194,28 +263,23 @@ def reset_password(user_id: str):
         if len(new_password) < 6:
             return jsonify({'success': False, 'message': 'Mật khẩu tối thiểu 6 ký tự'}), 400
 
-        from werkzeug.security import generate_password_hash
         hashed = generate_password_hash(new_password, method='pbkdf2:sha256')
-
-        users = FileStorage.read_json('users.json')
-        found = False
-        for u in users:
-            if u.get('id') == user_id:
-                u['password']  = hashed
-                u['updatedAt'] = datetime.now().isoformat()
-                found = True
-                break
-        if not found:
+        result = db.session.execute(
+            text('UPDATE public.users SET password = :pw, updated_at = now() WHERE id = :id'),
+            {'pw': hashed, 'id': user_id}
+        )
+        if result.rowcount == 0:
             return jsonify({'success': False, 'message': 'Không tìm thấy người dùng'}), 404
-        FileStorage.write_json('users.json', users)
+        db.session.commit()
         return jsonify({'success': True, 'message': 'Đã đặt lại mật khẩu'})
     except Exception as e:
+        db.session.rollback()
         log.error(f'admin_routes error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 3. ĐỊA ĐIỂM — CRUD
+# 3. ĐỊA ĐIỂM — CRUD (file-based — Location model dùng locations.json)
 # ════════════════════════════════════════════════════════════════════════════════
 
 @admin_bp.route('/locations', methods=['GET'])
@@ -322,14 +386,21 @@ def delete_location(location_id: str):
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 4. THỦ TỤC HÀNH CHÍNH — CRUD
+# 4. THỦ TỤC HÀNH CHÍNH — CRUD (PostgreSQL — procedures table)
 # ════════════════════════════════════════════════════════════════════════════════
 
-def _read_procedures() -> list:
-    return FileStorage.read_json('public_services.json')
+import json as _json
 
-def _save_procedures(data: list):
-    FileStorage.write_json('public_services.json', data)
+def _proc_row(r) -> dict:
+    return {
+        'id':               r[0], 'name':              r[1],
+        'code':             r[2] or '', 'category':    r[3] or '',
+        'fee':              r[4] or 0,  'feeNote':     r[5] or '',
+        'processingDays':   r[6] or 0,  'processingNote': r[7] or '',
+        'legalBasis':       r[8] or [], 'implementingLevel': r[9] or 'ward',
+        'agency':           r[10] or '', 'isOnline':   bool(r[11]),
+        'isActive':         bool(r[12]),
+    }
 
 
 @admin_bp.route('/procedures', methods=['GET'])
@@ -338,29 +409,36 @@ def list_procedures():
     if err:
         return err
     try:
-        procs    = _read_procedures()
-        category = request.args.get('category')
-        province = request.args.get('province')
+        category = (request.args.get('category') or '').strip()
         q        = (request.args.get('q') or '').strip().lower()
+        page     = max(int(request.args.get('page', 1)), 1)
+        limit    = min(int(request.args.get('limit', 20)), 100)
 
+        conds, params = [], {}
         if category:
-            procs = [p for p in procs if p.get('categoryId') == category
-                     or p.get('category') == category]
-        if province:
-            procs = [p for p in procs if p.get('province') == province]
+            conds.append('category = :cat')
+            params['cat'] = category
         if q:
-            procs = [p for p in procs
-                     if q in (p.get('name') or '').lower()
-                     or q in (p.get('description') or '').lower()]
+            conds.append("(LOWER(name) LIKE :q OR code LIKE :q)")
+            params['q'] = f'%{q}%'
+        where = ('WHERE ' + ' AND '.join(conds)) if conds else ''
 
-        page  = max(int(request.args.get('page', 1)), 1)
-        limit = min(int(request.args.get('limit', 20)), 100)
-        total = len(procs)
-        procs = procs[(page - 1) * limit: page * limit]
-        return jsonify({'success': True, 'data': procs,
+        total = db.session.execute(
+            text(f'SELECT COUNT(*) FROM public.procedures {where}'), params
+        ).scalar() or 0
+
+        rows = db.session.execute(text(f'''
+            SELECT id, name, code, category, fee, fee_note, processing_days,
+                   processing_note, legal_basis, implementing_level, agency, is_online, is_active
+            FROM public.procedures {where}
+            ORDER BY category, name
+            LIMIT :limit OFFSET :offset
+        '''), {**params, 'limit': limit, 'offset': (page-1)*limit}).fetchall()
+
+        return jsonify({'success': True, 'data': [_proc_row(r) for r in rows],
                         'pagination': {'page': page, 'limit': limit, 'total': total}})
     except Exception as e:
-        log.error(f'admin_routes error: {e}', exc_info=True)
+        log.error(f'list_procedures error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -369,11 +447,18 @@ def get_procedure(proc_id: str):
     err = _require_admin()
     if err:
         return err
-    procs = _read_procedures()
-    proc  = next((p for p in procs if p.get('id') == proc_id), None)
-    if not proc:
-        return jsonify({'success': False, 'message': 'Thủ tục không tồn tại'}), 404
-    return jsonify({'success': True, 'data': proc})
+    try:
+        row = db.session.execute(
+            text('SELECT id, name, code, category, fee, fee_note, processing_days, '
+                 'processing_note, legal_basis, implementing_level, agency, is_online, is_active '
+                 'FROM public.procedures WHERE id = :id'),
+            {'id': proc_id}
+        ).fetchone()
+        if not row:
+            return jsonify({'success': False, 'message': 'Thủ tục không tồn tại'}), 404
+        return jsonify({'success': True, 'data': _proc_row(row)})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @admin_bp.route('/procedures', methods=['POST'])
@@ -385,16 +470,27 @@ def create_procedure():
         data = request.get_json() or {}
         if not data.get('name'):
             return jsonify({'success': False, 'message': 'Thiếu tên thủ tục'}), 400
-        procs = _read_procedures()
-        data['id']        = data.get('id') or str(int(datetime.now().timestamp() * 1000))
-        data['createdAt'] = datetime.now().isoformat()
-        data['updatedAt'] = datetime.now().isoformat()
-        data.setdefault('status', 'active')
-        procs.append(data)
-        _save_procedures(procs)
-        return jsonify({'success': True, 'data': data}), 201
+        proc_id = data.get('id') or str(uuid.uuid4())
+        db.session.execute(text('''
+            INSERT INTO public.procedures
+                (id, name, code, category, fee, fee_note, processing_days,
+                 processing_note, legal_basis, implementing_level, agency)
+            VALUES (:id, :name, :code, :cat, :fee, :fn, :days, :dn, :legal::jsonb, :level, :agency)
+        '''), {
+            'id':     proc_id, 'name':  data.get('name', ''),
+            'code':   data.get('code', ''), 'cat': data.get('category', ''),
+            'fee':    int(data.get('fee', 0)), 'fn': data.get('feeNote', ''),
+            'days':   int(data.get('processingDays', 0)), 'dn': data.get('processingNote', ''),
+            'legal':  _json.dumps(data.get('legalBasis', []), ensure_ascii=False),
+            'level':  data.get('implementingLevel', 'ward'),
+            'agency': data.get('agency', ''),
+        })
+        db.session.commit()
+        _write_audit('create', 'procedure', proc_id, {'name': data.get('name')})
+        return jsonify({'success': True, 'data': {'id': proc_id}}), 201
     except Exception as e:
-        log.error(f'admin_routes error: {e}', exc_info=True)
+        db.session.rollback()
+        log.error(f'create_procedure error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -404,23 +500,39 @@ def update_procedure(proc_id: str):
     if err:
         return err
     try:
-        data  = request.get_json() or {}
-        procs = _read_procedures()
-        found = False
-        for p in procs:
-            if p.get('id') == proc_id:
-                p.update(data)
-                p['id']        = proc_id  # không cho đổi id
-                p['updatedAt'] = datetime.now().isoformat()
-                found = True
-                break
-        if not found:
+        data = request.get_json() or {}
+        sets, params = [], {'id': proc_id}
+        field_map = {
+            'name': 'name', 'code': 'code', 'category': 'category',
+            'fee': 'fee', 'feeNote': 'fee_note',
+            'processingDays': 'processing_days', 'processingNote': 'processing_note',
+            'implementingLevel': 'implementing_level', 'agency': 'agency',
+            'isOnline': 'is_online', 'isActive': 'is_active',
+        }
+        for camel, snake in field_map.items():
+            if camel in data:
+                sets.append(f'{snake} = :{snake}')
+                params[snake] = data[camel]
+        if 'legalBasis' in data:
+            sets.append('legal_basis = :legal::jsonb')
+            params['legal'] = _json.dumps(data['legalBasis'], ensure_ascii=False)
+
+        if not sets:
+            return jsonify({'success': False, 'message': 'Không có trường nào để cập nhật'}), 400
+
+        sets.append('updated_at = now()')
+        result = db.session.execute(
+            text(f"UPDATE public.procedures SET {', '.join(sets)} WHERE id = :id"),
+            params
+        )
+        if result.rowcount == 0:
             return jsonify({'success': False, 'message': 'Không tìm thấy'}), 404
-        _save_procedures(procs)
-        updated = next(p for p in procs if p['id'] == proc_id)
-        return jsonify({'success': True, 'data': updated})
+        db.session.commit()
+        _write_audit('update', 'procedure', proc_id, {'fields': list(field_map.keys())})
+        return jsonify({'success': True, 'message': 'Đã cập nhật thủ tục'})
     except Exception as e:
-        log.error(f'admin_routes error: {e}', exc_info=True)
+        db.session.rollback()
+        log.error(f'update_procedure error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
@@ -430,19 +542,23 @@ def delete_procedure(proc_id: str):
     if err:
         return err
     try:
-        procs    = _read_procedures()
-        new_list = [p for p in procs if p.get('id') != proc_id]
-        if len(new_list) == len(procs):
+        result = db.session.execute(
+            text("UPDATE public.procedures SET is_active = FALSE, updated_at = now() WHERE id = :id"),
+            {'id': proc_id}
+        )
+        if result.rowcount == 0:
             return jsonify({'success': False, 'message': 'Không tìm thấy'}), 404
-        _save_procedures(new_list)
-        return jsonify({'success': True, 'message': 'Đã xóa thủ tục'})
+        db.session.commit()
+        _write_audit('deactivate', 'procedure', proc_id, {})
+        return jsonify({'success': True, 'message': 'Đã vô hiệu hóa thủ tục'})
     except Exception as e:
-        log.error(f'admin_routes error: {e}', exc_info=True)
+        db.session.rollback()
+        log.error(f'delete_procedure error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# 5. THỐNG KÊ TỔNG QUAN
+# 5. THỐNG KÊ TỔNG QUAN (PostgreSQL cho users/applications/tickets)
 # ════════════════════════════════════════════════════════════════════════════════
 
 @admin_bp.route('/stats', methods=['GET'])
@@ -451,22 +567,86 @@ def admin_stats():
     if err:
         return err
     try:
-        users      = FileStorage.read_json('users.json')
-        locs       = FileStorage.read_json('locations.json')
-        procs      = FileStorage.read_json('public_services.json')
-        apps       = FileStorage.read_json('applications.json')
-        tickets    = FileStorage.read_json('queue_tickets.json')
-        today      = datetime.now().strftime('%Y-%m-%d')
+        # Users, applications, tickets từ PostgreSQL
+        total_users = db.session.execute(
+            text('SELECT COUNT(*) FROM public.users')
+        ).scalar() or 0
+
+        total_apps = db.session.execute(
+            text('SELECT COUNT(*) FROM public.applications')
+        ).scalar() or 0
+
+        pending_apps = db.session.execute(
+            text("SELECT COUNT(*) FROM public.applications WHERE status IN ('submitted', 'in_review')")
+        ).scalar() or 0
+
+        tickets_today = db.session.execute(
+            text("SELECT COUNT(*) FROM public.queue_tickets WHERE date = CURRENT_DATE")
+        ).scalar() or 0
+
+        waiting_today = db.session.execute(
+            text("SELECT COUNT(*) FROM public.queue_tickets WHERE date = CURRENT_DATE AND status = 'waiting'")
+        ).scalar() or 0
+
+        # Locations và Procedures vẫn đọc từ file (file là source of truth)
+        locs  = FileStorage.read_json('locations.json')
+        procs = FileStorage.read_json('public_services.json')
 
         return jsonify({'success': True, 'data': {
-            'totalUsers':       len(users),
-            'totalLocations':   len(locs),
-            'totalProcedures':  len(procs),
-            'totalApplications':len(apps),
-            'pendingApplications': len([a for a in apps if a.get('currentStatus') in ('submitted', 'in_review')]),
-            'ticketsToday':     len([t for t in tickets if t.get('date') == today]),
-            'waitingToday':     len([t for t in tickets if t.get('date') == today and t.get('status') == 'waiting']),
+            'totalUsers':          int(total_users),
+            'totalLocations':      len(locs),
+            'totalProcedures':     len(procs),
+            'totalApplications':   int(total_apps),
+            'pendingApplications': int(pending_apps),
+            'ticketsToday':        int(tickets_today),
+            'waitingToday':        int(waiting_today),
         }})
     except Exception as e:
-        log.error(f'admin_routes error: {e}', exc_info=True)
+        log.error(f'admin_stats error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@admin_bp.route('/audit-logs', methods=['GET'])
+def audit_logs():
+    """Xem lịch sử thao tác admin — chỉ admin được xem."""
+    err = _require_admin()
+    if err:
+        return err
+    try:
+        page     = max(int(request.args.get('page', 1)), 1)
+        limit    = min(int(request.args.get('limit', 50)), 200)
+        resource = (request.args.get('resource') or '').strip()
+        actor    = (request.args.get('actorId') or '').strip()
+
+        conditions, params = [], {}
+        if resource:
+            conditions.append('resource = :resource')
+            params['resource'] = resource
+        if actor:
+            conditions.append('actor_id = :actor')
+            params['actor'] = actor
+        where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
+
+        total = db.session.execute(
+            text(f'SELECT COUNT(*) FROM public.audit_logs {where}'), params
+        ).scalar() or 0
+
+        rows = db.session.execute(text(f'''
+            SELECT id, actor_id, actor_role, action, resource, resource_id,
+                   detail, ip, created_at
+            FROM public.audit_logs {where}
+            ORDER BY created_at DESC
+            LIMIT :limit OFFSET :offset
+        '''), {**params, 'limit': limit, 'offset': (page - 1) * limit}).fetchall()
+
+        data = [{
+            'id': r[0], 'actorId': r[1], 'actorRole': r[2], 'action': r[3],
+            'resource': r[4], 'resourceId': r[5], 'detail': r[6],
+            'ip': r[7], 'createdAt': r[8].isoformat() if r[8] else None,
+        } for r in rows]
+
+        return jsonify({'success': True, 'data': data,
+                        'pagination': {'page': page, 'limit': limit, 'total': total}})
+    except Exception as e:
+        log.error(f'audit_logs error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500

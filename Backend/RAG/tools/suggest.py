@@ -30,11 +30,36 @@ _df = None
 _embeddings = None
 _query_map: Dict[str, List[Dict[str, Any]]] = {}
 
-_BASE_DIR  = Path(__file__).parent.parent.parent          # Backend/
-_CSV_PATH  = _BASE_DIR / 'SuggestProcedure' / 'data' / 'dichvucong_QuangNinh - dichvucong_QuangNinh.csv'
+_BASE_DIR   = Path(__file__).parent.parent.parent          # Backend/
+_CSV_PATH   = _BASE_DIR / 'SuggestProcedure' / 'data' / 'dichvucong_QuangNinh - dichvucong_QuangNinh.csv'
+_SEED_CSV   = _BASE_DIR / 'SuggestProcedure' / 'data' / 'procedures_seed.csv'
 _MODEL_PATH = _BASE_DIR / 'SuggestProcedure' / 'model' / 'fine_tuned_model'
 _RANK_PATH  = _BASE_DIR / 'SuggestProcedure' / 'data' / 'query_procedure_ranking_quangninh.csv'
 _FALLBACK_MODEL = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
+
+
+def _resolve_csv() -> Path:
+    """Trả về path CSV khả dụng: ưu tiên bộ Quảng Ninh, fallback về seed."""
+    if _CSV_PATH.is_file():
+        return _CSV_PATH
+    if _SEED_CSV.is_file():
+        log.warning('[SuggestProcedure] Dung bo du lieu seed (procedures_seed.csv).')
+        return _SEED_CSV
+    # Auto-generate seed CSV on-the-fly
+    try:
+        seed_script = _BASE_DIR / 'SuggestProcedure' / 'data' / 'generate_seed_csv.py'
+        if seed_script.is_file():
+            import subprocess, sys as _sys
+            subprocess.run([_sys.executable, str(seed_script)], check=True, capture_output=True)
+            if _SEED_CSV.is_file():
+                log.info('[SuggestProcedure] Seed CSV tu dong tao xong.')
+                return _SEED_CSV
+    except Exception as _gen_err:
+        log.warning(f'[SuggestProcedure] Auto-generate seed that bai: {_gen_err}')
+    raise FileNotFoundError(
+        f'Khong tim thay CSV: {_CSV_PATH}\n'
+        f'Chay: python {_BASE_DIR / "SuggestProcedure" / "data" / "generate_seed_csv.py"}'
+    )
 
 
 def init_suggest() -> tuple:
@@ -50,11 +75,9 @@ def init_suggest() -> tuple:
     if SentenceTransformer is None or pd is None:
         raise RuntimeError('sentence-transformers hoặc pandas chưa được cài đặt.')
 
-    if not _CSV_PATH.is_file():
-        raise FileNotFoundError(f'Không tìm thấy CSV: {_CSV_PATH}')
-
     # ── Load CSV ──────────────────────────────────────────────────────────────
-    _df = pd.read_csv(str(_CSV_PATH))
+    csv_path = _resolve_csv()
+    _df = pd.read_csv(str(csv_path))
     if 'NAME' not in _df.columns:
         raise RuntimeError("CSV thiếu cột 'NAME'")
 

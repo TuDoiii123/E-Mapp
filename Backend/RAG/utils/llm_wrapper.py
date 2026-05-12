@@ -1,45 +1,116 @@
 import os
 import json
+import threading
+import logging
 from typing import List, Dict, Any
+
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted
 from dotenv import load_dotenv
 
 load_dotenv()
 
+import sys as _sys
+_sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent.parent))
+try:
+    from config import GEMINI_MODEL_RAG as _DEFAULT_RAG_MODEL
+except Exception:
+    _DEFAULT_RAG_MODEL = os.getenv('GEMINI_MODEL_RAG', 'gemini-2.0-flash')
+
+logger = logging.getLogger(__name__)
+
+
+# ── API Key Pool ──────────────────────────────────────────────────────────────
+
+class _ApiKeyPool:
+    """Thread-safe round-robin key pool. Khi gặp 429 tự động rotate sang key tiếp."""
+
+    _ENV_VARS = ("GOOGLE_API_KEY_1", "GOOGLE_API_KEY_2", "GOOGLE_API_KEY_3", "GOOGLE_API_KEY")
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._keys: List[str] = self._collect_keys()
+        self._idx: int = 0
+
+    def _collect_keys(self) -> List[str]:
+        seen, result = set(), []
+        for env in self._ENV_VARS:
+            v = os.getenv(env, "").strip()
+            if v and v not in seen:
+                seen.add(v)
+                result.append(v)
+        return result
+
+    def _current_key(self) -> str:
+        if not self._keys:
+            raise ValueError(
+                "Không có Gemini API key nào trong .env. "
+                "Đặt GOOGLE_API_KEY_1 / GOOGLE_API_KEY_2 / GOOGLE_API_KEY_3 hoặc GOOGLE_API_KEY."
+            )
+        return self._keys[self._idx % len(self._keys)]
+
+    def _rotate(self):
+        with self._lock:
+            self._idx += 1
+
+    def call(self, model_name: str, call_fn) -> str:
+        """
+        Gọi call_fn(model) với auto-rotate khi 429.
+        Thử tất cả key trước khi raise.
+        """
+        n = max(len(self._keys), 1)
+        last_exc: Exception = RuntimeError("Chưa thử key nào.")
+        for attempt in range(n):
+            with self._lock:
+                key = self._current_key()
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(model_name)
+            try:
+                return call_fn(model)
+            except ResourceExhausted as exc:
+                last_exc = exc
+                logger.warning(
+                    "[LLM] Key ...%s hết quota (429) – thử key tiếp theo (%d/%d).",
+                    key[-4:], attempt + 1, n,
+                )
+                self._rotate()
+        raise ResourceExhausted(
+            "Tất cả Gemini API key đã hết quota (429). "
+            "Vui lòng thêm key mới hoặc nâng cấp plan tại https://aistudio.google.com/."
+        ) from last_exc
+
+
+_pool = _ApiKeyPool()
+
+
+# ── Helper ────────────────────────────────────────────────────────────────────
 
 def _get_api_key(specific_env: str) -> str:
-    """Ưu tiên key riêng, fallback về GOOGLE_API_KEY chung."""
+    """Giữ lại để tương thích – trả key đầu tiên có giá trị."""
     key = os.getenv(specific_env) or os.getenv("GOOGLE_API_KEY", "")
     if not key:
         raise ValueError(f"Thiếu API key: đặt {specific_env} hoặc GOOGLE_API_KEY trong .env")
     return key
 
 
+# ── LLM Classes ──────────────────────────────────────────────────────────────
+
 class GeminiAnalyzerLLM:
-    """
-    LLM dùng trong agent_executor_node
-    → nhiệm vụ: phân tích câu hỏi, chọn tool, suy luận logic
-    """
-    def __init__(self, model_name: str = "gemini-2.0-flash", api_key_env: str = "GOOGLE_API_KEY_1"):
-        genai.configure(api_key=_get_api_key(api_key_env))
-        self.model = genai.GenerativeModel(model_name)
+    """Phân tích câu hỏi, chọn tool, suy luận logic."""
 
+    def __init__(self, model_name: str = _DEFAULT_RAG_MODEL, api_key_env: str = "GOOGLE_API_KEY_1"):
+        self.model_name = model_name
 
-    def analyze_task(self, base_prompt: str, user_question: str, role_tools: List[Dict[str, Any]]) -> str:
-        """
-        Gọi Gemini để phân tích nhiệm vụ.
-        -> Trả về CHUỖI chứa JSON (thô) theo schema:
-        {
-          "analysis": "...",
-          "required_tools": [
-            {"tool_name": "...", "params": {...}},
-            ...
-          ]
-        }
-        """
-
+    def analyze_task(
+        self,
+        base_prompt: str,
+        user_question: str,
+        role_tools: List[Dict[str, Any]],
+    ) -> str:
         tool_descriptions = "\n".join([
-            f"- {t['name']}: {t.get('description', '')}\n  Parameters: {t.get('parameters', {})}\n  Returns: {t.get('returns', '')}"
+            f"- {t['name']}: {t.get('description', '')}\n"
+            f"  Parameters: {t.get('parameters', {})}\n"
+            f"  Returns: {t.get('returns', '')}"
             for t in role_tools
         ])
         system_instruction = (
@@ -58,7 +129,6 @@ class GeminiAnalyzerLLM:
             "Nếu không cần gọi tool nào, trả required_tools = [].\n"
             "Ngôn ngữ trả về: nếu input là tiếng Việt thì trả bằng tiếng Việt."
         )
-
         example = (
             "Ví dụ JSON hợp lệ:\n"
             "{\n"
@@ -69,7 +139,6 @@ class GeminiAnalyzerLLM:
             "  ]\n"
             "}\n"
         )
-
         prompt = (
             f"{system_instruction}\n\n"
             f"--- ROLE PROMPT ---\n{base_prompt}\n\n"
@@ -79,48 +148,37 @@ class GeminiAnalyzerLLM:
             "TRẢ LẠI CHỈ JSON, KHÔNG THÊM BẤT KỲ VĂN BẢN NÀO KHÁC."
         )
 
-        # Gọi Gemini (implementation may vary — dùng generate_content như ví dụ trước)
-        response = self.model.generate_content(prompt)
+        def _call(model):
+            response = model.generate_content(prompt)
+            raw_text = getattr(response, "text", None) or str(response)
+            return raw_text.strip()
 
-        # Lấy text an toàn
-        raw_text = getattr(response, "text", None)
-        if raw_text is None:
-            # try other representations
-            raw_text = str(response)
+        return _pool.call(self.model_name, _call)
 
-        return raw_text.strip()
 
 class GeminiSynthesizerLLM:
-    """
-    LLM dùng trong llm_response_synthesizer
-    → nhiệm vụ: tổng hợp kết quả từ tool và sinh câu trả lời cuối cùng
-    """
-    def __init__(self, model_name: str = "gemini-2.0-flash", api_key_env: str = "GOOGLE_API_KEY_2"):
-        genai.configure(api_key=_get_api_key(api_key_env))
-        self.model = genai.GenerativeModel(model_name)
+    """Tổng hợp kết quả từ tool và sinh câu trả lời cuối cùng."""
+
+    def __init__(self, model_name: str = _DEFAULT_RAG_MODEL, api_key_env: str = "GOOGLE_API_KEY_2"):
+        self.model_name = model_name
 
     def run(self, prompt: str) -> str:
         try:
-            response = self.model.generate_content(prompt)
-            return response.text
+            def _call(model):
+                return model.generate_content(prompt).text
+            return _pool.call(self.model_name, _call)
         except Exception as e:
-            return f"[GeminiSynthesizerLLM Error] {str(e)}"
-        
-        
-class GeminiChatParagraphSummarizer:
-    """
-    LLM dùng để tóm tắt từng cặp hội thoại (user - chatbot)
-    """
+            logger.error("[GeminiSynthesizerLLM] Lỗi: %s", e)
+            return "Lỗi"
 
-    def __init__(self, model_name: str = "gemini-2.0-flash", api_key_env: str = "GOOGLE_API_KEY_3"):
-        genai.configure(api_key=_get_api_key(api_key_env))
-        self.model = genai.GenerativeModel(model_name)
+
+class GeminiChatParagraphSummarizer:
+    """Tóm tắt từng cặp hội thoại (user – chatbot)."""
+
+    def __init__(self, model_name: str = _DEFAULT_RAG_MODEL, api_key_env: str = "GOOGLE_API_KEY_3"):
+        self.model_name = model_name
 
     def summarize_each_exchange(self, chat_json: list) -> str:
-        """
-        Nhận đầu vào: danh sách hội thoại [{user, chatbot}]
-        → Trả về: mỗi phần tử được viết thành 1 đoạn riêng, có xuống dòng.
-        """
         chat_data = json.dumps(chat_json, ensure_ascii=False, indent=2)
         system_prompt = f"""
         Bạn là một chuyên gia ngôn ngữ có nhiệm vụ viết lại từng cặp hội thoại giữa người dùng và chatbot
@@ -135,8 +193,17 @@ class GeminiChatParagraphSummarizer:
         - Không thêm số thứ tự, không dùng gạch đầu dòng.
         - Đầu ra chỉ là các đoạn văn, không kèm ký hiệu hay chú thích khác.
         """
-        response = self.model.generate_content(system_prompt)
-        raw_text = getattr(response, "text", None)
-        if raw_text is None:
-            raw_text = str(response)
-        return raw_text.strip()
+
+        def _call(model):
+            response = model.generate_content(system_prompt)
+            raw_text = getattr(response, "text", None) or str(response)
+            return raw_text.strip()
+
+        try:
+            return _pool.call(self.model_name, _call)
+        except ResourceExhausted as e:
+            logger.error("[GeminiChatParagraphSummarizer] Tất cả key hết quota: %s", e)
+            return ""
+        except Exception as e:
+            logger.error("[GeminiChatParagraphSummarizer] Lỗi: %s", e)
+            return ""

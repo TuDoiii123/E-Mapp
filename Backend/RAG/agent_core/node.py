@@ -35,7 +35,11 @@ def _load_base_prompt(state: MultiRoleAgentState) -> str:
         doc = Document(str(path))
         prompt_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
         return prompt_text
-    except Exception:
+    except FileNotFoundError:
+        logger.warning(f'[RAG] General_Prompt.docx không tìm thấy tại {path} — dùng fallback prompt')
+        return "Bạn là trợ lý hành chính, hỗ trợ người dân với câu trả lời rõ ràng và súc tích."
+    except Exception as e:
+        logger.warning(f'[RAG] Không đọc được General_Prompt.docx: {e} — dùng fallback prompt')
         return "Bạn là trợ lý hành chính, hỗ trợ người dân với câu trả lời rõ ràng và súc tích."
 
 def _load_tool_for_role() -> List[Dict[str, Any]]:

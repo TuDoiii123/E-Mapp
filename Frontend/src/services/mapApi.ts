@@ -60,6 +60,34 @@ export interface DirectionsResult {
   note?: string;
 }
 
+export interface SmartRecommendation {
+  rank:    number;
+  tag:     'recommended' | 'nearest' | 'least_busy' | null;
+  reason:  string;
+  score:   number;
+  agency: {
+    id: string; name: string; address: string;
+    phone: string; latitude: number | null; longitude: number | null; status: string;
+  };
+  distance: { text: string; km: number };
+  duration: { text: string; minutes: number };
+  queue: {
+    waiting: number; serving: number; loadLevel: string;
+    estWaitMin: number; estWaitText: string;
+  };
+  navigation: { osmUrl: string; googleMapsUrl: string };
+}
+
+export interface SmartRouteResponse {
+  success: boolean;
+  data: {
+    recommendations: SmartRecommendation[];
+    total: number;
+    message?: string;
+    searchParams: { lat: number; lng: number; serviceId: string | null; radius: number; mode: string };
+  };
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 export const mapAPI = {
@@ -100,5 +128,22 @@ export const mapAPI = {
       mode,
     });
     return apiRequest<{ success: boolean; data: DirectionsResult }>(`/map/directions?${p}`);
+  },
+
+  smartRoute: (
+    lat: number,
+    lng: number,
+    serviceId = 'all',
+    mode: 'driving' | 'walking' | 'cycling' = 'driving',
+    radius = 20,
+    limit = 5,
+  ) => {
+    const p = new URLSearchParams({
+      lat: String(lat), lng: String(lng),
+      serviceId, mode,
+      radius: String(radius),
+      limit:  String(limit),
+    });
+    return apiRequest<SmartRouteResponse>(`/map/smart-route?${p}`);
   },
 };

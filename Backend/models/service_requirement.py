@@ -1,3 +1,6 @@
+from logger import get_logger as _get_logger
+_log = _get_logger("models.service_req")
+
 """
 ServiceRequirement model — danh sách giấy tờ yêu cầu cho từng dịch vụ.
 Dùng PostgreSQL với fallback về dữ liệu mặc định khi chưa có bản ghi.
@@ -98,7 +101,7 @@ class ServiceRequirement:
             # Chưa có → seed và trả về
             return ServiceRequirement._seed_defaults(service_id)
         except Exception as e:
-            print(f'ServiceRequirement.find_by_service_id error: {e}')
+            _log.warning(f'ServiceRequirement.find_by_service_id error: {e}')
             return ServiceRequirement._make_defaults(service_id)
 
     # ── Write ─────────────────────────────────────────────────────────────────
@@ -173,6 +176,6 @@ class ServiceRequirement:
                 })
             db.session.commit()
         except Exception as e:
-            print(f'ServiceRequirement._seed_defaults error: {e}')
+            _log.warning(f'ServiceRequirement._seed_defaults error: {e}')
             db.session.rollback()
         return requirements

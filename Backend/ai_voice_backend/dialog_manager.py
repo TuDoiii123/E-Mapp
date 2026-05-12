@@ -19,6 +19,7 @@ Luồng:
 Tại mỗi bước, Gemini có thể trích xuất nhiều entities cùng lúc
 (vd: "Tôi muốn làm CCCD ngày mai 9h tại UBND Hoàn Kiếm" → skip thẳng đến CONFIRM).
 """
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -69,14 +70,41 @@ _PROMPTS = {
 }
 
 _SERVICE_MAP = {
+    # CCCD
     'căn cước': 'Làm căn cước công dân',
     'cccd':     'Làm căn cước công dân',
-    'khai sinh':'Đăng ký khai sinh',
+    'chứng minh nhân dân': 'Làm căn cước công dân',
+    'định danh': 'Làm căn cước công dân',
+    # Khai sinh
+    'khai sinh': 'Đăng ký khai sinh',
+    'sinh con':  'Đăng ký khai sinh',
+    'trẻ sơ sinh': 'Đăng ký khai sinh',
+    # Kết hôn
+    'kết hôn':  'Đăng ký kết hôn',
+    'hôn nhân': 'Đăng ký kết hôn',
+    'đám cưới': 'Đăng ký kết hôn',
+    # Hộ khẩu / Cư trú
+    'hộ khẩu':   'Đăng ký hộ khẩu',
+    'thường trú': 'Đăng ký thường trú',
+    'tạm trú':    'Đăng ký tạm trú',
+    'nhập khẩu':  'Đăng ký hộ khẩu',
+    # Hộ chiếu
     'hộ chiếu': 'Làm hộ chiếu',
     'passport': 'Làm hộ chiếu',
-    'hộ khẩu':  'Đăng ký hộ khẩu',
+    # GPLX
     'giấy phép lái xe': 'Cấp giấy phép lái xe',
+    'bằng lái':  'Cấp giấy phép lái xe',
+    'bằng lái xe': 'Cấp giấy phép lái xe',
+    'gplx':      'Cấp giấy phép lái xe',
+    # Đất đai
+    'sổ đỏ':     'Cấp giấy chứng nhận quyền sử dụng đất',
+    'sổ hồng':   'Cấp giấy chứng nhận quyền sử dụng đất',
+    'đất đai':   'Cấp giấy chứng nhận quyền sử dụng đất',
+    'quyền sử dụng đất': 'Cấp giấy chứng nhận quyền sử dụng đất',
 }
+
+
+_SESSION_TTL_SECONDS = int(os.getenv('VOICE_SESSION_TTL', '3600'))  # 1 giờ mặc định
 
 
 class DialogManager:
@@ -84,12 +112,13 @@ class DialogManager:
     Quản lý hội thoại đặt lịch hành chính multi-turn.
 
     Mỗi session_id tương ứng với một cuộc hội thoại độc lập.
-    State được persist qua SessionStore.
+    State được persist qua SessionStore với TTL tự động dọn.
     """
 
     def __init__(self) -> None:
         self._nlu   = NLUEngine()
         self._store = get_store()
+        self._cleanup_expired()
 
     # ── public ────────────────────────────────────────────────────────────────
 
@@ -276,7 +305,19 @@ class DialogManager:
 
             svc_code = self._service_code(entities.service_type or '')
             agency_id = self._agency_id(entities.location or '')
-            hhmm = (entities.appointment_time or '09:00:00')[:5]
+            raw_time = entities.appointment_time or '09:00:00'
+            try:
+                from datetime import datetime as _dt
+                for fmt in ('%H:%M:%S', '%H:%M', '%H'):
+                    try:
+                        hhmm = _dt.strptime(raw_time, fmt).strftime('%H:%M')
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    hhmm = raw_time[:5] if len(raw_time) >= 5 else '09:00'
+            except Exception:
+                hhmm = '09:00'
 
             ok, appt, err = create_appointment({
                 'agencyId':    agency_id,
@@ -331,7 +372,36 @@ class DialogManager:
         if state is None:
             state = self._init_state()
             self._store.set(session_id, state)
+        else:
+            # Kiểm tra TTL — session quá cũ thì reset
+            try:
+                created = datetime.fromisoformat(state.get('created_at', ''))
+                if (datetime.now() - created).total_seconds() > _SESSION_TTL_SECONDS:
+                    self._store.clear(session_id)
+                    state = self._init_state()
+                    self._store.set(session_id, state)
+            except Exception:
+                pass
         return state
+
+    def _cleanup_expired(self) -> None:
+        """Xóa tất cả sessions đã quá TTL — chạy khi khởi tạo."""
+        try:
+            now = datetime.now()
+            to_delete = []
+            for sid, state in self._store.all().items():
+                try:
+                    created = datetime.fromisoformat(state.get('created_at', ''))
+                    if (now - created).total_seconds() > _SESSION_TTL_SECONDS:
+                        to_delete.append(sid)
+                except Exception:
+                    to_delete.append(sid)
+            for sid in to_delete:
+                self._store.clear(sid)
+            if to_delete:
+                log.info(f'[Dialog] Cleaned up {len(to_delete)} expired sessions')
+        except Exception as e:
+            log.debug(f'[Dialog] Session cleanup error: {e}')
 
     @staticmethod
     def _init_state() -> Dict:
