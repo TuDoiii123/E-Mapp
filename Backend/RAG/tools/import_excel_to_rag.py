@@ -66,6 +66,30 @@ EXCEL_FILES = [
     'faq_ton_giao.xlsx',
     'faq_khoa_hoc.xlsx',
     'faq_an_ninh.xlsx',
+    # Batch 5
+    'faq_tien_ich.xlsx',
+    'faq_xuat_nhap_canh.xlsx',
+    'faq_kinh_doanh_2.xlsx',
+    # Batch 6 — chung toàn quốc
+    'faq_g_ho_tich.xlsx',
+    'faq_g_dat_dai.xlsx',
+    'faq_g_cccd_cu_tru.xlsx',
+    'faq_g_lao_dong.xlsx',
+    'faq_g_thue.xlsx',
+    'faq_g_y_te.xlsx',
+    'faq_g_kinh_doanh.xlsx',
+    'faq_g_xay_dung.xlsx',
+    'faq_g_an_ninh.xlsx',
+    'faq_g_dvc.xlsx',
+    # Batch 7 — chung toàn quốc (tiếp)
+    'faq_g_bhxh.xlsx',
+    'faq_g_dan_su.xlsx',
+    'faq_g_hanh_chinh.xlsx',
+    'faq_g_giao_thong.xlsx',
+    'faq_g_moi_truong.xlsx',
+    'faq_g_tu_phap.xlsx',
+    'faq_g_giao_duc.xlsx',
+    'faq_g_ngan_hang.xlsx',
 ]
 
 
