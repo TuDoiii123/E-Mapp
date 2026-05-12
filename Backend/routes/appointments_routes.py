@@ -15,6 +15,8 @@ appointments_bp = Blueprint('appointments', __name__, url_prefix='/api/appointme
 
 @appointments_bp.route('', methods=['POST'])
 def create_appointment_route():
+    if not getattr(request, 'user_id', None):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     try:
         payload = request.get_json(silent=True) or {}
         agency_id = payload.get('agencyId')
@@ -42,13 +44,19 @@ def create_appointment_route():
         if appointment_dt < datetime.now():
             return jsonify({'success': False, 'message': 'Không thể đặt lịch trong quá khứ'}), 400
 
+        # userId chỉ từ JWT — không bao giờ lấy từ request body
+        user_id = getattr(request, 'user_id', None)
+
         ok, new_item, err = create_appointment({
-            'agencyId': agency_id,
+            'agencyId':    agency_id,
             'serviceCode': service_code,
-            'date': date_str,
-            'time': time_str,
-            'status': payload.get('status') or 'pending',
-            'userId': payload.get('userId'),
+            'date':        date_str,
+            'time':        time_str,
+            'status':      payload.get('status') or 'pending',
+            'userId':      user_id,
+            'fullName':    payload.get('fullName', ''),
+            'phone':       payload.get('phone', ''),
+            'info':        payload.get('info', ''),
         })
         if not ok:
             if 'đã đầy' in (err or ''):
@@ -66,12 +74,12 @@ def create_appointment_route():
 def get_appointments_by_date():
     try:
         agency_id = request.args.get('agencyId')
-        date_str = request.args.get('date')
+        date_str  = request.args.get('date')
         if not agency_id or not date_str:
             return jsonify({'success': False, 'message': 'Thiếu thông tin cơ quan hoặc ngày'}), 400
-        items = read_appointments()
-        filtered = [a for a in items if a.get('agencyId') == agency_id and a.get('date') == date_str]
-        return jsonify({'success': True, 'message': 'Lấy danh sách lịch hẹn thành công', 'data': {'appointments': filtered}})
+        items = read_appointments(agency_id=agency_id, date_str=date_str)
+        return jsonify({'success': True, 'message': 'Lấy danh sách lịch hẹn thành công',
+                        'data': {'appointments': items}})
     except Exception as exc:
         log.error(f'appointments_routes error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi lấy danh sách lịch hẹn: {exc}'}), 500
@@ -79,9 +87,12 @@ def get_appointments_by_date():
 
 @appointments_bp.route('/all', methods=['GET'])
 def get_all_appointments():
+    if getattr(request, 'role', None) != 'admin':
+        return jsonify({'success': False, 'message': 'Forbidden'}), 403
     try:
         items = read_appointments()
-        return jsonify({'success': True, 'message': 'Lấy danh sách lịch hẹn thành công', 'data': {'appointments': items}})
+        return jsonify({'success': True, 'message': 'Lấy danh sách lịch hẹn thành công',
+                        'data': {'appointments': items}})
     except Exception as exc:
         log.error(f'appointments_routes error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi lấy danh sách lịch hẹn: {exc}'}), 500
@@ -89,19 +100,26 @@ def get_all_appointments():
 
 @appointments_bp.route('/upcoming', methods=['GET'])
 def get_upcoming_appointments():
+    if not getattr(request, 'user_id', None):
+        return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     try:
-        items = read_appointments()
+        user_id   = request.user_id
         now_naive = datetime.now()
-
-        def _to_dt(a):
+        today     = now_naive.strftime('%Y-%m-%d')
+        items     = read_appointments(user_id=user_id)
+        upcoming  = []
+        for a in items:
+            if not a.get('date') or not a.get('time'):
+                continue
             try:
-                return datetime.strptime(f"{a.get('date')} {a.get('time')}", '%Y-%m-%d %H:%M')
+                dt = datetime.strptime(f"{a['date']} {a['time']}", '%Y-%m-%d %H:%M')
+                if dt >= now_naive:
+                    upcoming.append(a)
             except Exception:
-                return None
-
-        upcoming = [a for a in items if a.get('date') and a.get('time') and _to_dt(a) and _to_dt(a) >= now_naive]
-        upcoming.sort(key=lambda a: _to_dt(a) or datetime.max)
-        return jsonify({'success': True, 'message': 'Danh sách lịch hẹn sắp tới', 'data': {'appointments': upcoming}})
+                pass
+        upcoming.sort(key=lambda a: (a.get('date', ''), a.get('time', '')))
+        return jsonify({'success': True, 'message': 'Danh sách lịch hẹn sắp tới',
+                        'data': {'appointments': upcoming}})
     except Exception as exc:
         log.error(f'appointments_routes error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi lấy lịch hẹn sắp tới: {exc}'}), 500

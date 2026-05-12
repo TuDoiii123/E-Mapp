@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
@@ -13,6 +13,10 @@ except Exception:
     db = None
     text = None
     HAS_DB = False
+
+
+from logger import get_logger as _get_logger
+_log = _get_logger('models.user')
 
 
 class FileStorage:
@@ -34,7 +38,7 @@ class FileStorage:
                 with open(filepath, 'r', encoding='utf-8') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"Error reading {filename}: {e}")
+            _log.warning(f"Error reading {filename}: {e}")
         return []
     
     @staticmethod
@@ -46,7 +50,7 @@ class FileStorage:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             return True
         except Exception as e:
-            print(f"Error writing {filename}: {e}")
+            _log.warning(f"Error writing {filename}: {e}")
             return False
 
 
@@ -195,7 +199,7 @@ class User:
                     raise ValueError('CCCD hoặc Email đã được đăng ký')
 
                 hashed = generate_password_hash(user_data.get('password', ''), method='pbkdf2:sha256')
-                now = datetime.utcnow().isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 ins = db.session.execute(
                     text('''INSERT INTO users (id, cccd_number, full_name, date_of_birth, phone, email, password, role, is_vneid_verified, vneid_id, created_at, updated_at)
                                   VALUES (:id, :cccd, :full_name, :dob, :phone, :email, :password, :role, :is_vneid, :vneid_id, :created_at, :updated_at)'''),
@@ -233,7 +237,7 @@ class User:
             except Exception as e:
                 # If DB is available but insert fails, surface the error
                 # so caller (route) can decide. Do NOT silently fallback to file.
-                print('DB user create failed:', e)
+                _log.error(f'DB user create failed: {e}')
                 raise
 
         users = FileStorage.read_json('users.json')
@@ -280,12 +284,12 @@ class User:
 
                 if set_parts:
                     sql = text(f"UPDATE users SET {', '.join(set_parts)}, updated_at = :updated_at WHERE id = :id")
-                    params['updated_at'] = datetime.utcnow().isoformat()
+                    params['updated_at'] = datetime.now(timezone.utc).isoformat()
                     db.session.execute(sql, params)
                     db.session.commit()
                     return User.find_by_id(user_id)
             except Exception as e:
-                print('DB user update failed, falling back to file:', e)
+                _log.warning(f'DB user update failed, falling back to file: {e}')
 
         users = FileStorage.read_json('users.json')
 

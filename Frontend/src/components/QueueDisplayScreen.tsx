@@ -26,37 +26,37 @@ export function QueueDisplayScreen({
 }: QueueDisplayScreenProps) {
   const [summary,   setSummary]   = useState<QueueSummary | null>(null);
   const [connected, setConnected] = useState(false);
-  const [lastUpdate,setLastUpdate]= useState<Date | null>(null);
   const [tick,      setTick]      = useState(0); // đồng hồ làm mới
-  const wsRef = useRef<QueueWebSocket | null>(null);
+  const wsRef         = useRef<QueueWebSocket | null>(null);
+  const lastUpdateRef = useRef<number>(0); // dùng ref để tránh stale closure trong interval
 
   // Callback khi nhận update từ WebSocket
   const handleUpdate = useCallback((data: QueueSummary) => {
     setSummary(data);
     setConnected(true);
-    setLastUpdate(new Date());
+    lastUpdateRef.current = Date.now();
   }, []);
 
   // Khởi tạo WebSocket
   useEffect(() => {
-    // Tải snapshot ban đầu qua REST (đảm bảo hiển thị ngay cả khi WS chưa ready)
-    getQueueSummary(agencyId).then(setSummary).catch(() => {});
+    lastUpdateRef.current = 0;
+    // Tải snapshot ban đầu qua REST
+    getQueueSummary(agencyId).then(d => { setSummary(d); lastUpdateRef.current = Date.now(); }).catch(() => {});
 
-    // Kết nối WebSocket
     const ws = new QueueWebSocket(agencyId, handleUpdate);
     wsRef.current = ws;
 
-    // Theo dõi trạng thái kết nối
+    // Health check — đọc ref (không bao giờ stale)
     const healthCheck = setInterval(() => {
-      const age = lastUpdate ? Date.now() - lastUpdate.getTime() : Infinity;
-      setConnected(age < 20_000); // coi là mất kết nối nếu > 20s không có dữ liệu
+      const age = lastUpdateRef.current ? Date.now() - lastUpdateRef.current : Infinity;
+      setConnected(age < 20_000);
     }, 5_000);
 
     return () => {
       ws.destroy();
       clearInterval(healthCheck);
     };
-  }, [agencyId]);
+  }, [agencyId, handleUpdate]);
 
   // Đồng hồ giây — cập nhật thời gian hiển thị
   useEffect(() => {
@@ -214,7 +214,7 @@ export function QueueDisplayScreen({
             {connected ? (
               <span className="flex items-center justify-center gap-1 text-green-500">
                 <Wifi className="w-3 h-3" /> Cập nhật realtime
-                {lastUpdate && ` • ${lastUpdate.toLocaleTimeString('vi-VN')}`}
+                {lastUpdateRef.current > 0 && ` • ${new Date(lastUpdateRef.current).toLocaleTimeString('vi-VN')}`}
               </span>
             ) : (
               <span className="flex items-center justify-center gap-1 text-yellow-500">

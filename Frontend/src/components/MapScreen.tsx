@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Loader2, AlertCircle, CalendarDays, Navigation, Clock, Route } from 'lucide-react';
+import { Loader2, AlertCircle, CalendarDays, Navigation, Clock, Route, Sparkles, Users, MapPin, Car, PersonStanding, Bike, Trophy, Target } from 'lucide-react';
 import { servicesAPI, PublicService } from '../services/servicesApi';
 import { getMapOverview, AgencyQueueStatus } from '../services/queueService';
-import { mapAPI, AutocompletePrediction, DirectionsResult } from '../services/mapApi';
+import { mapAPI, AutocompletePrediction, DirectionsResult, SmartRecommendation } from '../services/mapApi';
 
 interface MapScreenProps {
   onNavigate: (screen: string, params?: any) => void;
@@ -75,6 +75,15 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const [showPredictions,  setShowPredictions]  = useState(false);
   const [directionsInfo,   setDirectionsInfo]   = useState<DirectionsResult | null>(null);
   const [directionsLoading,setDirectionsLoading]= useState(false);
+
+  // Smart Route state
+  const [sidebarTab,    setSidebarTab]    = useState<'map' | 'smart'>('map');
+  const [smartService,  setSmartService]  = useState('all');
+  const [smartMode,     setSmartMode]     = useState<'driving' | 'walking' | 'cycling'>('driving');
+  const [smartResults,  setSmartResults]  = useState<SmartRecommendation[]>([]);
+  const [smartLoading,  setSmartLoading]  = useState(false);
+  const [smartError,    setSmartError]    = useState('');
+  const [smartSearched, setSmartSearched] = useState(false);
 
   const mapRef         = useRef<HTMLDivElement>(null);
   const mapInstance    = useRef<L.Map | null>(null);
@@ -266,6 +275,48 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
 
   const fmt = (d?: number) => !d ? 'N/A' : d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
 
+  // ── Smart Route ────────────────────────────────────────────────────────────
+  const SMART_SERVICES = [
+    { id: 'all',         label: 'Tất cả thủ tục' },
+    { id: 'cccd',        label: 'CCCD / Căn cước công dân' },
+    { id: 'ho_khau',     label: 'Hộ khẩu / Cư trú' },
+    { id: 'khai_sinh',   label: 'Khai sinh' },
+    { id: 'ket_hon',     label: 'Đăng ký kết hôn' },
+    { id: 'dat_dai',     label: 'Đất đai / Nhà ở' },
+    { id: 'doanh_nghiep',label: 'Doanh nghiệp' },
+    { id: 'y_te',        label: 'Y tế / Khám bệnh' },
+    { id: 'gplx',        label: 'Giấy phép lái xe' },
+  ];
+
+  const LOAD_CFG: Record<string, { bar: string; text: string; label: string }> = {
+    low:    { bar: 'bg-green-500',  text: 'text-green-600',  label: 'Vắng' },
+    medium: { bar: 'bg-amber-500',  text: 'text-amber-600',  label: 'Trung bình' },
+    high:   { bar: 'bg-red-500',    text: 'text-red-600',    label: 'Đông' },
+  };
+
+  const handleSmartRoute = async () => {
+    const loc = userLocation || { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+    setSmartLoading(true); setSmartError(''); setSmartSearched(false);
+    try {
+      const res = await mapAPI.smartRoute(loc.lat, loc.lng, smartService, smartMode);
+      if (res.success) {
+        setSmartResults(res.data.recommendations);
+        setSmartSearched(true);
+        if (res.data.recommendations.length === 0) {
+          setSmartError(res.data.message || 'Không tìm thấy cơ quan phù hợp.');
+        }
+      }
+    } catch (e: any) {
+      setSmartError(e.message || 'Lỗi khi tìm gợi ý. Thử lại sau.');
+    } finally { setSmartLoading(false); }
+  };
+
+  const focusAgencyOnMap = (rec: SmartRecommendation) => {
+    if (mapInstance.current && rec.agency.latitude && rec.agency.longitude) {
+      mapInstance.current.setView([rec.agency.latitude, rec.agency.longitude], 16);
+    }
+  };
+
   const filteredOffices = searchQuery.trim()
     ? offices.filter(o =>
         o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -315,7 +366,246 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
 
           {/* Sidebar */}
           <div className="w-full max-w-sm bg-surface-container-lowest shadow-xl z-20 flex flex-col h-full border-r border-outline-variant/20">
-            <div className="p-5 space-y-5">
+
+            {/* ── Tab switcher ── */}
+            <div className="flex border-b border-outline-variant/20 flex-shrink-0">
+              <button
+                onClick={() => setSidebarTab('map')}
+                className={`flex-1 py-3.5 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-colors ${
+                  sidebarTab === 'map'
+                    ? 'text-primary border-b-2 border-primary bg-primary-container/20'
+                    : 'text-outline hover:text-on-surface'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[16px]">map</span>
+                Bản đồ
+              </button>
+              <button
+                onClick={() => setSidebarTab('smart')}
+                className={`flex-1 py-3.5 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-1.5 transition-colors ${
+                  sidebarTab === 'smart'
+                    ? 'text-primary border-b-2 border-primary bg-primary-container/20'
+                    : 'text-outline hover:text-on-surface'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Gợi ý thông minh
+              </button>
+            </div>
+
+            {/* ── Smart Route Panel ── */}
+            {sidebarTab === 'smart' && (
+              <div className="flex flex-col h-full overflow-hidden">
+                {/* Controls */}
+                <div className="p-5 space-y-4 flex-shrink-0 border-b border-outline-variant/10">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-outline mb-1.5 block">
+                      Thủ tục cần làm
+                    </label>
+                    <select
+                      value={smartService}
+                      onChange={e => setSmartService(e.target.value)}
+                      className="w-full bg-surface-container-low border-none rounded-xl py-3 px-4 text-sm font-semibold text-on-surface focus:ring-2 focus:ring-primary outline-none"
+                    >
+                      {SMART_SERVICES.map(s => (
+                        <option key={s.id} value={s.id}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-widest text-outline mb-1.5 block">
+                      Phương tiện di chuyển
+                    </label>
+                    <div className="flex gap-2">
+                      {([
+                        { id: 'driving', label: 'Xe máy/Ô tô', Icon: Car },
+                        { id: 'walking', label: 'Đi bộ',       Icon: PersonStanding },
+                        { id: 'cycling', label: 'Xe đạp',      Icon: Bike },
+                      ] as const).map(({ id, label, Icon }) => (
+                        <button
+                          key={id}
+                          onClick={() => setSmartMode(id)}
+                          className={`flex-1 py-2.5 rounded-xl text-[11px] font-bold flex flex-col items-center gap-1 transition-all ${
+                            smartMode === id
+                              ? 'bg-primary text-on-primary shadow-md'
+                              : 'bg-surface-container-high text-outline hover:bg-primary-container hover:text-on-primary'
+                          }`}
+                        >
+                          <Icon className="w-4 h-4" />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {!userLocation && (
+                    <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded-lg">
+                      Bật GPS để tìm cơ quan gần bạn chính xác hơn.
+                    </p>
+                  )}
+
+                  <button
+                    onClick={handleSmartRoute}
+                    disabled={smartLoading}
+                    className="w-full py-3.5 bg-primary text-on-primary rounded-xl font-black text-sm uppercase tracking-widest shadow-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-60"
+                  >
+                    {smartLoading
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Đang phân tích...</>
+                      : <><Sparkles className="w-4 h-4" /> Tìm cơ quan tốt nhất</>
+                    }
+                  </button>
+
+                  {smartError && (
+                    <div className="flex items-start gap-2 p-3 bg-error-container/20 border-l-4 border-error rounded-lg text-xs text-error">
+                      <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                      {smartError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Results */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {smartSearched && smartResults.length === 0 && !smartError && (
+                    <p className="text-center text-sm text-outline py-8">
+                      Không tìm thấy cơ quan phù hợp trong khu vực.
+                    </p>
+                  )}
+
+                  {smartResults.map((rec) => {
+                    const load = LOAD_CFG[rec.queue.loadLevel] ?? LOAD_CFG.low;
+                    const loadPct = Math.min(100, Math.round((rec.queue.waiting / 30) * 100));
+                    return (
+                      <div
+                        key={rec.agency.id}
+                        className={`rounded-2xl border-2 p-4 transition-all hover:shadow-md cursor-pointer ${
+                          rec.tag === 'recommended'
+                            ? 'border-primary bg-primary-container/10'
+                            : 'border-outline-variant/30 bg-surface-container-low hover:border-primary/40'
+                        }`}
+                        onClick={() => focusAgencyOnMap(rec)}
+                      >
+                        {/* Header row */}
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {rec.tag === 'recommended' && (
+                              <span className="flex items-center gap-1 bg-primary text-on-primary text-[10px] font-black px-2 py-0.5 rounded-full">
+                                <Trophy className="w-3 h-3" /> KHUYẾN NGHỊ
+                              </span>
+                            )}
+                            {rec.tag === 'nearest' && (
+                              <span className="flex items-center gap-1 bg-blue-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                                <MapPin className="w-3 h-3" /> GẦN NHẤT
+                              </span>
+                            )}
+                            {rec.tag === 'least_busy' && (
+                              <span className="flex items-center gap-1 bg-teal-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">
+                                <Users className="w-3 h-3" /> ÍT ĐỢI NHẤT
+                              </span>
+                            )}
+                            <span className="text-[10px] font-bold text-outline">#{rec.rank}</span>
+                          </div>
+                        </div>
+
+                        {/* Agency name */}
+                        <h3 className="font-bold text-sm text-on-background leading-tight mb-1">
+                          {rec.agency.name}
+                        </h3>
+                        <p className="text-xs text-outline mb-3 flex items-start gap-1">
+                          <MapPin className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                          {rec.agency.address}
+                        </p>
+
+                        {/* Metrics row */}
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                          <div className="bg-surface-container rounded-lg p-2 text-center">
+                            <div className="text-[10px] text-outline uppercase font-bold mb-0.5">Khoảng cách</div>
+                            <div className="text-xs font-black text-secondary">{rec.distance.text}</div>
+                          </div>
+                          <div className="bg-surface-container rounded-lg p-2 text-center">
+                            <div className="text-[10px] text-outline uppercase font-bold mb-0.5">Di chuyển</div>
+                            <div className="text-xs font-black text-primary">{rec.duration.text}</div>
+                          </div>
+                          <div className="bg-surface-container rounded-lg p-2 text-center">
+                            <div className="text-[10px] text-outline uppercase font-bold mb-0.5">Chờ ≈</div>
+                            <div className={`text-xs font-black ${load.text}`}>{rec.queue.estWaitText}</div>
+                          </div>
+                        </div>
+
+                        {/* Queue bar */}
+                        <div className="mb-3">
+                          <div className="flex justify-between text-[10px] mb-1">
+                            <span className="text-outline">{rec.queue.waiting} người đang chờ</span>
+                            <span className={`font-bold ${load.text}`}>{load.label}</span>
+                          </div>
+                          <div className="h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${load.bar}`}
+                              style={{ width: `${Math.max(4, loadPct)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Reason */}
+                        <p className="text-[11px] text-on-surface-variant italic mb-3 leading-relaxed">
+                          "{rec.reason}"
+                        </p>
+
+                        {/* Action buttons */}
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              onNavigate('appointment', { defaultAgencyId: rec.agency.id });
+                            }}
+                            className="bg-primary text-on-primary py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-tighter hover:opacity-90 flex items-center justify-center gap-1"
+                          >
+                            <CalendarDays className="w-3 h-3" /> Đặt lịch
+                          </button>
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (rec.navigation.osmUrl) window.open(rec.navigation.osmUrl, '_blank');
+                            }}
+                            disabled={!rec.navigation.osmUrl}
+                            className="bg-surface-container-highest text-on-surface-variant py-2 rounded-lg text-[11px] font-extrabold uppercase tracking-tighter hover:bg-secondary hover:text-on-secondary transition-colors flex items-center justify-center gap-1 disabled:opacity-40"
+                          >
+                            <Navigation className="w-3 h-3" /> Chỉ đường
+                          </button>
+                        </div>
+
+                        {/* Google Maps alt link */}
+                        {rec.navigation.googleMapsUrl && (
+                          <button
+                            onClick={e => { e.stopPropagation(); window.open(rec.navigation.googleMapsUrl, '_blank'); }}
+                            className="mt-1.5 w-full text-[10px] text-outline hover:text-primary transition-colors flex items-center justify-center gap-1"
+                          >
+                            <Target className="w-3 h-3" /> Mở Google Maps
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {!smartSearched && !smartLoading && (
+                    <div className="flex flex-col items-center text-center py-10 space-y-3">
+                      <div className="w-16 h-16 bg-primary-container/30 rounded-full flex items-center justify-center">
+                        <Sparkles className="w-8 h-8 text-primary" />
+                      </div>
+                      <p className="text-sm font-bold text-on-surface-variant">Tìm cơ quan phù hợp nhất</p>
+                      <p className="text-xs text-outline leading-relaxed max-w-[200px]">
+                        Chọn thủ tục và bấm tìm — hệ thống sẽ gợi ý cơ quan gần bạn, ít đông nhất lúc này.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Normal map sidebar content ── */}
+            {sidebarTab === 'map' && (
+            <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="p-5 space-y-5 flex-shrink-0">
 
               {/* Search + Autocomplete */}
               <div className="relative">
@@ -471,6 +761,8 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                 })
               )}
             </div>
+            </div>
+            )}
           </div>
 
           {/* Map area */}

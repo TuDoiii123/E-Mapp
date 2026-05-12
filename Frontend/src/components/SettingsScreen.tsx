@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { useAuth } from '../contexts/AuthContext';
 import React from 'react';
 interface SettingsScreenProps {
-  onNavigate: (screen: string) => void;
+  onNavigate: (screen: string, params?: any) => void;
 }
 
 export function SettingsScreen({ onNavigate }: SettingsScreenProps) {
@@ -37,21 +37,21 @@ export function SettingsScreen({ onNavigate }: SettingsScreenProps) {
       title: 'Tài khoản',
       icon: User,
       items: [
-        { label: 'Thông tin cá nhân', value: user?.fullName || '—', action: () => {} },
-        { label: 'Số CCCD', value: user?.cccdNumber || '—', action: () => {} },
-        { label: 'Số điện thoại', value: user?.phone || '—', action: () => {} },
-        { label: 'Email', value: user?.email || '—', action: () => {} }
-      ]
+        { label: 'Thông tin cá nhân', value: user?.fullName || '—', action: () => onNavigate('account-detail') },
+        { label: 'Số CCCD',           value: user?.cccdNumber || '—', action: () => onNavigate('account-detail') },
+        { label: 'Số điện thoại',     value: user?.phone || '—',     action: () => onNavigate('account-detail') },
+        { label: 'Email',             value: user?.email || '—',     action: () => onNavigate('account-detail') },
+      ],
     },
     {
-      title: 'VNeID',
+      title: 'VNeID & Bảo mật',
       icon: Shield,
       items: [
-        { label: 'Trạng thái kết nối', value: vneidStatus, action: () => {} },
-        { label: 'Quản lý chữ ký số', value: 'Xem chi tiết', action: () => {} },
-        { label: 'Bảo mật tài khoản', value: 'Cấu hình', action: () => {} }
-      ]
-    }
+        { label: 'Trạng thái VNeID',  value: vneidStatus,      action: () => onNavigate('account-detail') },
+        { label: 'Đổi mật khẩu',      value: 'Cập nhật',       action: () => onNavigate('account-detail') },
+        { label: 'Bảo mật tài khoản', value: 'Cấu hình 2FA',   action: () => onNavigate('account-detail') },
+      ],
+    },
   ];
 
   const handleLogout = async () => {

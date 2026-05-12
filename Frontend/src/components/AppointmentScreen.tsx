@@ -125,11 +125,9 @@ export function AppointmentScreen({ onNavigate, defaultAgencyId, defaultServiceC
     if (!/^(0[0-9]{9,10})$/.test(phone)) { setError('Số điện thoại không hợp lệ'); return; }
     setLoading(true); setError(null);
     try {
-      await appointmentsAPI.create({ agencyId: agencyName, serviceCode, date: selDate, time: selTime, fullName, phone, info: note });
-      const yr  = new Date().getFullYear().toString().slice(-2);
-      const mo  = selDate.split('-')[1] ?? String(viewMonth + 1).padStart(2, '0');
-      const num = String(Math.floor(Math.random() * 900) + 100);
-      setConfirmCode(`${yr}${mo}-HN-${num}`);
+      const result = await appointmentsAPI.create({ agencyId: agencyName, serviceCode, date: selDate, time: selTime, fullName, phone, info: note });
+      const serverCode = result?.data?.id ?? result?.data?.queueNumber;
+      setConfirmCode(serverCode ? String(serverCode).slice(0, 12).toUpperCase() : `HS-${Date.now().toString(36).toUpperCase()}`);
       setSuccess(true);
     } catch (e: any) {
       setError(e.message || 'Có lỗi xảy ra');

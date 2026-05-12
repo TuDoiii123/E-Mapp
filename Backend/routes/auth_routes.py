@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from functools import wraps
 import jwt
 import json
+import os
 from datetime import datetime, timedelta
 import re
 from models.user import User
@@ -144,11 +145,15 @@ def register():
                     'message': f'Lỗi xác thực VNeID: {str(e)}'
                 }), 400
         else:
-            # For demo, accept 123456 as valid OTP
-            if otp != '123456':
+            # OTP — bắt buộc set DEMO_OTP trong .env; không có default cứng trong production
+            demo_otp = os.getenv('DEMO_OTP')
+            if not demo_otp:
+                log.warning('[AUTH] DEMO_OTP not set in environment — rejecting all OTPs')
+                return jsonify({'success': False, 'message': 'Hệ thống OTP chưa được cấu hình. Liên hệ quản trị viên.'}), 503
+            if otp != demo_otp:
                 return jsonify({
                     'success': False,
-                    'message': 'Mã OTP không đúng. Sử dụng 123456 cho demo.'
+                    'message': 'Mã OTP không đúng hoặc đã hết hạn.'
                 }), 400
         
         # Create user
@@ -166,12 +171,13 @@ def register():
         
         user = User.create(user_data)
         token = generate_token(user)
-        
+        safe_user = {k: v for k, v in user.items() if k != 'password'}
+
         return jsonify({
             'success': True,
             'message': 'Đăng ký thành công',
             'data': {
-                'user': user,
+                'user': safe_user,
                 'token': token
             }
         }), 201
@@ -227,12 +233,15 @@ def login():
         
         # Generate token
         token = generate_token(user)
-        
+
+        # Loại bỏ password hash trước khi trả về client
+        safe_user = {k: v for k, v in user.items() if k != 'password'}
+
         return jsonify({
             'success': True,
             'message': 'Đăng nhập thành công',
             'data': {
-                'user': user,
+                'user': safe_user,
                 'token': token
             }
         }), 200
@@ -243,6 +252,80 @@ def login():
             'success': False,
             'message': 'Lỗi đăng nhập'
         }), 500
+
+
+@auth_bp.route('/change-password', methods=['POST'])
+def change_password():
+    """Đổi mật khẩu — yêu cầu đăng nhập."""
+    user_id = getattr(request, 'user_id', None)
+    if not user_id:
+        return jsonify({'success': False, 'message': 'Chưa xác thực'}), 401
+    try:
+        data             = request.get_json() or {}
+        current_password = data.get('currentPassword', '').strip()
+        new_password     = data.get('newPassword', '').strip()
+
+        if not current_password or not new_password:
+            return jsonify({'success': False, 'message': 'Thiếu thông tin mật khẩu'}), 400
+        if len(new_password) < 8:
+            return jsonify({'success': False, 'message': 'Mật khẩu mới phải có ít nhất 8 ký tự'}), 400
+
+        user = User.find_by_id(user_id)
+        if not user:
+            return jsonify({'success': False, 'message': 'Người dùng không tồn tại'}), 404
+
+        # Cần lấy user kèm password để verify
+        from models.db import db
+        from sqlalchemy import text as _text
+        row = db.session.execute(
+            _text('SELECT password FROM public.users WHERE id = :id'),
+            {'id': user_id}
+        ).fetchone()
+        if not row or not User.verify_password(current_password, row[0]):
+            return jsonify({'success': False, 'message': 'Mật khẩu hiện tại không đúng'}), 400
+
+        from werkzeug.security import generate_password_hash
+        hashed = generate_password_hash(new_password, method='pbkdf2:sha256')
+        db.session.execute(
+            _text('UPDATE public.users SET password = :pw, updated_at = now() WHERE id = :id'),
+            {'pw': hashed, 'id': user_id}
+        )
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Đổi mật khẩu thành công'}), 200
+    except Exception as e:
+        log.error(f'change_password error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Lỗi hệ thống'}), 500
+
+
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    """
+    Yêu cầu đặt lại mật khẩu qua email.
+    TODO: Tích hợp email service thực tế (SendGrid / SMTP).
+    Hiện tại: mock — trả về thành công để frontend không bị block.
+    """
+    try:
+        data  = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+        if not email or '@' not in email:
+            return jsonify({'success': False, 'message': 'Email không hợp lệ'}), 400
+
+        # Kiểm tra email tồn tại (không tiết lộ nếu không tồn tại để tránh user enumeration)
+        user = User.find_by_email(email)
+        if user:
+            log.info(f'[auth] Forgot password request for email: {email[:3]}***')
+            # TODO: Generate reset token, send email
+            # reset_token = secrets.token_urlsafe(32)
+            # send_reset_email(email, reset_token)
+
+        # Luôn trả về thành công dù email có tồn tại hay không
+        return jsonify({
+            'success': True,
+            'message': 'Nếu email tồn tại, chúng tôi đã gửi hướng dẫn đặt lại mật khẩu.'
+        }), 200
+    except Exception as e:
+        log.error(f'forgot_password error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Lỗi hệ thống'}), 500
 
 
 @auth_bp.route('/logout', methods=['POST'])
@@ -302,9 +385,11 @@ def update_profile():
                 'message': 'Dữ liệu không hợp lệ'
             }), 400
         
-        user_id = request.user_id  # Set by middleware
+        user_id = getattr(request, 'user_id', None)
+        if not user_id:
+            return jsonify({'success': False, 'message': 'Chưa xác thực'}), 401
+
         user = User.find_by_id(user_id)
-        
         if not user:
             return jsonify({
                 'success': False,

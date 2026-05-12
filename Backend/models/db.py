@@ -6,8 +6,10 @@ from urllib.parse import quote_plus
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.pool import NullPool
 from sqlalchemy import text
+from logger import get_logger
 
-db = SQLAlchemy()
+log = get_logger('db')
+db  = SQLAlchemy()
 
 
 def get_db_url():
@@ -41,7 +43,7 @@ def init_db(app):
             db.create_all()
         except Exception as e:
             # non-fatal: continue to ensure users table via raw SQL
-            print('Warning: db.create_all() failed:', e)
+            log.warning(f'db.create_all() failed: {e}')
 
         # Run explicit DDL to ensure users table exists for raw SQL access
         try:
@@ -66,7 +68,7 @@ def init_db(app):
             db.session.execute(users_ddl)
             db.session.commit()
         except Exception as e:
-            print('Warning: ensuring users table failed:', e)
+            log.warning(f'Ensuring users table failed: {e}')
 
         # RAG chatbot + CAG cache tables
         try:
@@ -130,7 +132,7 @@ def init_db(app):
             db.session.execute(rag_ddl)
             db.session.commit()
         except Exception as e:
-            print('Warning: ensuring RAG/CAG tables failed:', e)
+            log.warning(f'Ensuring RAG/CAG tables failed: {e}')
 
         # ── Submission tables ─────────────────────────────────────────────────
         try:
@@ -195,9 +197,9 @@ def init_db(app):
             ''')
             db.session.execute(submission_ddl)
             db.session.commit()
-            print('Submission tables OK')
+            log.debug('Submission tables OK')
         except Exception as e:
-            print('Warning: ensuring submission tables failed:', e)
+            log.warning(f'Ensuring submission tables failed: {e}')
             db.session.rollback()
 
         # ── Queue tables ──────────────────────────────────────────────────────
@@ -255,10 +257,338 @@ def init_db(app):
             ''')
             db.session.execute(queue_ddl)
             db.session.commit()
-            print('Queue tables OK')
+            log.debug('Queue tables OK')
         except Exception as e:
-            print('Warning: ensuring queue tables failed:', e)
+            log.warning(f'Ensuring queue tables failed: {e}')
             db.session.rollback()
+
+        # ── Appointments table ────────────────────────────────────────────────
+        try:
+            appt_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.appointments (
+                id           VARCHAR(80)  PRIMARY KEY,
+                user_id      VARCHAR(80),
+                agency_id    VARCHAR(255) NOT NULL,
+                service_code VARCHAR(100) NOT NULL,
+                date         DATE         NOT NULL,
+                time         VARCHAR(10)  NOT NULL,
+                status       VARCHAR(30)  NOT NULL DEFAULT 'pending',
+                full_name    VARCHAR(255),
+                phone        VARCHAR(50),
+                info         TEXT,
+                queue_number INTEGER,
+                created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_appt_user
+                ON public.appointments(user_id, date);
+            CREATE INDEX IF NOT EXISTS idx_appt_agency
+                ON public.appointments(agency_id, date);
+            CREATE INDEX IF NOT EXISTS idx_appt_status
+                ON public.appointments(status, agency_id, date);
+            ''')
+            db.session.execute(appt_ddl)
+            db.session.commit()
+            log.debug('Appointments table OK')
+        except Exception as e:
+            log.warning(f'Ensuring appointments table failed: {e}')
+            db.session.rollback()
+
+        # ── Chatbot config tables ─────────────────────────────────────────────
+        try:
+            chatbot_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.chatbot_personas (
+                id          VARCHAR(80)  PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                name        VARCHAR(100) NOT NULL DEFAULT 'Trợ lý công',
+                tone        VARCHAR(50)  NOT NULL DEFAULT 'formal',
+                language    VARCHAR(10)  NOT NULL DEFAULT 'vi',
+                greeting    TEXT         NOT NULL DEFAULT 'Xin chào! Tôi là trợ lý hành chính công. Tôi có thể giúp gì cho bạn?',
+                farewell    TEXT         NOT NULL DEFAULT 'Cảm ơn bạn đã sử dụng dịch vụ. Chúc bạn một ngày tốt lành!',
+                description TEXT,
+                is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+
+            CREATE TABLE IF NOT EXISTS public.chatbot_prompts (
+                id          VARCHAR(80)  PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                type        VARCHAR(50)  NOT NULL,
+                name        VARCHAR(150) NOT NULL,
+                content     TEXT         NOT NULL,
+                description TEXT,
+                variables   JSONB        NOT NULL DEFAULT '[]',
+                is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+                persona_id  VARCHAR(80)  REFERENCES public.chatbot_personas(id) ON DELETE SET NULL,
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_cprompt_type
+                ON public.chatbot_prompts(type, is_active);
+
+            CREATE TABLE IF NOT EXISTS public.chatbot_rules (
+                id          VARCHAR(80)  PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                category    VARCHAR(80)  NOT NULL,
+                rule_text   TEXT         NOT NULL,
+                priority    INTEGER      NOT NULL DEFAULT 0,
+                is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_crule_cat
+                ON public.chatbot_rules(category, is_active, priority DESC);
+
+            CREATE TABLE IF NOT EXISTS public.chatbot_sessions (
+                id          VARCHAR(80)  PRIMARY KEY,
+                user_id     VARCHAR(80),
+                mode        VARCHAR(30)  NOT NULL DEFAULT 'general',
+                state       JSONB        NOT NULL DEFAULT '{}',
+                history     JSONB        NOT NULL DEFAULT '[]',
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_csess_user
+                ON public.chatbot_sessions(user_id, updated_at DESC);
+            ''')
+            db.session.execute(chatbot_ddl)
+            db.session.commit()
+            log.debug('Chatbot config tables OK')
+        except Exception as e:
+            log.warning(f'Ensuring chatbot tables failed: {e}')
+            db.session.rollback()
+
+        # ── Evaluations + form_templates + procedures tables ─────────────────
+        # QUAN TRỌNG: Phải tạo TRƯỚC khối hardening (FK constraints)
+        try:
+            eval_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.evaluations (
+                id                VARCHAR(80)  PRIMARY KEY,
+                application_id    VARCHAR(80)  NOT NULL,
+                user_id           VARCHAR(80)  NOT NULL,
+                agency_id         VARCHAR(255) NOT NULL DEFAULT '',
+                service_name      VARCHAR(255) NOT NULL DEFAULT '',
+                attitude_rating   INTEGER      NOT NULL DEFAULT 0
+                    CHECK (attitude_rating BETWEEN 1 AND 5),
+                time_rating       INTEGER      NOT NULL DEFAULT 0
+                    CHECK (time_rating BETWEEN 1 AND 5),
+                facilities_rating INTEGER      NOT NULL DEFAULT 0
+                    CHECK (facilities_rating BETWEEN 1 AND 5),
+                avg_rating        FLOAT        NOT NULL DEFAULT 0,
+                comment           TEXT         NOT NULL DEFAULT '',
+                submitted_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                created_at        TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_eval_user
+                ON public.evaluations(user_id, submitted_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_eval_app
+                ON public.evaluations(application_id);
+            CREATE INDEX IF NOT EXISTS idx_eval_agency
+                ON public.evaluations(agency_id, submitted_at DESC);
+
+            CREATE TABLE IF NOT EXISTS public.form_templates (
+                id                  VARCHAR(80)  PRIMARY KEY,
+                name                VARCHAR(255) NOT NULL,
+                description         TEXT         NOT NULL DEFAULT '',
+                service_id          VARCHAR(255),
+                filename            VARCHAR(255) NOT NULL,
+                original_name       VARCHAR(255),
+                storage_path        VARCHAR(500),
+                extracted_structure JSONB        NOT NULL DEFAULT '{}',
+                created_by          VARCHAR(80),
+                created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_ft_service
+                ON public.form_templates(service_id);
+            CREATE INDEX IF NOT EXISTS idx_ft_created
+                ON public.form_templates(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS public.procedures (
+                id                  VARCHAR(80)  PRIMARY KEY,
+                name                VARCHAR(255) NOT NULL,
+                code                VARCHAR(50),
+                category            VARCHAR(80)  NOT NULL DEFAULT '',
+                fee                 INTEGER      NOT NULL DEFAULT 0,
+                fee_note            TEXT         NOT NULL DEFAULT '',
+                processing_days     INTEGER      NOT NULL DEFAULT 0,
+                processing_note     TEXT         NOT NULL DEFAULT '',
+                legal_basis         JSONB        NOT NULL DEFAULT '[]',
+                implementing_level  VARCHAR(30)  NOT NULL DEFAULT 'ward',
+                agency              TEXT         NOT NULL DEFAULT '',
+                is_online           BOOLEAN      NOT NULL DEFAULT TRUE,
+                is_active           BOOLEAN      NOT NULL DEFAULT TRUE,
+                created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_proc_category
+                ON public.procedures(category, is_active);
+            CREATE INDEX IF NOT EXISTS idx_proc_level
+                ON public.procedures(implementing_level, is_active);
+            CREATE INDEX IF NOT EXISTS idx_proc_active
+                ON public.procedures(is_active, name);
+            ''')
+            db.session.execute(eval_ddl)
+            db.session.commit()
+            log.debug('Evaluations + form_templates + procedures tables OK')
+        except Exception as e:
+            log.warning(f'Ensuring evaluations/form_templates/procedures tables failed: {e}')
+            db.session.rollback()
+
+        # ── Audit log table ───────────────────────────────────────────────────
+        try:
+            audit_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.audit_logs (
+                id          BIGSERIAL    PRIMARY KEY,
+                actor_id    VARCHAR(80),
+                actor_role  VARCHAR(50),
+                action      VARCHAR(100) NOT NULL,
+                resource    VARCHAR(100) NOT NULL,
+                resource_id VARCHAR(80),
+                detail      JSONB        NOT NULL DEFAULT '{}',
+                ip          VARCHAR(45),
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_actor
+                ON public.audit_logs(actor_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_audit_resource
+                ON public.audit_logs(resource, resource_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_audit_created
+                ON public.audit_logs(created_at DESC);
+            ''')
+            db.session.execute(audit_ddl)
+            db.session.commit()
+            log.debug('Audit log table OK')
+        except Exception as e:
+            log.warning(f'Ensuring audit_logs table failed: {e}')
+            db.session.rollback()
+
+        # ── Schema hardening: FK, indexes, CHECK constraints ──────────────────
+        try:
+            hardening_ddl = text('''
+            -- Materialize applicant_name từ JSONB → column riêng để index và tìm kiếm nhanh
+            ALTER TABLE public.applications
+                ADD COLUMN IF NOT EXISTS applicant_name VARCHAR(255);
+
+            -- Backfill từ JSONB data
+            UPDATE public.applications
+            SET applicant_name = data->>'applicantName'
+            WHERE applicant_name IS NULL AND data->>'applicantName' IS NOT NULL;
+
+            -- Index cho search theo tên (thay thế ILIKE trên JSONB)
+            CREATE INDEX IF NOT EXISTS idx_app_applicant_name
+                ON public.applications(applicant_name);
+
+            -- GIN index cho tìm kiếm toàn văn trong JSONB data
+            CREATE INDEX IF NOT EXISTS idx_app_data_gin
+                ON public.applications USING gin(data jsonb_path_ops);
+
+            -- Compound index cho tìm kiếm + phân quyền
+            CREATE INDEX IF NOT EXISTS idx_app_applicant_status
+                ON public.applications(applicant_id, status, created_at DESC);
+
+            -- Index lịch sử trạng thái theo thời gian
+            CREATE INDEX IF NOT EXISTS idx_apphist_time
+                ON public.application_status_history(application_id, created_at DESC);
+
+            -- Compound index cho hàng chờ (query chính của queue)
+            CREATE INDEX IF NOT EXISTS idx_qt_agency_status_date
+                ON public.queue_tickets(agency_id, status, date);
+
+            -- Index cho lịch hẹn theo ngày + cơ quan
+            CREATE INDEX IF NOT EXISTS idx_appt_agency_date_status
+                ON public.appointments(agency_id, date, status);
+
+            -- FK: applications → users (không xóa cascade vì audit cần giữ)
+            ALTER TABLE public.applications
+                DROP CONSTRAINT IF EXISTS fk_app_applicant;
+            ALTER TABLE public.applications
+                ADD CONSTRAINT fk_app_applicant
+                FOREIGN KEY (applicant_id) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: application_documents → applications (cascade xóa khi xóa hồ sơ)
+            ALTER TABLE public.application_documents
+                DROP CONSTRAINT IF EXISTS fk_appdoc_app;
+            ALTER TABLE public.application_documents
+                ADD CONSTRAINT fk_appdoc_app
+                FOREIGN KEY (application_id) REFERENCES public.applications(id)
+                ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: application_status_history → applications
+            ALTER TABLE public.application_status_history
+                DROP CONSTRAINT IF EXISTS fk_apphist_app;
+            ALTER TABLE public.application_status_history
+                ADD CONSTRAINT fk_apphist_app
+                FOREIGN KEY (application_id) REFERENCES public.applications(id)
+                ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: evaluations → applications + users
+            ALTER TABLE public.evaluations
+                DROP CONSTRAINT IF EXISTS fk_eval_app;
+            ALTER TABLE public.evaluations
+                ADD CONSTRAINT fk_eval_app
+                FOREIGN KEY (application_id) REFERENCES public.applications(id)
+                ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+
+            ALTER TABLE public.evaluations
+                DROP CONSTRAINT IF EXISTS fk_eval_user;
+            ALTER TABLE public.evaluations
+                ADD CONSTRAINT fk_eval_user
+                FOREIGN KEY (user_id) REFERENCES public.users(id)
+                ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: appointments → users
+            ALTER TABLE public.appointments
+                DROP CONSTRAINT IF EXISTS fk_appt_user;
+            ALTER TABLE public.appointments
+                ADD CONSTRAINT fk_appt_user
+                FOREIGN KEY (user_id) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- CHECK constraints trên status
+            ALTER TABLE public.applications
+                DROP CONSTRAINT IF EXISTS chk_app_status;
+            ALTER TABLE public.applications
+                ADD CONSTRAINT chk_app_status
+                CHECK (status IN (''draft'',''submitted'',''in_review'',''approved'',''rejected'',''more_info'',''withdraw''));
+
+            ALTER TABLE public.queue_tickets
+                DROP CONSTRAINT IF EXISTS chk_qt_status;
+            ALTER TABLE public.queue_tickets
+                ADD CONSTRAINT chk_qt_status
+                CHECK (status IN (''waiting'',''called'',''serving'',''done'',''absent'',''cancelled''));
+
+            ALTER TABLE public.evaluations
+                DROP CONSTRAINT IF EXISTS chk_eval_ratings;
+            ALTER TABLE public.evaluations
+                ADD CONSTRAINT chk_eval_ratings
+                CHECK (
+                    attitude_rating BETWEEN 1 AND 5 AND
+                    time_rating     BETWEEN 1 AND 5 AND
+                    facilities_rating BETWEEN 1 AND 5
+                );
+
+            ''')
+            db.session.execute(hardening_ddl)
+            db.session.commit()
+            log.debug('Schema hardening OK')
+        except Exception as e:
+            log.warning(f'Schema hardening partially failed (may already exist): {e}')
+            db.session.rollback()
+
+        # NOT NULL migrations (tách riêng vì SQL cần single-quote cho default string)
+        _notnull_stmts = [
+            "UPDATE public.applications SET service_id = '' WHERE service_id IS NULL",
+            "ALTER TABLE public.applications ALTER COLUMN service_id SET DEFAULT ''",
+            "UPDATE public.appointments SET status = 'pending' WHERE status IS NULL",
+            "ALTER TABLE public.appointments ALTER COLUMN status SET DEFAULT 'pending'",
+            "ALTER TABLE public.appointments ALTER COLUMN status SET NOT NULL",
+        ]
+        for stmt in _notnull_stmts:
+            try:
+                db.session.execute(text(stmt))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
 
     return db
 
@@ -270,5 +600,5 @@ def test_connection():
         result = db.session.execute(text('SELECT 1'))
         return result.fetchone() is not None
     except Exception as e:
-        print(f"Database connection failed: {e}")
+        log.error(f"Database connection failed: {e}")
         return False

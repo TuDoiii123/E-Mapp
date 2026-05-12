@@ -9,7 +9,7 @@ declare global {
 }
 
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8888/api';
-export const API_BASE_URL_FALLBACK = 'http://localhost:8888/api';
+export const API_BASE_URL_FALLBACK = import.meta.env.VITE_API_URL_FALLBACK || 'http://localhost:8889/api';
 
 export interface LoginRequest {
   cccdNumber: string;
@@ -73,6 +73,17 @@ export const removeToken = (): void => {
   localStorage.removeItem('auth_token');
 };
 
+// Fetch với fallback URL (dùng cho voice API không qua apiRequest)
+async function fetchWithFallback(url: string, opts: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, opts);
+  } catch {
+    if (API_BASE_URL === API_BASE_URL_FALLBACK) throw new Error('Network error');
+    const fallbackUrl = url.replace(API_BASE_URL, API_BASE_URL_FALLBACK);
+    return fetch(fallbackUrl, opts);
+  }
+}
+
 // Shared API request helper with primary → fallback URL logic
 export async function apiRequest<T>(
   endpoint: string,
@@ -119,6 +130,17 @@ export async function apiRequest<T>(
         `Lỗi: ${error.message || 'Network error'}`
       );
     }
+  }
+
+  if (response!.status === 401) {
+    // Chỉ kích hoạt session-expiry nếu user đang có token (phân biệt với login sai mật khẩu)
+    const hadToken = !!getToken();
+    if (hadToken) {
+      removeToken();
+      window.dispatchEvent(new CustomEvent('auth:logout'));
+      throw new Error('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    }
+    // Không có token → 401 bình thường (sai credentials, endpoint public, v.v.)
   }
 
   if (!response!.ok) {
@@ -273,82 +295,50 @@ export const chatbotAPI = {
   },
 };
 
+function _voiceHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // Voice API
 export const voiceAPI = {
   stt: async (blob: Blob): Promise<{ status: string; text?: string; message?: string }> => {
     const form = new FormData();
     form.append('file', blob, 'audio.webm');
-    const token = getToken();
-    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE_URL}/voice/stt`, { method: 'POST', headers, body: form as any });
-    } catch {
-      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/stt`, { method: 'POST', headers, body: form as any });
-    }
+    const res = await fetchWithFallback(`${API_BASE_URL}/voice/stt`,
+      { method: 'POST', headers: _voiceHeaders(), body: form as any });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.message || 'STT error');
     return data;
   },
 
   tts: async (text: string): Promise<Blob> => {
-    const token = getToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE_URL}/voice/tts`, { method: 'POST', headers, body: JSON.stringify({ text }) });
-    } catch {
-      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/tts`, { method: 'POST', headers, body: JSON.stringify({ text }) });
-    }
-    if (!res.ok) {
-      const msg = await res.text();
-      throw new Error(msg || 'TTS error');
-    }
-    return await res.blob();
+    const headers = { 'Content-Type': 'application/json', ..._voiceHeaders() };
+    const res = await fetchWithFallback(`${API_BASE_URL}/voice/tts`,
+      { method: 'POST', headers, body: JSON.stringify({ text }) });
+    if (!res.ok) throw new Error((await res.text()) || 'TTS error');
+    return res.blob();
   },
 
   autoCreate: async (text: string, phone?: string, sessionId?: string): Promise<{
-    status: string;
-    message: string;
-    next?: string;
-    state?: any;
-    suggestedSlots?: string[];
-    appointment?: any;
+    status: string; message: string; next?: string;
+    state?: any; suggestedSlots?: string[]; appointment?: any;
   }> => {
-    const token = getToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    const body = JSON.stringify({ text, phone, sessionId });
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE_URL}/voice/appointments/auto-create`, { method: 'POST', headers, body });
-    } catch {
-      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/appointments/auto-create`, { method: 'POST', headers, body });
-    }
+    const headers = { 'Content-Type': 'application/json', ..._voiceHeaders() };
+    const res = await fetchWithFallback(`${API_BASE_URL}/voice/appointments/auto-create`,
+      { method: 'POST', headers, body: JSON.stringify({ text, phone, sessionId }) });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.message || 'Voice booking error');
     return data;
   },
 
   dialog: async (text: string, sessionId?: string, phone?: string, speak = true): Promise<{
-    reply: string;
-    step: string;
-    done: boolean;
-    state: any;
-    appointment?: any;
-    audio?: { mimeType: string; base64: string };
+    reply: string; step: string; done: boolean; state: any;
+    appointment?: any; audio?: { mimeType: string; base64: string };
   }> => {
-    const token = getToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers = { 'Content-Type': 'application/json', ..._voiceHeaders() };
     const body = JSON.stringify({ text, sessionId, phone, speak });
-    let res: Response;
-    try {
-      res = await fetch(`${API_BASE_URL}/voice/dialog`, { method: 'POST', headers, body });
-    } catch {
-      res = await fetch(`${API_BASE_URL_FALLBACK}/voice/dialog`, { method: 'POST', headers, body });
-    }
+    const res = await fetchWithFallback(`${API_BASE_URL}/voice/dialog`, { method: 'POST', headers, body });
     const data = await res.json();
     if (!res.ok) throw new Error(data?.reply || data?.message || 'Voice dialog error');
     return data;

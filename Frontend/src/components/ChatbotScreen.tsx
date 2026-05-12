@@ -5,6 +5,7 @@ import {
   Menu, Share2, Bot, Sun, MessageSquarePlus,
 } from 'lucide-react';
 import { chatbotAPI, voiceAPI, type ChatSessionSummary } from '../services/api';
+import { VoiceBookingModal } from './VoiceBookingModal';
 
 interface ChatbotScreenProps {
   onNavigate: (screen: string) => void;
@@ -42,8 +43,9 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [showSearch,      setShowSearch]      = useState(false);
   const [searchTerm,      setSearchTerm]      = useState('');
-  const [isRecording,     setIsRecording]     = useState(false);
+  const [isRecording,       setIsRecording]       = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showVoiceModal,    setShowVoiceModal]    = useState(false);
 
   const activeConversationId = sessionId ?? '__local__';
 
@@ -345,7 +347,7 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
 
   const startAdministrativeQA   = useCallback(() => startModeConversation('administrative_qa',   'Chào bạn, tôi là Trợ lý hành chính của E-Map. Bạn hãy nhập câu hỏi về thủ tục, lệ phí, thời hạn xử lý hoặc cơ quan phụ trách để tôi hỗ trợ.'), [startModeConversation]);
   const startDocumentSuggestion = useCallback(() => startModeConversation('document_suggestion', 'Chào bạn, tôi sẽ gợi ý các giấy tờ liên quan. Vui lòng nhập loại thủ tục hoặc mục đích để tôi liệt kê giấy tờ cần chuẩn bị.'), [startModeConversation]);
-  const startBooking            = useCallback(() => startModeConversation('booking',             'Bạn đang bắt đầu yêu cầu Đặt lịch. Vui lòng nhập loại dịch vụ và thời điểm mong muốn.'), [startModeConversation]);
+  const startBooking            = useCallback(() => { setMode('booking'); setShowVoiceModal(true); }, []);
 
   const handleKeyPress = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend(); }
@@ -763,6 +765,13 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
           </div>
         </section>
 
+        {/* ── Voice Booking Modal ── */}
+        <VoiceBookingModal
+          isOpen={showVoiceModal}
+          onClose={() => { setShowVoiceModal(false); setMode('default'); }}
+          sessionId={sessionId}
+        />
+
         {/* ── Input Footer ── */}
         <footer
           className="flex-shrink-0 px-3 md:px-6 pt-3 pb-4 md:pb-6"
@@ -792,13 +801,13 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                   style={{ color: '#4d2128', minWidth: 0 }}
                 />
                 <button
-                  aria-label={isRecording ? 'Dừng ghi âm' : 'Ghi âm giọng nói'}
+                  aria-label={mode === 'booking' ? 'Mở giao diện đặt lịch giọng nói' : isRecording ? 'Dừng ghi âm' : 'Ghi âm giọng nói'}
                   disabled={isTyping}
-                  onClick={() => isRecording ? stopRecording() : startRecording()}
+                  onClick={() => mode === 'booking' ? setShowVoiceModal(true) : isRecording ? stopRecording() : startRecording()}
                   className="p-2.5 transition-colors rounded-full disabled:opacity-40"
-                  style={{ color: isRecording ? '#b7131a' : '#824c54' }}
+                  style={{ color: mode === 'booking' ? '#b7131a' : isRecording ? '#b7131a' : '#824c54' }}
                 >
-                  <Mic className={`w-4 h-4 md:w-5 md:h-5 ${isRecording ? 'animate-pulse' : ''}`} />
+                  <Mic className={`w-4 h-4 md:w-5 md:h-5 ${(isRecording && mode !== 'booking') ? 'animate-pulse' : ''}`} />
                 </button>
                 <button
                   aria-label="Gửi tin nhắn"

@@ -2,17 +2,47 @@ import {
   Search, FileText, Plus, MapPin, Star, Bell, Calendar, Hash,
   MonitorPlay, ShieldCheck, TrendingUp, Clock, CheckCircle2,
   FolderOpen, CreditCard, ArrowRight, Eye, Download, ChevronRight,
+  RefreshCw,
 } from 'lucide-react';
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import * as adminSvc from '../services/adminService';
 
 interface HomeScreenProps {
-  onNavigate: (screen: string) => void;
+  onNavigate: (screen: string, params?: any) => void;
 }
+
+const STATUS_LABEL: Record<string, string> = {
+  draft: 'Bản nháp', submitted: 'Đã nộp', in_review: 'Đang xem xét',
+  approved: 'Đã duyệt', rejected: 'Từ chối', more_info: 'Cần bổ sung', withdraw: 'Đã rút',
+};
+const STATUS_COLOR: Record<string, string> = {
+  draft: 'bg-gray-50 text-gray-600', submitted: 'bg-blue-50 text-blue-600',
+  in_review: 'bg-yellow-50 text-yellow-700', approved: 'bg-green-50 text-green-700',
+  rejected: 'bg-red-50 text-red-700', more_info: 'bg-orange-50 text-orange-700',
+};
 
 export function HomeScreen({ onNavigate }: HomeScreenProps) {
   const { user } = useAuth();
   const role = (user as any)?.role || 'citizen';
+  const [recentApps,    setRecentApps]    = useState<any[]>([]);
+  const [loadingApps,   setLoadingApps]   = useState(true);
+  const [searchQuery,   setSearchQuery]   = useState('');
+  const [sysStats,      setSysStats]      = useState<{totalApplications:number; pendingApplications:number; ticketsToday:number} | null>(null);
+
+  useEffect(() => {
+    adminSvc.getMyApplications()
+      .then(r => setRecentApps(Array.isArray(r.data) ? r.data.slice(0, 3) : []))
+      .catch(() => setRecentApps([]))
+      .finally(() => setLoadingApps(false));
+    adminSvc.getStats()
+      .then(r => setSysStats(r.data || null))
+      .catch(() => {});
+  }, []);
+
+  const handleSearch = () => {
+    if (searchQuery.trim()) onNavigate('search');
+  };
 
   const shortcuts = [
     {
@@ -97,32 +127,6 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
     opacity: 0.07,
   };
 
-  const recentRecords = [
-    {
-      id: 'GPLX-2023-0892', title: 'Cấp đổi Giấy phép lái xe quốc tế',
-      date: '12/10/2023', status: 'processing',
-      statusLabel: 'Đang xử lý', icon: MapPin, iconBg: 'bg-red-50', iconColor: 'text-[#8f000d]',
-      action: 'view',
-    },
-    {
-      id: 'XNHT-2023-4412', title: 'Xác nhận tình trạng hôn nhân',
-      date: '11/10/2023', status: 'done',
-      statusLabel: 'Hoàn thành', icon: CheckCircle2, iconBg: 'bg-green-50', iconColor: 'text-green-600',
-      action: 'download',
-    },
-    {
-      id: 'LPTB-2023-0015', title: 'Nộp lệ phí trước bạ xe ô tô',
-      date: '09/10/2023', status: 'payment',
-      statusLabel: 'Chờ thanh toán', icon: CreditCard, iconBg: 'bg-yellow-50', iconColor: 'text-[#a17d00]',
-      action: 'pay',
-    },
-  ];
-
-  const statusStyle: Record<string, string> = {
-    processing: 'bg-blue-50 text-blue-600',
-    done:       'bg-green-50 text-green-700',
-    payment:    'bg-red-50 text-[#8f000d]',
-  };
 
   return (
     <div className="min-h-screen bg-[#f8f9fa] pb-24">
@@ -146,6 +150,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
             </button>
             <button
+              onClick={() => onNavigate('account-detail')}
               className="w-9 h-9 bg-neutral-100 rounded-full flex items-center justify-center hover:bg-neutral-200 transition-colors"
               aria-label="Tài khoản"
             >
@@ -174,10 +179,14 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
             </div>
             <div className="w-full relative">
               <input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
                 placeholder="Tìm thủ tục, cơ quan, số CCCD..."
                 className="w-full h-11 sm:h-12 pl-4 pr-24 sm:pr-28 rounded-full bg-white text-sm text-neutral-800 shadow-xl border-none outline-none focus:ring-2 focus:ring-[#a17d00]/40"
               />
               <button
+                onClick={handleSearch}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 h-8 sm:h-9 px-4 sm:px-5 bg-[#8f000d] text-white rounded-full flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide hover:bg-[#a17d00] transition-colors active:scale-95"
               >
                 <Search className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
@@ -194,7 +203,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               <h2 className="text-base sm:text-lg font-black text-neutral-800 tracking-tight">Danh mục dịch vụ</h2>
               <div className="w-10 sm:w-14 h-1 bg-[#a17d00] rounded-full mt-1" />
             </div>
-            <button className="text-xs font-bold text-neutral-500 bg-neutral-100 hover:bg-neutral-200 px-3 py-1.5 rounded-full transition-colors">
+            <button onClick={() => onNavigate('search')} className="text-xs font-bold text-neutral-500 bg-neutral-100 hover:bg-neutral-200 px-3 py-1.5 rounded-full transition-colors">
               Xem toàn bộ
             </button>
           </div>
@@ -272,9 +281,24 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
         {/* ── Stats ── */}
         <section className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
-            { label: 'Hồ sơ đã nộp', value: '1.248',  trend: '+12.5%',      icon: FileText,    iconBg: 'bg-red-50',    iconColor: 'text-[#8f000d]',  trendColor: 'text-green-600' },
-            { label: 'Đang xử lý',   value: '432',     trend: '85% đúng hạn', icon: Clock,       iconBg: 'bg-yellow-50', iconColor: 'text-[#a17d00]',  trendColor: 'text-[#a17d00]' },
-            { label: 'Đã hoàn thành',value: '21.056',  trend: '2.5 ngày/hs',  icon: CheckCircle2,iconBg: 'bg-green-50',  iconColor: 'text-green-600',  trendColor: 'text-neutral-500' },
+            {
+              label: 'Tổng hồ sơ',
+              value: sysStats ? sysStats.totalApplications.toLocaleString('vi-VN') : '—',
+              icon: FileText, iconBg: 'bg-red-50', iconColor: 'text-[#8f000d]', trendColor: 'text-green-600',
+              trend: 'Hệ thống',
+            },
+            {
+              label: 'Đang xử lý',
+              value: sysStats ? sysStats.pendingApplications.toLocaleString('vi-VN') : '—',
+              icon: Clock, iconBg: 'bg-yellow-50', iconColor: 'text-[#a17d00]', trendColor: 'text-[#a17d00]',
+              trend: 'Chờ duyệt',
+            },
+            {
+              label: 'Vé hôm nay',
+              value: sysStats ? sysStats.ticketsToday.toLocaleString('vi-VN') : '—',
+              icon: CheckCircle2, iconBg: 'bg-green-50', iconColor: 'text-green-600', trendColor: 'text-neutral-500',
+              trend: 'Hàng chờ',
+            },
           ].map((s) => (
             <div key={s.label} className="bg-white rounded-2xl p-3 sm:p-4 border border-neutral-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all">
               <div className={`w-8 h-8 sm:w-10 sm:h-10 ${s.iconBg} rounded-xl flex items-center justify-center mb-2`}>
@@ -313,30 +337,33 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
             </div>
 
             <div className="divide-y divide-neutral-50">
-              {recentRecords.map((r) => (
-                <div key={r.id} className="flex items-center gap-2.5 sm:gap-3 px-3 sm:px-4 py-3 sm:py-4 hover:bg-neutral-50/60 transition-colors group">
-                  <div className={`w-9 h-9 sm:w-11 sm:h-11 ${r.iconBg} rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform`}>
-                    <r.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${r.iconColor}`} />
+              {loadingApps ? (
+                <div className="flex justify-center py-8"><RefreshCw className="w-5 h-5 animate-spin text-neutral-300" /></div>
+              ) : recentApps.length === 0 ? (
+                <p className="text-center text-neutral-400 text-sm py-8">Chưa có hồ sơ nào</p>
+              ) : recentApps.map((app) => (
+                <div key={app.id} className="flex items-center gap-2.5 sm:gap-3 px-3 sm:px-4 py-3 sm:py-4 hover:bg-neutral-50/60 transition-colors group">
+                  <div className="w-9 h-9 sm:w-11 sm:h-11 bg-red-50 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-[#8f000d]" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs sm:text-sm font-bold text-neutral-800 truncate">{r.title}</p>
-                    <p className="text-[9px] sm:text-[10px] font-mono text-neutral-400 mt-0.5 truncate">{r.id} · {r.date}</p>
+                    <p className="text-xs sm:text-sm font-bold text-neutral-800 truncate">
+                      {app.procedureName || app.serviceId || 'Hồ sơ'}
+                    </p>
+                    <p className="text-[9px] sm:text-[10px] font-mono text-neutral-400 mt-0.5 truncate">
+                      {app.id.slice(0, 8).toUpperCase()} · {app.createdAt ? new Date(app.createdAt).toLocaleDateString('vi-VN') : ''}
+                    </p>
                   </div>
-                  <span className={`shrink-0 text-[9px] sm:text-[10px] font-black uppercase tracking-wide px-2 sm:px-2.5 py-1 rounded-full whitespace-nowrap ${statusStyle[r.status]}`}>
-                    {r.statusLabel}
+                  <span className={`shrink-0 text-[9px] sm:text-[10px] font-black uppercase tracking-wide px-2 sm:px-2.5 py-1 rounded-full whitespace-nowrap ${STATUS_COLOR[app.status] || 'bg-gray-50 text-gray-600'}`}>
+                    {STATUS_LABEL[app.status] || app.status}
                   </span>
-                  {r.action === 'pay' ? (
-                    <button className="shrink-0 text-[10px] font-bold text-white bg-[#a17d00] hover:bg-[#8f6600] px-2.5 sm:px-3 py-1.5 rounded-full uppercase tracking-wide transition-colors active:scale-95 whitespace-nowrap">
-                      Thanh toán
-                    </button>
-                  ) : (
-                    <button
-                      className="shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-neutral-200 flex items-center justify-center text-neutral-400 hover:bg-[#8f000d] hover:text-white hover:border-[#8f000d] transition-all"
-                      aria-label={r.action === 'download' ? 'Tải xuống' : 'Xem chi tiết'}
-                    >
-                      {r.action === 'download' ? <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
-                    </button>
-                  )}
+                  <button
+                    onClick={() => onNavigate('search')}
+                    className="shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-neutral-200 flex items-center justify-center text-neutral-400 hover:bg-[#8f000d] hover:text-white hover:border-[#8f000d] transition-all"
+                    aria-label="Xem chi tiết"
+                  >
+                    <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  </button>
                 </div>
               ))}
             </div>

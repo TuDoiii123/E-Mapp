@@ -20,14 +20,11 @@ import {
 } from '../services/queueService';
 import { useAuth } from '../contexts/AuthContext';
 
-const BASE = 'http://localhost:8888/api/queue';
+import { API_BASE_URL, getToken } from '../services/api';
 
-function authH() {
-  const token = localStorage.getItem('token');
-  return token
-    ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-    : { 'Content-Type': 'application/json' };
-}
+const BASE = `${API_BASE_URL}/queue`;
+
+function authH() { const token = getToken(); return token ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : {}; }
 
 interface Props {
   onNavigate: (screen: string, params?: any) => void;
@@ -67,7 +64,7 @@ export function QueueStaffScreen({
 
   const loadQueue = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       const res = await fetch(
         `${BASE}/list/${agencyId}?status=waiting`,
         { headers: authH() }

@@ -16,16 +16,16 @@ interface NotificationScreenProps {
 function appToNotification(app: any) {
   const STATUS_TITLE: Record<string, string> = {
     submitted:      'Hồ sơ đã được tiếp nhận',
-    under_review:   'Hồ sơ đang được xem xét',
-    need_more_info: 'Cần bổ sung hồ sơ',
+    in_review:   'Hồ sơ đang được xem xét',
+    more_info: 'Cần bổ sung hồ sơ',
     approved:       'Hồ sơ đã được duyệt',
     rejected:       'Hồ sơ bị từ chối',
   };
   const PRIORITY: Record<string, string> = {
-    need_more_info: 'high',
+    more_info: 'high',
     rejected:       'high',
     approved:       'medium',
-    under_review:   'medium',
+    in_review:   'medium',
     submitted:      'low',
   };
   const st = app.currentStatus || 'submitted';
@@ -43,29 +43,31 @@ function appToNotification(app: any) {
 
 const STATUS_VI: Record<string, string> = {
   submitted:      'Đã nộp',
-  under_review:   'Đang xét',
-  need_more_info: 'Cần bổ sung',
+  in_review:   'Đang xét',
+  more_info: 'Cần bổ sung',
   approved:       'Đã duyệt',
   rejected:       'Từ chối',
 };
 const STATUS_COLOR: Record<string, string> = {
   submitted:      'bg-blue-100 text-blue-800',
-  under_review:   'bg-yellow-100 text-yellow-800',
-  need_more_info: 'bg-orange-100 text-orange-800',
+  in_review:   'bg-yellow-100 text-yellow-800',
+  more_info: 'bg-orange-100 text-orange-800',
   approved:       'bg-green-100 text-green-800',
   rejected:       'bg-red-100 text-red-800',
 };
 
 export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
   const [filter,       setFilter]       = useState('all');
+  const [showFilter,   setShowFilter]   = useState(false);
   const [applications, setApplications] = useState<any[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [readSet,      setReadSet]      = useState<Set<string>>(new Set());
 
   useEffect(() => {
+    // Dùng my/online thay vì search endpoint (trả đúng dữ liệu của user hiện tại)
     adminSvc.getMyApplications()
-      .then(r => setApplications(r.data || []))
-      .catch(() => {})
+      .then(r => setApplications(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setApplications([]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -73,6 +75,8 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
     ...n,
     read: readSet.has(String(n.id)) || n.read,
   }));
+
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   const history = applications.map(app => ({
     id:     app.id,
@@ -107,8 +111,8 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
   const getStatusIcon = (statusKey: string) => {
     switch (statusKey) {
       case 'approved':       return <CheckCircle className="w-4 h-4 text-green-600" />;
-      case 'under_review':   return <Clock className="w-4 h-4 text-blue-600" />;
-      case 'need_more_info': return <AlertCircle className="w-4 h-4 text-orange-600" />;
+      case 'in_review':   return <Clock className="w-4 h-4 text-blue-600" />;
+      case 'more_info': return <AlertCircle className="w-4 h-4 text-orange-600" />;
       case 'rejected':       return <AlertCircle className="w-4 h-4 text-red-600" />;
       default:               return <FileText className="w-4 h-4 text-gray-400" />;
     }
@@ -142,7 +146,13 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
             </div>
             <div className="flex items-center gap-3">
               <Badge variant="destructive" className="px-2 py-1 rounded-full">{unreadCount}</Badge>
-              <Button variant="ghost" size="sm" className="w-10 h-10 rounded-full">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`w-10 h-10 rounded-full ${showFilter ? 'bg-gray-100' : ''}`}
+                onClick={() => setShowFilter(v => !v)}
+                title="Lọc thông báo"
+              >
                 <Filter className="w-5 h-5" />
               </Button>
             </div>
@@ -162,18 +172,30 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
           </TabsList>
 
           <TabsContent value="notifications" className="space-y-4">
-            {/* Filter */}
-            <Select value={filter} onValueChange={setFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Lọc thông báo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả</SelectItem>
-                <SelectItem value="document">Hồ sơ</SelectItem>
-                <SelectItem value="office">Cơ quan</SelectItem>
-                <SelectItem value="evaluation">Đánh giá</SelectItem>
-              </SelectContent>
-            </Select>
+            {/* Filter — toggled by header button */}
+            {showFilter && (
+              <Select value={filter} onValueChange={v => { setFilter(v); setShowFilter(false); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Lọc thông báo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tất cả</SelectItem>
+                  <SelectItem value="document">Hồ sơ</SelectItem>
+                  <SelectItem value="office">Cơ quan</SelectItem>
+                  <SelectItem value="evaluation">Đánh giá</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            {filter !== 'all' && (
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  Đang lọc: {filter === 'document' ? 'Hồ sơ' : filter === 'office' ? 'Cơ quan' : 'Đánh giá'}
+                </Badge>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setFilter('all')}>
+                  Xóa lọc
+                </Button>
+              </div>
+            )}
 
             {/* Notifications list */}
             {loading && (

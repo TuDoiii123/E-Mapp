@@ -10,12 +10,12 @@ import {
   LayoutList, FolderX,
 } from 'lucide-react';
 
-const BASE = 'http://localhost:8888/api';
+import { API_BASE_URL, getToken } from '../services/api';
 
-function authH(): Record<string, string> {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+const BASE = API_BASE_URL;
+
+function authH(): HeadersInit { const token = getToken(); return token ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } : {}; }
+
 
 interface AppRecord {
   id:            string;

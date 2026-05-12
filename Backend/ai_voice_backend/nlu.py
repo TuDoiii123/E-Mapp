@@ -99,12 +99,14 @@ class NLUEngine:
     Regex fallback khi Gemini không khả dụng.
     """
 
-    _SYSTEM_PROMPT = (
+    # Fallback prompt — dùng khi DB không khả dụng
+    _SYSTEM_PROMPT_FALLBACK = (
         'Bạn là AI phân tích ngôn ngữ tự nhiên tiếng Việt cho hệ thống đặt lịch hành chính công.\n'
         'Nhiệm vụ: phân tích câu người dùng và trả về JSON có cấu trúc.\n\n'
         'Schema bắt buộc:\n'
         '{\n'
-        '  "intent": "<BOOK_APPOINTMENT|QUERY_SERVICE|CONFIRM|DENY|CANCEL|UNKNOWN>",\n'
+        '  "intent": "<BOOK_APPOINTMENT|QUERY_PROCEDURE|QUERY_LOCATION|QUERY_STATUS|'
+        'CANCEL|CONFIRM|DENY|GREETING|FAREWELL|UNKNOWN>",\n'
         '  "entities": {\n'
         '    "service_type":     "<tên thủ tục hoặc null>",\n'
         '    "location":         "<tên cơ quan/quận/huyện hoặc null>",\n'
@@ -123,6 +125,26 @@ class NLUEngine:
 
     def __init__(self) -> None:
         self._model = None
+        self._cached_prompt: Optional[str] = None
+
+    @property
+    def _SYSTEM_PROMPT(self) -> str:
+        """Tải NLU prompt từ DB (cache trong instance). Fallback về hardcoded."""
+        if self._cached_prompt:
+            return self._cached_prompt
+        try:
+            from services.prompt_builder import build_nlu_prompt
+            prompt = build_nlu_prompt()
+            if prompt:
+                self._cached_prompt = prompt
+                return prompt
+        except Exception as e:
+            log.debug(f'[NLU] Không tải được prompt từ DB: {e}')
+        return self._SYSTEM_PROMPT_FALLBACK
+
+    def invalidate_prompt_cache(self):
+        """Xóa cache prompt — gọi sau khi cập nhật config."""
+        self._cached_prompt = None
 
     def analyze(self, text: str, history: Optional[List[Dict]] = None) -> NLUResult:
         """
@@ -162,19 +184,31 @@ class NLUEngine:
                 genai.configure(api_key=GEMINI_API_KEY)
                 self._model = genai.GenerativeModel(GEMINI_MODEL)
 
-            today_str = date.today().isoformat()
-            history_text = ''
-            if history:
-                lines = [f'  [{h["role"]}]: {h["content"]}' for h in history[-4:]]
-                history_text = 'Lịch sử hội thoại:\n' + '\n'.join(lines) + '\n\n'
+            today_str    = date.today().isoformat()
+            history_lines = [f'  [{h["role"]}]: {h["content"]}' for h in (history or [])[-4:]]
+            history_text  = '\n'.join(history_lines) if history_lines else '(chưa có lịch sử)'
 
-            prompt = (
-                f'{self._SYSTEM_PROMPT}\n'
-                f'Hôm nay: {today_str}\n\n'
-                f'{history_text}'
-                f'Câu người dùng: "{text}"\n\n'
-                'Trả lời JSON:'
-            )
+            system = self._SYSTEM_PROMPT
+            # Kiểm tra template có chứa placeholder động không (DB-style full template)
+            is_full_template = '{user_text}' in system or '{history}' in system
+
+            if is_full_template:
+                # Substitute tất cả biến động vào template — dùng replace để tránh import thêm
+                for key, val in [
+                    ('today',      today_str),
+                    ('history',    history_text),
+                    ('user_text',  text),
+                ]:
+                    system = system.replace('{' + key + '}', val)
+                prompt = system
+            else:
+                # Fallback / hardcoded prompt: append thủ công
+                prompt = (
+                    f'{system}\n'
+                    f'Hôm nay: {today_str}\n\n'
+                    + (f'Lịch sử hội thoại:\n{history_text}\n\n' if history_lines else '')
+                    + f'Câu người dùng: "{text}"\n\nTrả lời JSON:'
+                )
 
             resp = self._model.generate_content(prompt)
             raw  = (getattr(resp, 'text', None) or '').strip()

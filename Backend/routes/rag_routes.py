@@ -4,6 +4,7 @@ RAG / chatbot routes: chat, session history, procedure suggestion.
 import json
 import os
 import re
+import threading
 import time
 import traceback
 import uuid
@@ -25,22 +26,28 @@ rag_bp = Blueprint('rag', __name__)
 
 VN_TZ = timezone(timedelta(hours=7))
 
-# ── Lazy singletons ────────────────────────────────────────────────────────────
+# ── Lazy singletons (thread-safe) ─────────────────────────────────────────────
 _agent_graph: Optional[MultiRoleAgentGraph] = None
 _db_engine = None
+_agent_lock = threading.Lock()
+_db_lock    = threading.Lock()
 
 
 def _get_agent() -> MultiRoleAgentGraph:
     global _agent_graph
     if _agent_graph is None:
-        _agent_graph = MultiRoleAgentGraph()
+        with _agent_lock:
+            if _agent_graph is None:
+                _agent_graph = MultiRoleAgentGraph()
     return _agent_graph
 
 
 def _get_db():
     global _db_engine
     if _db_engine is None:
-        _db_engine = connect_sql()
+        with _db_lock:
+            if _db_engine is None:
+                _db_engine = connect_sql()
     return _db_engine
 
 
@@ -107,7 +114,7 @@ def _log_chat(session_id: Optional[str], user_query: str, ai_response: str, inte
                 text('''INSERT INTO query_results (conversation_id, query_text, response_text, retrieved_docs, model_name, timestamp)
                         VALUES (:conv_id, :q_text, :res_text, :r_docs, :model, :ts)'''),
                 {'conv_id': conv_id, 'q_text': user_query, 'res_text': ai_response,
-                 'r_docs': intermediate_steps, 'model': 'gemini-2.0-flash', 'ts': timestamp},
+                 'r_docs': intermediate_steps, 'model': os.getenv('GEMINI_MODEL_RAG', 'gemini-2.0-flash'), 'ts': timestamp},
             )
     except SQLAlchemyError as exc:
         log.warning(f'[rag] DB log failed: {exc}', exc_info=True)
@@ -175,11 +182,31 @@ def rag_chat():
 
     start_time = time.perf_counter()
 
-    if intent == 'document_suggestion':
-        suggestion_result = suggest_procedures(user_message)
-        final_answer = suggestion_result['explanation']
-        raw_analysis = {'mode': 'document_suggestion'}
-        raw_tool_results = suggestion_result
+    # ── Phát hiện câu hỏi về giấy tờ / thủ tục (không cần gọi RAG agent) ──────
+    _DOC_QUERY_RE = re.compile(
+        r'(cần giấy tờ gì|cần những gì|hồ sơ gồm|giấy tờ cần|chuẩn bị gì'
+        r'|thủ tục gồm|cần photo|cần bản sao|tài liệu nào|điều kiện gì'
+        r'|làm thủ tục gì|thủ tục nào|gợi ý thủ tục)',
+        re.IGNORECASE,
+    )
+
+    if intent == 'document_suggestion' or (intent == '' and _DOC_QUERY_RE.search(user_message)):
+        try:
+            from services.suggest_service import suggest_with_requirements, format_for_chat
+            sug_result  = suggest_with_requirements(user_message, top_k=4, threshold=0.4)
+            final_answer = format_for_chat(sug_result.get('suggestions', []))
+            if not sug_result.get('suggestions'):
+                # Fallback: dùng suggest_procedures cũ
+                suggestion_result = suggest_procedures(user_message)
+                final_answer = suggestion_result.get('explanation', 'Không tìm thấy thủ tục phù hợp.')
+            raw_analysis    = {'mode': 'document_suggestion_with_requirements'}
+            raw_tool_results = sug_result
+        except Exception as _sug_exc:
+            log.warning(f'[rag/chat] suggest_with_requirements failed: {_sug_exc}')
+            suggestion_result = suggest_procedures(user_message)
+            final_answer     = suggestion_result['explanation']
+            raw_analysis     = {'mode': 'document_suggestion'}
+            raw_tool_results  = suggestion_result
     else:
         try:
             agent = _get_agent()
@@ -190,8 +217,13 @@ def rag_chat():
             state = agent.create_new_state(user_question=user_message, session_id=session_id or '')
             result = agent.run(state)
         except Exception as exc:
-            log.error(f'[rag/chat] Agent execution failed: {exc}', exc_info=True)
-            return jsonify({'success': False, 'message': f'Agent execution failed: {exc}'}), 500
+            err_str = str(exc)
+            is_quota = '429' in err_str or 'quota' in err_str.lower() or 'ResourceExhausted' in type(exc).__name__
+            if is_quota:
+                log.warning('[rag/chat] Gemini quota exceeded.')
+                return jsonify({'success': False, 'message': 'Hệ thống AI đang quá tải, vui lòng thử lại sau ít phút.', 'code': 'quota_exceeded'}), 503
+            log.error('[rag/chat] Agent execution failed: %s', exc, exc_info=True)
+            return jsonify({'success': False, 'message': 'Xảy ra lỗi khi xử lý yêu cầu. Vui lòng thử lại.'}), 500
 
         final_answer = result.get('final_answer') or 'Xin lỗi, tôi chưa thể trả lời câu hỏi này.'
         raw_analysis = result.get('llm_analysis')

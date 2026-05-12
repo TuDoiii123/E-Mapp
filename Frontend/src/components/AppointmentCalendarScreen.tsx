@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { appointmentsAPI, Appointment, CreateAppointmentRequest } from '../services/appointmentsApi';
+import { servicesAPI } from '../services/servicesApi';
 import {
   ArrowLeft, ChevronLeft, ChevronRight, Plus, X,
   CalendarX2, CheckCircle, AlertCircle, CalendarDays,
@@ -57,10 +58,23 @@ export const AppointmentCalendarScreen: React.FC<AppointmentCalendarScreenProps>
   const [fullName,    setFullName]    = useState('');
   const [phone,       setPhone]       = useState('');
   const [info,        setInfo]        = useState('');
-  const [agencyId,    setAgencyId]    = useState('agency-001');
-  const [serviceCode, setServiceCode] = useState('SERVICE_CODE');
+  const [agencyId,    setAgencyId]    = useState('');
+  const [serviceCode, setServiceCode] = useState('');
   const [time,        setTime]        = useState('09:00');
   const [errors,      setErrors]      = useState<string[]>([]);
+  const [agencies,    setAgencies]    = useState<{id:string; name:string}[]>([]);
+
+  const SERVICE_OPTIONS = [
+    { code: 'cccd',         label: 'Cấp CCCD / Căn cước công dân' },
+    { code: 'ho_khau',      label: 'Đăng ký hộ khẩu / Cư trú' },
+    { code: 'khai_sinh',    label: 'Đăng ký khai sinh' },
+    { code: 'ket_hon',      label: 'Đăng ký kết hôn' },
+    { code: 'dat_dai',      label: 'Thủ tục đất đai / Nhà ở' },
+    { code: 'gplx',         label: 'Giấy phép lái xe' },
+    { code: 'xac_nhan',     label: 'Công chứng / Xác nhận giấy tờ' },
+    { code: 'doanh_nghiep', label: 'Đăng ký doanh nghiệp' },
+    { code: 'other',        label: 'Thủ tục khác' },
+  ];
 
   const loadAppointments = async () => {
     setLoading(true);
@@ -71,7 +85,17 @@ export const AppointmentCalendarScreen: React.FC<AppointmentCalendarScreenProps>
     finally { setLoading(false); }
   };
 
-  useEffect(() => { loadAppointments(); }, []);
+  useEffect(() => {
+    loadAppointments();
+    servicesAPI.getAll(undefined, undefined, undefined, undefined, undefined, 100)
+      .then(r => {
+        const list = r?.data?.services || [];
+        setAgencies(list.map((s: any) => ({ id: s.id, name: s.name })));
+        // dùng functional update để không cần agencyId trong dependency array
+        setAgencyId(prev => (prev || (list.length > 0 ? list[0].id : '')));
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const apptDaySet = useMemo(() => {
     const s = new Set<string>();
@@ -460,12 +484,35 @@ export const AppointmentCalendarScreen: React.FC<AppointmentCalendarScreenProps>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelCls}>Dịch vụ</label>
-                  <input className={inputCls} value={serviceCode} onChange={e => setServiceCode(e.target.value)} placeholder="SERVICE_CODE" />
+                  <label className={labelCls}>Loại dịch vụ</label>
+                  <select
+                    className={inputCls}
+                    value={serviceCode}
+                    onChange={e => setServiceCode(e.target.value)}
+                    aria-label="Loại dịch vụ"
+                  >
+                    <option value="">-- Chọn dịch vụ --</option>
+                    {SERVICE_OPTIONS.map(s => (
+                      <option key={s.code} value={s.code}>{s.label}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className={labelCls}>Cơ quan</label>
-                  <input className={inputCls} value={agencyId} onChange={e => setAgencyId(e.target.value)} placeholder="agency-001" />
+                  <select
+                    className={inputCls}
+                    value={agencyId}
+                    onChange={e => setAgencyId(e.target.value)}
+                    aria-label="Cơ quan"
+                  >
+                    <option value="">-- Chọn cơ quan --</option>
+                    {agencies.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                    {agencies.length === 0 && (
+                      <option value="ubnd-thanhhoa">UBND tỉnh Thanh Hóa</option>
+                    )}
+                  </select>
                 </div>
               </div>
               <div>

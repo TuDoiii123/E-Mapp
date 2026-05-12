@@ -35,13 +35,13 @@ def _get_gemini():
     if _gemini_model is not None:
         return _gemini_model
     api_key = os.getenv('GEMINI_API_KEY')
-    model_name = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.5-flash-lite')
     if not api_key:
         return None
     try:
+        from config import GEMINI_MODEL_VOICE
         import google.generativeai as genai  # type: ignore
         genai.configure(api_key=api_key)
-        _gemini_model = genai.GenerativeModel(model_name)
+        _gemini_model = genai.GenerativeModel(GEMINI_MODEL_VOICE)
     except Exception as exc:
         log.error(f'[Gemini][voice] Init failed: {exc}', exc_info=True)
     return _gemini_model
@@ -498,6 +498,25 @@ def api_voice_dialog():
             return _reply('Lịch hẹn trước đó đã được đặt xong. Nếu muốn đặt lịch mới, hãy nói thủ tục bạn cần.',
                           state['step'], True, state)
 
+    # QUERY_PROCEDURE — người dùng hỏi về giấy tờ / thủ tục (không muốn đặt lịch)
+    # Phát hiện sớm trước vòng lặp dialog để trả lời ngay
+    if state.get('step') == _Step.ASK_INTENT:
+        _is_query = re.search(
+            r'(cần giấy tờ gì|cần những gì|hồ sơ gồm|giấy tờ cần|chuẩn bị gì|'
+            r'thủ tục gồm|cần photo|cần bản sao|tài liệu nào|điều kiện gì)',
+            user_text, re.IGNORECASE,
+        )
+        if _is_query:
+            try:
+                from services.suggest_service import suggest_with_requirements, format_for_voice
+                _sug_result = suggest_with_requirements(user_text, top_k=3, threshold=0.4)
+                _voice_text = format_for_voice(_sug_result.get('suggestions', []))
+                _save_store(_DIALOG_FILE, dialog_store)
+                return _reply(_voice_text, _Step.ASK_INTENT, False, state,
+                              {'suggestions': _sug_result.get('suggestions', [])})
+            except Exception as _e:
+                log.warning(f'[dialog] QUERY_PROCEDURE suggest failed: {_e}')
+
     # ASK_INTENT
     if state.get('step') == _Step.ASK_INTENT:
         service_type = None
@@ -637,3 +656,61 @@ def api_voice_dialog():
     _save_store(_DIALOG_FILE, dialog_store)
     return _reply('Mình đang gặp lỗi kỹ thuật, anh/chị thử nói lại giúp em được không?',
                   state.get('step') or _Step.ASK_INTENT, False, state)
+
+
+# ── Suggest procedure endpoint (voice + chatbot) ──────────────────────────────
+
+@voice_bp.route('/suggest-procedure', methods=['POST'])
+def api_voice_suggest_procedure():
+    """
+    Gợi ý thủ tục hành chính + giấy tờ từ câu hỏi tự nhiên.
+    Dùng cho chatbot voice và text.
+
+    POST /api/voice/suggest-procedure
+    Body: {
+      "query": "tôi cần làm gì để cấp lại căn cước?",
+      "topK": 4,        // optional
+      "threshold": 0.45, // optional
+      "speak": false     // optional — trả về audio TTS
+    }
+
+    Response:
+    {
+      "success": true,
+      "data": {
+        "suggestions": [...],
+        "explanation": "...",
+        "voiceText": "...",     // chuỗi đọc cho TTS
+        "audio": { ... }        // nếu speak=true
+      }
+    }
+    """
+    payload   = request.get_json(silent=True) or {}
+    query     = (payload.get('query') or '').strip()
+    top_k     = int(payload.get('topK') or 4)
+    threshold = float(payload.get('threshold') or 0.45)
+    speak     = bool(payload.get('speak') or os.getenv('VOICE_DIALOG_TTS', '0') == '1')
+
+    if not query:
+        return jsonify({'success': False, 'message': 'Thiếu query'}), 400
+
+    try:
+        from services.suggest_service import suggest_with_requirements, format_for_voice
+        result     = suggest_with_requirements(query=query, top_k=top_k, threshold=threshold)
+        voice_text = format_for_voice(result.get('suggestions', []))
+
+        resp_data: Dict[str, Any] = {
+            **result,
+            'voiceText': voice_text,
+        }
+
+        if speak and voice_text:
+            audio_b64 = _tts_mp3_base64(voice_text)
+            if audio_b64:
+                resp_data['audio'] = {'mimeType': 'audio/mpeg', 'base64': audio_b64}
+
+        return jsonify({'success': True, 'data': resp_data})
+
+    except Exception as e:
+        log.error(f'api_voice_suggest_procedure: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500

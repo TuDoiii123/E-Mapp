@@ -79,31 +79,6 @@ class Application:
         all_apps = FileStorage.read_json('applications.json')
         return [app for app in all_apps if app['applicantId'] == applicant_id]
     
-    def attach_document(self, doc_id):
-        """Attach document to application"""
-        if 'documents' not in self.__dict__:
-            self.documents = []
-        self.documents.append(doc_id)
-        Application.update(self.id, {'documents': self.documents})
-        return self
-    
-    def get_documents(self):
-        """Get all documents for this application"""
-        from models.document import Document
-        
-        docs = []
-        for doc_id in self.documents:
-            doc = Document.find_by_id(doc_id)
-            if doc:
-                docs.append(doc)
-        return docs
-    
-    def get_status_history(self):
-        """Get status history for this application"""
-        from models.status_tracking import StatusTracking
-        
-        return StatusTracking.find_by_application_id(self.id)
-
     # Static helper wrappers expected by routes (operate on dicts)
     @staticmethod
     def attach_document(app_id, doc):

@@ -26,56 +26,56 @@ export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
   }, []);
 
   const completed   = myApps.filter(a => a.currentStatus === 'approved').length;
-  const inProgress  = myApps.filter(a => ['submitted','under_review'].includes(a.currentStatus)).length;
-  const needInfo    = myApps.filter(a => a.currentStatus === 'need_more_info').length;
+  const inProgress  = myApps.filter(a => ['submitted','in_review'].includes(a.currentStatus)).length;
+  const needInfo    = myApps.filter(a => a.currentStatus === 'more_info').length;
   const total       = myApps.length;
+
+  // Tính avgProcessingTime từ dữ liệu thực (submitted → approved)
+  const avgProcessingTime = (() => {
+    const done = myApps.filter(a => a.status === 'approved' && a.createdAt && a.updatedAt);
+    if (!done.length) return null;
+    const avg = done.reduce((sum, a) => {
+      const days = (new Date(a.updatedAt).getTime() - new Date(a.createdAt).getTime()) / 86400000;
+      return sum + days;
+    }, 0) / done.length;
+    return Math.round(avg);
+  })();
 
   const personalStats = {
     totalDocuments:    total,
     completed,
     inProgress,
-    avgProcessingTime: 8,
+    avgProcessingTime,
     successRate:       total > 0 ? Math.round((completed / total) * 100) : 0,
   };
 
   const processWarnings = myApps
-    .filter(a => a.currentStatus === 'need_more_info')
+    .filter(a => a.status === 'more_info')
     .map(a => ({
       id:         a.id,
       title:      'Cần bổ sung hồ sơ',
-      content:    `Hồ sơ "${a.procedureName || a.procedureId}" yêu cầu bổ sung thêm tài liệu.`,
+      content:    `Hồ sơ "${a.procedureName || a.serviceId || a.id.slice(0, 8)}" yêu cầu bổ sung thêm tài liệu.`,
       severity:   'warning',
       documentId: a.id,
     }));
 
+  // Gợi ý thực tế dựa trên dữ liệu hồ sơ của user
   const aiSuggestions = [
+    ...(inProgress > 0 ? [{
+      id: 1, type: 'online', title: 'Theo dõi hồ sơ',
+      content: `Bạn có ${inProgress} hồ sơ đang xử lý. Kiểm tra thường xuyên để bổ sung kịp thời.`,
+      action: 'Xem hồ sơ', icon: FileText, priority: 'high',
+    }] : []),
     {
-      id: 1,
-      type: 'office',
-      title: 'Cơ quan ít tải',
-      content: 'UBND Quận 7 hiện tại ít quá tải hơn Quận 1. Thời gian xử lý nhanh hơn 2-3 ngày.',
-      action: 'Xem bản đồ',
-      icon: MapPin,
-      priority: 'high'
-    },
-    {
-      id: 2,
-      type: 'online',
-      title: 'Nộp trực tuyến',
-      content: 'Thủ tục "Giấy phép kinh doanh" nộp online sẽ nhanh hơn 5 ngày so với nộp trực tiếp.',
-      action: 'Nộp ngay',
-      icon: FileText,
-      priority: 'medium'
-    },
-    {
-      id: 3,
-      type: 'timing',
-      title: 'Thời điểm tốt nhất',
+      id: 2, type: 'timing', title: 'Thời điểm tốt nhất',
       content: 'Nộp hồ sơ vào thứ 3-4 sẽ được xử lý nhanh hơn. Tránh thứ 2 và cuối tuần.',
-      action: 'Đặt lịnh báo',
-      icon: Clock,
-      priority: 'low'
-    }
+      action: 'Đặt lịch hẹn', icon: Clock, priority: 'low',
+    },
+    {
+      id: 3, type: 'office', title: 'Nộp trực tuyến',
+      content: 'Trung tâm Hành chính công Thanh Hóa hỗ trợ nộp hồ sơ trực tuyến 24/7.',
+      action: 'Nộp ngay', icon: MapPin, priority: 'medium',
+    },
   ];
 
   const systemStats = systemData ? [

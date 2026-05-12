@@ -527,6 +527,8 @@ class QueueService:
                 'll':  summary.get('loadLevel', 'low'),
             })
             db.session.commit()
-        except Exception:
-            try: db.session.rollback()
-            except Exception: pass
+        except Exception as _sync_err:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
