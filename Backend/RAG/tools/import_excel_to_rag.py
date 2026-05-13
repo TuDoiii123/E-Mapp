@@ -98,6 +98,39 @@ EXCEL_FILES = [
     'faq_g_nha_o.xlsx',
     'faq_g_cong_an.xlsx',
     'faq_g_phuc_loi.xlsx',
+    # Batch 9 — hôn nhân, thừa kế, doanh nghiệp, chứng khoán, hộ chiếu
+    'faq_g_hon_nhan.xlsx',
+    'faq_g_thua_ke.xlsx',
+    'faq_g_doanh_nghiep.xlsx',
+    'faq_g_chung_khoan.xlsx',
+    'faq_g_ho_chieu.xlsx',
+    # Batch 10 — thuế TNCN, xuất khẩu lao động, NVQS, tuyển sinh, việc làm
+    'faq_g_thue_tncn.xlsx',
+    'faq_g_xuat_khau_ld.xlsx',
+    'faq_g_nvqs.xlsx',
+    'faq_g_tuyen_sinh.xlsx',
+    'faq_g_viec_lam.xlsx',
+    # Batch 11 — thi hành án, du lịch, điện lực, vận tải
+    'faq_g_thi_hanh_an.xlsx',
+    'faq_g_du_lich.xlsx',
+    'faq_g_dien_luc.xlsx',
+    'faq_g_van_tai.xlsx',
+    # Batch 12 — thú y, lâm nghiệp, thủy sản, thể thao, quy hoạch
+    'faq_g_thu_y.xlsx',
+    'faq_g_lam_nghiep.xlsx',
+    'faq_g_thuy_san.xlsx',
+    'faq_g_the_thao.xlsx',
+    'faq_g_quy_hoach.xlsx',
+    # Batch 13 — dược phẩm, TMĐT, thiên tai, trẻ em
+    'faq_g_duoc_pham.xlsx',
+    'faq_g_tmdt.xlsx',
+    'faq_g_thien_tai.xlsx',
+    'faq_g_tre_em.xlsx',
+    # Batch 14 — tài chính cá nhân, sức khỏe tâm thần, khởi nghiệp, văn bằng
+    'faq_g_tai_chinh_ca_nhan.xlsx',
+    'faq_g_suc_khoe_tam_than.xlsx',
+    'faq_g_khoi_nghiep.xlsx',
+    'faq_g_van_bang.xlsx',
 ]
 
 
