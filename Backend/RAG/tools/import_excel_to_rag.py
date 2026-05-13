@@ -90,6 +90,14 @@ EXCEL_FILES = [
     'faq_g_tu_phap.xlsx',
     'faq_g_giao_duc.xlsx',
     'faq_g_ngan_hang.xlsx',
+    # Batch 8 — chung toàn quốc (tiếp)
+    'faq_g_bao_hiem.xlsx',
+    'faq_g_quyen_tieu_dung.xlsx',
+    'faq_g_so_huu_tri_tue.xlsx',
+    'faq_g_chuyen_doi_so.xlsx',
+    'faq_g_nha_o.xlsx',
+    'faq_g_cong_an.xlsx',
+    'faq_g_phuc_loi.xlsx',
 ]
 
 
