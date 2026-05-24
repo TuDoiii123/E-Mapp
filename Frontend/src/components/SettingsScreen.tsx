@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, Globe, Bell, Shield, User, ChevronRight, Moon, Sun, Volume2, VolumeX, ArrowLeft } from 'lucide-react';
+import { Settings, Globe, Bell, Shield, User, ChevronRight, Moon, Sun, Volume2, VolumeX, ArrowLeft, LogOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Switch } from './ui/switch';
@@ -62,22 +62,33 @@ export function SettingsScreen({ onNavigate }: SettingsScreenProps) {
   return (
     <div className="min-h-screen bg-gray-50">
       
-      {/* iOS Header */}  
+      {/* iOS Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="px-4 py-4">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onNavigate('home')}
+                className="w-10 h-10 rounded-full"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </Button>
+              <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                <Settings className="w-7 h-7" />
+                Cài đặt
+              </h1>
+            </div>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onNavigate('home')}
-              className="w-10 h-10 rounded-full"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50 flex items-center gap-1.5"
+              onClick={handleLogout}
             >
-              <ArrowLeft className="w-5 h-5" />
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm font-medium">Đăng xuất</span>
             </Button>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
-              <Settings className="w-7 h-7" />
-              Cài đặt
-            </h1>
           </div>
         </div>
       </div>

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import {
   ArrowLeft, Camera, Edit3, Save, X, Eye, EyeOff, Loader2,
-  CheckCircle, AlertCircle,
+  CheckCircle, AlertCircle, LogOut,
 } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
@@ -203,11 +203,22 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
             </Button>
             <h1 className="text-xl font-semibold text-gray-900">Thông tin tài khoản</h1>
           </div>
-          {!isEditing && !isChangingPassword && (
-            <Button variant="ghost" size="sm" onClick={handleEdit}>
-              <Edit3 className="w-4 h-4" />
+          <div className="flex items-center gap-1">
+            {!isEditing && !isChangingPassword && (
+              <Button variant="ghost" size="sm" onClick={handleEdit}>
+                <Edit3 className="w-4 h-4" />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              onClick={async () => { await logout(); onNavigate('login'); }}
+              title="Đăng xuất"
+            >
+              <LogOut className="w-4 h-4" />
             </Button>
-          )}
+          </div>
         </div>
       </div>
 
