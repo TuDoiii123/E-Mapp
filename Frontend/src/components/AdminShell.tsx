@@ -30,7 +30,7 @@ type AdminPage =
 
 const PAGE_META: Record<Exclude<AdminPage, 'home'>, { label: string }> = {
   applications: { label: 'Hồ sơ' },
-  users:        { label: 'Thành viên' },
+  users:        { label: 'Tài khoản' },
   locations:    { label: 'Địa điểm' },
   procedures:   { label: 'Thủ tục' },
   chatbot:      { label: 'Chatbot AI' },
@@ -80,8 +80,8 @@ function AdminHomeView({
     },
     {
       page: 'users' as AdminPage,
-      title: 'Thành viên',
-      desc: 'Tài khoản người dùng',
+      title: 'Tài khoản',
+      desc: 'Quản lý người dùng',
       Icon: Users,
       iconBg: 'bg-blue-50',
       iconColor: 'text-blue-600',
