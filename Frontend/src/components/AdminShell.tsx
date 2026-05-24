@@ -1,12 +1,11 @@
 /**
  * AdminShell — Khung giao diện admin
- * Header tối + bottom navigation 5 tab
+ * Bottom navigation 5 tab (không có header)
  */
 import React, { useState } from 'react';
 import {
-  LayoutDashboard, FolderOpen, CalendarDays, Users, Settings, LogOut, Shield,
+  LayoutDashboard, FolderOpen, CalendarDays, Users, Settings,
 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
 import { AdminDashboardScreen }      from './AdminDashboardScreen';
 import { AdminApplicationsScreen }   from './AdminApplicationsScreen';
 import { AdminAppointmentsScreen }   from './AdminAppointmentsScreen';
@@ -27,35 +26,12 @@ const TABS: { key: AdminTab; label: string; Icon: any }[] = [
 
 export function AdminShell({ onNavigate }: Props) {
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
-  const { user } = useAuth();
 
   return (
     <div className="min-h-screen bg-[#fff4f4] flex flex-col">
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="bg-[#1c0003] text-white px-4 pt-10 pb-3 flex items-center justify-between flex-shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-red-700 rounded-lg flex items-center justify-center flex-shrink-0">
-            <Shield className="w-4 h-4" />
-          </div>
-          <div>
-            <h1 className="text-sm font-bold leading-tight">Quản trị E-Mapp</h1>
-            <p className="text-[10px] text-red-300/70 leading-tight">
-              {user?.fullName ?? 'Admin'} · {user?.role ?? 'admin'}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => onNavigate('login')}
-          className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors"
-          title="Đăng xuất"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
-      </div>
-
       {/* ── Content ────────────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto pb-20">
+      <div className="flex-1 overflow-y-auto pb-20 pt-10">
         {activeTab === 'dashboard'    && <AdminDashboardScreen    onNavigate={onNavigate} hideHeader />}
         {activeTab === 'applications' && <AdminApplicationsScreen onNavigate={onNavigate} />}
         {activeTab === 'appointments' && <AdminAppointmentsScreen onNavigate={onNavigate} />}
