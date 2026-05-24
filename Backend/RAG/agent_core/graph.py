@@ -113,15 +113,23 @@ class MultiRoleAgentGraph:
     # 🚀 Chạy đồ thị
     # ------------------------------------------
     def run(self, state: MultiRoleAgentState) -> Dict[str, Any]:
-        """
-        Nhận vào 1 state (dict) và trả ra state cuối cùng sau khi chạy qua graph.
-        """
-        # Dùng thread_id ngẫu nhiên để tránh lưu checkpoint cũ
+        """Chạy toàn bộ graph (bao gồm llm_response)."""
         thread_id = str(uuid.uuid4())
-
-        final_state = self.app.invoke(
+        return self.app.invoke(
             state,
             config={"configurable": {"thread_id": thread_id}},
         )
 
-        return final_state
+    def run_pipeline_only(self, state: MultiRoleAgentState) -> Dict[str, Any]:
+        """
+        Chạy pipeline đến hết tool_executor (không gọi llm_response).
+        Dùng cho streaming — route sẽ tự gọi synthesizer.stream_run() sau.
+        """
+        from .node import user_input, role_manager, cache_check, task_analyzer, tool_executor
+        for fn in (user_input, role_manager, cache_check):
+            fn(state)
+        if state.get('cache_hit'):
+            return state
+        task_analyzer(state)
+        tool_executor(state)
+        return state

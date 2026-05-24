@@ -21,10 +21,14 @@ import { AppointmentScreen } from './components/AppointmentScreen';
 import { QueueScreen } from './components/QueueScreen';
 import { QueueDisplayScreen } from './components/QueueDisplayScreen';
 import { QueueStaffScreen } from './components/QueueStaffScreen';
-import { AdminDashboardScreen } from './components/AdminDashboardScreen';
+import { AdminShell } from './components/AdminShell';
 
 /* Screens where the chatbot FAB should NOT appear */
-const NO_FAB_SCREENS = ['login', 'register', 'forgot-password', 'chatbot', 'queue-display'];
+const NO_FAB_SCREENS = [
+  'login', 'register', 'forgot-password', 'chatbot', 'queue-display',
+  // Admin screens — no floating chatbot button
+  'admin',
+];
 
 function AppContent() {
   const [currentScreen, setCurrentScreen] = useState('home');
@@ -41,6 +45,18 @@ function AppContent() {
     window.addEventListener('auth:logout', onAuthLogout);
     return () => window.removeEventListener('auth:logout', onAuthLogout);
   }, [logout]);
+
+  // Auto-redirect: admin → trang quản trị | citizen/staff → home
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    if (user.role === 'admin' && currentScreen !== 'admin') {
+      // Chỉ redirect khi đang ở các trang công cộng hoặc home
+      if (['login', 'home', 'register', 'forgot-password'].includes(currentScreen)) {
+        setCurrentScreen('admin');
+        setScreenParams(null);
+      }
+    }
+  }, [isAuthenticated, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLogin = () => {
     setCurrentScreen('home');
@@ -149,7 +165,7 @@ function AppContent() {
           />
         );
       case 'admin':
-        return <AdminDashboardScreen onNavigate={handleNavigateWithParams} />;
+        return <AdminShell onNavigate={handleNavigateWithParams} />;
       default:
         return <HomeScreen onNavigate={handleNavigate} />;
     }

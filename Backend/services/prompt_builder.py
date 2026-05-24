@@ -205,15 +205,16 @@ def _fallback_prompt(
 
     if prompt_type == 'rag_answer':
         return (
-            f'Bạn là {bot_name} của {org_name}.\n'
-            'Trả lời câu hỏi về thủ tục hành chính dựa trên tài liệu được cung cấp.\n'
-            'Hãy trả lời ngắn gọn, chính xác, thân thiện bằng tiếng Việt.\n'
-            'Nếu không có thông tin, hãy thành thật nói không biết và gợi ý liên hệ cơ quan.'
+            f'Bạn là chuyên gia hành chính công Việt Nam, trả lời câu hỏi trực tiếp và đầy đủ.\n'
+            'Luôn trả lời dựa trên kiến thức chuyên môn. Không nói "không có thông tin", "hệ thống chưa có", không redirect user tự tra cứu.\n'
+            'Không dùng markdown: không ###, **, *, ---, ```.'
         )
 
     # Default system
     return (
-        f'Bạn là {bot_name} — trợ lý hành chính công của {org_name}.\n'
+        f'Bạn là {bot_name} — chuyên gia hành chính công của {org_name}.\n'
         f'Hôm nay: {today}.\n\n'
-        'Quy tắc:\n' + (rules_section or '- Hỗ trợ người dùng tra cứu thủ tục hành chính.')
+        'Quy tắc:\n' + (rules_section or '- Hỗ trợ người dùng tra cứu thủ tục hành chính.') + '\n'
+        'Luôn trả lời trực tiếp, không nói "hệ thống chưa có", không redirect user tự tra cứu.\n'
+        'Không dùng markdown: không ###, **, *, ---, ```.'
     )

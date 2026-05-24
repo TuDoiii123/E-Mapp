@@ -285,18 +285,14 @@ def tool_executor(state: MultiRoleAgentState) -> None:
 
     state["tool_results"] = tool_results
 
-def llm_response(state: MultiRoleAgentState) -> None:
-    """
-    Node tổng hợp kết quả cuối cùng.
-    - Dùng GeminiSynthesizerLLM để sinh câu trả lời hoàn chỉnh.
-    """
-
+def build_synthesis_prompt(state: MultiRoleAgentState) -> str:
+    """Xây dựng prompt tổng hợp từ state — dùng chung cho llm_response và streaming."""
     base_prompt = state.get("full_prompt", "")
     user_question = state.get("user_input", "")
     tool_results = state.get("tool_results", [])
 
     if not base_prompt or not user_question:
-        raise ValueError("❌ llm_response: thiếu base_prompt hoặc user_question trong state.")
+        raise ValueError("build_synthesis_prompt: thiếu full_prompt hoặc user_input trong state.")
 
     formatted_tool_results = (
         json.dumps(tool_results, ensure_ascii=False, indent=2)
@@ -304,32 +300,30 @@ def llm_response(state: MultiRoleAgentState) -> None:
         else "Không có tool nào được gọi hoặc không có kết quả."
     )
 
-    system_prompt = f"""
-Bạn là AI assistant đảm nhận vai trò trả lời câu hỏi người dùng về kiến thúc và tài liệu liên quan đến thủ tục hành chính công.
-Dưới đây là prompt hướng dẫn của vai trò này:
+    return f"""Bạn là chuyên gia hành chính công Việt Nam với kiến thức sâu rộng về mọi thủ tục, biểu mẫu, quy trình hành chính.
 
-<base_PROMPT>
-{base_prompt.strip()}
-</base_PROMPT>
+Câu hỏi: {user_question.strip()}
 
-Người dùng đã hỏi:
-<USER_QUESTION>
-{user_question.strip()}
-</USER_QUESTION>
+Dữ liệu tra cứu: {formatted_tool_results}
 
-Các công cụ đã được gọi và trả về kết quả:
-<TOOL_RESULTS>
-{formatted_tool_results}
-</TOOL_RESULTS>
+QUY TẮC BẮT BUỘC — VI PHẠM LÀ SAI:
+1. Trả lời trực tiếp vào câu hỏi ngay từ câu đầu tiên. Không dẫn nhập dài dòng.
+2. Dùng toàn bộ dữ liệu tra cứu được. Nếu dữ liệu thiếu, bổ sung bằng kiến thức chuyên môn về pháp luật và hành chính Việt Nam.
+3. CẤM hoàn toàn các cụm từ sau (dù bất kỳ lý do gì):
+   - "hệ thống chưa có" / "chưa có trong hệ thống"
+   - "thông tin chưa có sẵn" / "chưa được cập nhật"
+   - "tôi không tìm thấy" / "không có thông tin"
+   - "bạn có thể tra cứu thêm" / "bạn có thể đến cơ quan"
+   - "E-Map" / "E-Mapp" / "ứng dụng" / "hệ thống" (không tự nhắc đến tên app)
+   - "tệp tài liệu" / "tài liệu hệ thống"
+4. Nếu không có số liệu cụ thể: đưa ra thông tin chuẩn theo quy định chung, ghi rõ "theo quy định thông thường" hoặc "thường là".
+5. Kết thúc câu trả lời gọn gàng, không kêu gọi user tự tra cứu thêm.
+6. Chỉ dùng văn bản thuần — không dùng ###, **, *, ---, ```, không markdown."""
 
-Nhiệm vụ của bạn:
-- Dựa trên các thông tin ở trên, hãy viết một câu trả lời tự nhiên, rõ ràng.
-- Nếu có dữ liệu từ tool, luôn ưu tiên sử dụng toàn bộ 100% thông tin để trả lời chính xác.
-- Nếu trong dữ liệu từ tool có thông tin về link tài liệu, hãy cung cấp link cho người dùng tìm hiểu. Nếu có nhiều link giống nhau, hãy trả về một link (ví dụ a,a,b --> a,b)
-- Nếu trả về link, vẫn cần phải tóm tắt nội dung chính trong câu trả lời.
-- Nếu không có dữ liệu hoặc dữ liệu mâu thuẫn, hãy trả lời một cách trung lập.
-"""
 
+def llm_response(state: MultiRoleAgentState) -> None:
+    """Node tổng hợp kết quả cuối cùng."""
+    system_prompt = build_synthesis_prompt(state)
     synthesizer = GeminiSynthesizerLLM()
     state["final_answer"] = synthesizer.run(system_prompt).strip()
 

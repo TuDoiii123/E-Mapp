@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 from services.appointments import (
     read_appointments, write_appointments,
     is_valid_time, is_valid_date, create_appointment,
+    update_appointment_status,
 )
 from logger import get_logger
 
@@ -96,6 +97,31 @@ def get_all_appointments():
     except Exception as exc:
         log.error(f'appointments_routes error: {exc}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi khi lấy danh sách lịch hẹn: {exc}'}), 500
+
+
+@appointments_bp.route('/<appt_id>/status', methods=['PATCH'])
+def update_appointment_status_route(appt_id: str):
+    """PATCH /api/appointments/:id/status  — Admin cập nhật trạng thái lịch hẹn."""
+    if getattr(request, 'role', None) != 'admin':
+        return jsonify({'success': False, 'message': 'Forbidden'}), 403
+    try:
+        payload    = request.get_json(silent=True) or {}
+        new_status = payload.get('status', '').strip()
+        if not new_status:
+            return jsonify({'success': False, 'message': 'Thiếu trường status'}), 400
+
+        ok, err = update_appointment_status(appt_id, new_status)
+        if not ok:
+            return jsonify({'success': False, 'message': err}), 400
+
+        return jsonify({
+            'success': True,
+            'message': f'Đã cập nhật trạng thái lịch hẹn thành "{new_status}"',
+            'data':    {'id': appt_id, 'status': new_status},
+        })
+    except Exception as exc:
+        log.error(f'update_appointment_status_route error: {exc}', exc_info=True)
+        return jsonify({'success': False, 'message': f'Lỗi hệ thống: {exc}'}), 500
 
 
 @appointments_bp.route('/upcoming', methods=['GET'])

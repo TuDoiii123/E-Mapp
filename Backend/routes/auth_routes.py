@@ -1,14 +1,20 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 from functools import wraps
 import jwt
 import json
 import os
+import uuid
 from datetime import datetime, timedelta
 import re
+from werkzeug.utils import secure_filename
 from models.user import User
 from services.vneid import verify_vneid
 from config import JWT_SECRET, JWT_EXPIRES_IN
 from logger import get_logger
+
+_AVATAR_DIR   = os.path.join(os.path.dirname(__file__), '..', 'uploads', 'avatars')
+_ALLOWED_IMG  = {'jpg', 'jpeg', 'png', 'gif', 'webp'}
+_MAX_AVATAR_B = 5 * 1024 * 1024  # 5 MB
 
 log = get_logger('auth_routes')
 
@@ -425,10 +431,13 @@ def update_profile():
         
         if 'dateOfBirth' in data:
             updates['dateOfBirth'] = data.get('dateOfBirth')
-        
+
+        if 'address' in data:
+            updates['address'] = (data.get('address') or '').strip()
+
         # Update user
         updated_user = User.update(user_id, updates)
-        
+
         return jsonify({
             'success': True,
             'message': 'Cập nhật thông tin thành công',
@@ -443,3 +452,63 @@ def update_profile():
             'success': False,
             'message': str(e) or 'Lỗi cập nhật thông tin'
         }), 500
+
+
+@auth_bp.route('/profile/avatar', methods=['POST'])
+def upload_avatar():
+    """Upload ảnh đại diện — multipart/form-data field 'file'."""
+    user_id = getattr(request, 'user_id', None)
+    if not user_id:
+        return jsonify({'success': False, 'message': 'Chưa xác thực'}), 401
+    try:
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'message': 'Thiếu file ảnh'}), 400
+
+        file = request.files['file']
+        if not file or not file.filename:
+            return jsonify({'success': False, 'message': 'File không hợp lệ'}), 400
+
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in _ALLOWED_IMG:
+            return jsonify({'success': False, 'message': 'Chỉ chấp nhận JPG, PNG, GIF, WebP'}), 400
+
+        # Kiểm tra kích thước (đọc vào memory tạm)
+        file.seek(0, 2)
+        size = file.tell()
+        file.seek(0)
+        if size > _MAX_AVATAR_B:
+            return jsonify({'success': False, 'message': 'Ảnh không được vượt quá 5 MB'}), 400
+
+        os.makedirs(_AVATAR_DIR, exist_ok=True)
+
+        # Tên file: <user_id>.<ext> — ghi đè ảnh cũ cùng user
+        filename    = f'{user_id}.{ext}'
+        save_path   = os.path.join(_AVATAR_DIR, filename)
+        file.save(save_path)
+
+        avatar_url = f'/api/auth/avatar/{filename}'
+        User.update(user_id, {'avatarUrl': avatar_url})
+
+        log.info(f'[auth] Avatar uploaded for user {user_id}: {filename}')
+        return jsonify({
+            'success': True,
+            'message': 'Tải ảnh đại diện thành công',
+            'data': {'avatarUrl': avatar_url}
+        }), 200
+    except Exception as e:
+        log.error(f'upload_avatar error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': 'Lỗi tải ảnh lên'}), 500
+
+
+@auth_bp.route('/avatar/<filename>', methods=['GET'])
+def serve_avatar(filename):
+    """Phục vụ file ảnh đại diện — không cần auth."""
+    try:
+        # Ngăn path traversal
+        safe_name = secure_filename(filename)
+        if not safe_name:
+            return ('', 404)
+        abs_dir = os.path.abspath(_AVATAR_DIR)
+        return send_from_directory(abs_dir, safe_name)
+    except Exception:
+        return ('', 404)

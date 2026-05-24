@@ -271,6 +271,101 @@ def place_detail():
         return _err('Lỗi lấy chi tiết địa điểm')
 
 
+# ── Directions helpers (turn-by-turn, tiếng Việt) ────────────────────────────
+
+def _fmt_dist_m(m: float) -> str:
+    """Định dạng khoảng cách từ metres."""
+    if m < 1000:
+        return f'{int(m)} m'
+    return f'{m / 1000:.1f} km'
+
+
+def _fmt_dur_s(s: int) -> str:
+    """Định dạng thời gian từ giây."""
+    if s < 60:
+        return f'{s} giây'
+    m = s // 60
+    if m >= 60:
+        return f'{m // 60} giờ {m % 60} phút'
+    return f'{m} phút'
+
+
+_TURN_VI: dict = {
+    # (type, modifier): instruction
+    ('depart',          None):            'Xuất phát',
+    ('arrive',          None):            'Đã đến nơi',
+    ('turn',            'left'):          'Rẽ trái',
+    ('turn',            'right'):         'Rẽ phải',
+    ('turn',            'slight left'):   'Giữ trái nhẹ',
+    ('turn',            'slight right'):  'Giữ phải nhẹ',
+    ('turn',            'sharp left'):    'Rẽ gấp sang trái',
+    ('turn',            'sharp right'):   'Rẽ gấp sang phải',
+    ('turn',            'uturn'):         'Quay đầu xe',
+    ('turn',            'straight'):      'Đi thẳng',
+    ('continue',        'straight'):      'Đi thẳng',
+    ('continue',        None):            'Tiếp tục đi thẳng',
+    ('new name',        None):            'Tiếp tục',
+    ('merge',           None):            'Nhập làn',
+    ('merge',           'left'):          'Nhập làn bên trái',
+    ('merge',           'right'):         'Nhập làn bên phải',
+    ('fork',            'left'):          'Đi theo nhánh bên trái',
+    ('fork',            'right'):         'Đi theo nhánh bên phải',
+    ('fork',            'slight left'):   'Đi theo nhánh bên trái',
+    ('fork',            'slight right'):  'Đi theo nhánh bên phải',
+    ('end of road',     'left'):          'Cuối đường, rẽ trái',
+    ('end of road',     'right'):         'Cuối đường, rẽ phải',
+    ('roundabout',      None):            'Vào vòng xuyến',
+    ('rotary',          None):            'Vào vòng xuyến',
+    ('roundabout turn', 'left'):          'Ra vòng xuyến bên trái',
+    ('roundabout turn', 'right'):         'Ra vòng xuyến bên phải',
+    ('exit roundabout', None):            'Ra khỏi vòng xuyến',
+    ('exit rotary',     None):            'Ra khỏi vòng xuyến',
+    ('on ramp',         None):            'Lên đường cao tốc',
+    ('off ramp',        None):            'Ra đường cao tốc',
+    ('use lane',        None):            'Chọn làn đường phù hợp',
+    ('notification',    None):            'Lưu ý',
+}
+
+
+def _build_instruction(maneuver: dict, road_name: str) -> str:
+    m_type = (maneuver.get('type') or '').lower()
+    m_mod  = (maneuver.get('modifier') or '').lower() or None
+
+    key  = (m_type, m_mod)
+    base = _TURN_VI.get(key) or _TURN_VI.get((m_type, None)) or 'Tiếp tục'
+
+    if road_name and m_type not in ('depart', 'arrive', 'notification', 'use lane'):
+        return f'{base} vào {road_name}'
+    return base
+
+
+def _step_icon_type(maneuver: dict) -> str:
+    """Trả về chuỗi loại icon cho frontend."""
+    m_type = (maneuver.get('type') or '').lower()
+    m_mod  = (maneuver.get('modifier') or '').lower()
+
+    if m_type == 'depart':
+        return 'depart'
+    if m_type == 'arrive':
+        return 'arrive'
+    if m_type in ('roundabout', 'rotary', 'roundabout turn',
+                  'exit roundabout', 'exit rotary'):
+        return 'roundabout'
+    if m_mod == 'uturn':
+        return 'uturn'
+    if 'sharp left'  in m_mod or m_mod == 'left':
+        return 'turn-left'
+    if 'sharp right' in m_mod or m_mod == 'right':
+        return 'turn-right'
+    if 'slight left' in m_mod:
+        return 'slight-left'
+    if 'slight right' in m_mod:
+        return 'slight-right'
+    if m_type in ('fork',):
+        return 'turn-right' if 'right' in m_mod else 'turn-left'
+    return 'straight'
+
+
 @map_bp.route('/directions', methods=['GET'])
 def directions():
     """
@@ -306,30 +401,73 @@ def directions():
     )
 
     fallback = {
-        'distance':    {'text': 'N/A', 'meters': None},
-        'duration':    {'text': 'N/A', 'seconds': None},
-        'summary':     '',
-        'osmUrl':      osm_url,
+        'distance':      {'text': 'N/A', 'meters': None},
+        'duration':      {'text': 'N/A', 'seconds': None},
+        'summary':       '',
+        'osmUrl':        osm_url,
         'googleMapsUrl': google_url,
+        'steps':         [],
     }
 
     try:
         # OSRM coordinates format: lng,lat (chú ý thứ tự)
         url = f'{OSRM_BASE}/{mode}/{olng},{olat};{dlng},{dlat}'
-        resp = requests.get(url, params={'overview': 'false', 'steps': 'false'}, timeout=8)
+        resp = requests.get(url, params={
+            'overview': 'full',
+            'steps':    'true',        # bật turn-by-turn
+            'geometries': 'geojson',
+            'annotations': 'false',
+        }, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 
         if data.get('code') != 'Ok' or not data.get('routes'):
             return _ok(fallback)
 
-        route = data['routes'][0]
-        dist_m = route.get('distance', 0)  # metres
-        dur_s  = route.get('duration', 0)  # seconds
+        route  = data['routes'][0]
+        dist_m = route.get('distance', 0)
+        dur_s  = route.get('duration', 0)
 
         dist_text = (f'{dist_m/1000:.1f} km' if dist_m >= 1000 else f'{int(dist_m)} m')
         dur_min   = int(dur_s / 60)
         dur_text  = (f'{dur_min // 60} giờ {dur_min % 60} phút' if dur_min >= 60 else f'{dur_min} phút')
+
+        # Chuyển GeoJSON [lng,lat] → [[lat,lng]] cho Leaflet
+        coords_raw  = route.get('geometry', {}).get('coordinates', [])
+        coordinates = [[c[1], c[0]] for c in coords_raw]
+
+        # ── Parse turn-by-turn steps ──────────────────────────────────────────
+        steps = []
+        try:
+            for leg in route.get('legs', []):
+                for step in leg.get('steps', []):
+                    maneuver  = step.get('maneuver', {})
+                    step_loc  = maneuver.get('location')   # [lng, lat]
+                    step_dist = float(step.get('distance', 0))
+                    step_dur  = float(step.get('duration', 0))
+                    road_name = (step.get('name') or '').strip()
+                    m_type    = (maneuver.get('type') or '').lower()
+
+                    # Bỏ qua các bước rất ngắn (< 15 m) không phải depart/arrive
+                    if step_dist < 15 and m_type not in ('depart', 'arrive'):
+                        continue
+
+                    steps.append({
+                        'instruction':  _build_instruction(maneuver, road_name),
+                        'iconType':     _step_icon_type(maneuver),
+                        'roadName':     road_name,
+                        'distance':     _fmt_dist_m(step_dist),
+                        'distanceM':    int(step_dist),
+                        'duration':     _fmt_dur_s(int(step_dur)),
+                        'location':     [float(step_loc[1]), float(step_loc[0])]
+                                        if step_loc else None,
+                        'maneuverType': m_type,
+                        'modifier':     (maneuver.get('modifier') or '').lower(),
+                        'bearingAfter': int(maneuver.get('bearing_after', 0)),
+                    })
+        except Exception as _se:
+            log.warning(f'Step parsing failed: {_se}')
+            steps = []
 
         return _ok({
             'distance':      {'text': dist_text,  'meters':  int(dist_m)},
@@ -337,6 +475,8 @@ def directions():
             'summary':       '',
             'osmUrl':        osm_url,
             'googleMapsUrl': google_url,
+            'coordinates':   coordinates,
+            'steps':         steps,
         })
     except requests.exceptions.Timeout:
         return _ok({**fallback, 'note': 'OSRM timeout'})

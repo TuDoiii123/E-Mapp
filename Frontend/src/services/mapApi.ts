@@ -51,12 +51,28 @@ export interface PlaceDetail {
   weekdayText: string[];
 }
 
+export interface RouteStep {
+  instruction:  string;
+  iconType:     'depart' | 'arrive' | 'turn-left' | 'turn-right' |
+                'slight-left' | 'slight-right' | 'straight' | 'uturn' | 'roundabout';
+  roadName:     string;
+  distance:     string;
+  distanceM:    number;
+  duration:     string;
+  location:     [number, number] | null;   // [lat, lng]
+  maneuverType: string;
+  modifier:     string;
+  bearingAfter: number;
+}
+
 export interface DirectionsResult {
   distance: { text: string; meters: number | null };
   duration: { text: string; seconds: number | null };
   summary: string;
   osmUrl: string;
   googleMapsUrl: string;
+  coordinates?: [number, number][];
+  steps?: RouteStep[];
   note?: string;
 }
 

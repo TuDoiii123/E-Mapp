@@ -650,3 +650,320 @@ def audit_logs():
     except Exception as e:
         log.error(f'audit_logs error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@admin_bp.route('/evaluations', methods=['GET'])
+def admin_evaluations():
+    """Admin xem tất cả đánh giá từ người dùng."""
+    err = _require_admin()
+    if err:
+        return err
+    try:
+        page    = max(int(request.args.get('page', 1)), 1)
+        limit   = min(int(request.args.get('limit', 20)), 100)
+        min_r   = request.args.get('minRating')
+        agency  = (request.args.get('agencyId') or '').strip()
+
+        conditions, params = [], {}
+        if min_r:
+            conditions.append('e.avg_rating >= :min_r')
+            params['min_r'] = float(min_r)
+        if agency:
+            conditions.append('e.agency_id = :agency')
+            params['agency'] = agency
+        where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
+
+        total = db.session.execute(
+            text(f'SELECT COUNT(*) FROM public.evaluations e {where}'), params
+        ).scalar() or 0
+
+        rows = db.session.execute(text(f'''
+            SELECT e.id, e.application_id, e.user_id, e.agency_id, e.service_name,
+                   e.attitude_rating, e.time_rating, e.facilities_rating, e.avg_rating,
+                   e.comment, e.submitted_at,
+                   u.full_name AS user_name, u.cccd_number
+            FROM public.evaluations e
+            LEFT JOIN public.users u ON u.id = e.user_id
+            {where}
+            ORDER BY e.submitted_at DESC
+            LIMIT :limit OFFSET :offset
+        '''), {**params, 'limit': limit, 'offset': (page - 1) * limit}).fetchall()
+
+        data = [{
+            'id':               r[0],
+            'applicationId':    r[1],
+            'userId':           r[2],
+            'agencyId':         r[3],
+            'serviceName':      r[4],
+            'attitudeRating':   r[5],
+            'timeRating':       r[6],
+            'facilitiesRating': r[7],
+            'avgRating':        float(r[8]) if r[8] else 0,
+            'comment':          r[9],
+            'submittedAt':      r[10].isoformat() if r[10] else None,
+            'userName':         r[11],
+            'cccdNumber':       r[12],
+        } for r in rows]
+
+        return jsonify({'success': True, 'data': data,
+                        'pagination': {'page': page, 'limit': limit, 'total': int(total)}})
+    except Exception as e:
+        log.error(f'admin_evaluations error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# SYSTEM SETTINGS
+# ════════════════════════════════════════════════════════════════════════════════
+
+def _parse_value(raw: str, typ: str):
+    """Chuyển string → Python type theo type hint."""
+    if typ == 'bool':
+        return raw.lower() in ('true', '1', 'yes')
+    if typ == 'number':
+        try:    return float(raw)
+        except: return 0
+    if typ == 'json':
+        import json as _json
+        try:    return _json.loads(raw)
+        except: return {}
+    return raw  # string (mặc định)
+
+
+@admin_bp.route('/settings', methods=['GET'])
+def get_settings():
+    """Lấy tất cả cài đặt hệ thống dưới dạng key → {value, type, label, description}."""
+    err = _require_admin()
+    if err:
+        return err
+    try:
+        rows = db.session.execute(
+            text('SELECT key, value, type, label, description, updated_at '
+                 'FROM public.system_settings ORDER BY key')
+        ).fetchall()
+        data = {
+            r[0]: {
+                'value':       _parse_value(r[1], r[2]),
+                'rawValue':    r[1],
+                'type':        r[2],
+                'label':       r[3],
+                'description': r[4],
+                'updatedAt':   r[5].isoformat() if r[5] else None,
+            }
+            for r in rows
+        }
+        return jsonify({'success': True, 'data': data})
+    except Exception as e:
+        log.error(f'get_settings error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@admin_bp.route('/settings', methods=['PUT'])
+def update_settings():
+    """Cập nhật nhiều cài đặt cùng lúc. Body: { settings: { key: value, ... } }."""
+    err = _require_admin()
+    if err:
+        return err
+    try:
+        payload  = request.get_json(silent=True) or {}
+        updates  = payload.get('settings') or {}
+        actor_id = getattr(request, 'user_id', None)
+
+        if not updates:
+            return jsonify({'success': False, 'message': 'Không có dữ liệu cập nhật'}), 400
+
+        for key, val in updates.items():
+            raw = str(val).lower() if isinstance(val, bool) else str(val)
+            db.session.execute(
+                text('''UPDATE public.system_settings
+                        SET value = :val, updated_by = :actor, updated_at = now()
+                        WHERE key = :key'''),
+                {'val': raw, 'actor': actor_id, 'key': key}
+            )
+        db.session.commit()
+        _write_audit('UPDATE', 'system_settings', detail={'keys': list(updates.keys())})
+        return jsonify({'success': True, 'message': f'Đã cập nhật {len(updates)} cài đặt'})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f'update_settings error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@admin_bp.route('/settings/<key>', methods=['PUT'])
+def update_single_setting(key: str):
+    """Cập nhật một cài đặt. Body: { value: ... }."""
+    err = _require_admin()
+    if err:
+        return err
+    try:
+        payload  = request.get_json(silent=True) or {}
+        val      = payload.get('value')
+        actor_id = getattr(request, 'user_id', None)
+
+        if val is None:
+            return jsonify({'success': False, 'message': 'Thiếu value'}), 400
+
+        raw = str(val).lower() if isinstance(val, bool) else str(val)
+        result = db.session.execute(
+            text('''UPDATE public.system_settings
+                    SET value = :val, updated_by = :actor, updated_at = now()
+                    WHERE key = :key
+                    RETURNING key, value, type, label'''),
+            {'val': raw, 'actor': actor_id, 'key': key}
+        ).fetchone()
+        db.session.commit()
+
+        if not result:
+            return jsonify({'success': False, 'message': f'Không tìm thấy setting: {key}'}), 404
+
+        _write_audit('UPDATE', 'system_settings', resource_id=key, detail={'value': raw})
+        return jsonify({'success': True, 'data': {
+            'key':   result[0],
+            'value': _parse_value(result[1], result[2]),
+            'label': result[3],
+        }})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f'update_single_setting error: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# EVALUATIONS — Admin quản lý đánh giá + phản hồi
+# ════════════════════════════════════════════════════════════════════════════════
+
+@admin_bp.route('/evaluations', methods=['GET'])
+def admin_list_evaluations():
+    """Danh sách tất cả đánh giá (phân trang, lọc theo minRating, sort)."""
+    err = _require_admin()
+    if err:
+        return err
+    try:
+        page       = max(int(request.args.get('page', 1)), 1)
+        limit      = min(int(request.args.get('limit', 10)), 100)
+        min_rating = request.args.get('minRating', '')
+        sort_dir   = 'DESC' if request.args.get('sort', 'newest') != 'oldest' else 'ASC'
+
+        conditions, params = [], {}
+        if min_rating:
+            try:
+                conditions.append('e.avg_rating >= :min_r')
+                params['min_r'] = float(min_rating)
+            except ValueError:
+                pass
+
+        where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+
+        count_row = db.session.execute(
+            text(f'SELECT COUNT(*) FROM public.evaluations e {where}'),
+            params,
+        ).scalar() or 0
+
+        rows = db.session.execute(
+            text(f'''
+                SELECT e.id, e.application_id, e.user_id, e.service_name,
+                       e.attitude_rating, e.time_rating, e.facilities_rating,
+                       e.avg_rating, e.comment, e.submitted_at,
+                       e.admin_reply, e.admin_replied_at,
+                       u.full_name AS user_name,
+                       a.id        AS app_code
+                FROM   public.evaluations e
+                LEFT JOIN public.users       u ON u.id = e.user_id
+                LEFT JOIN public.applications a ON a.id = e.application_id
+                {where}
+                ORDER BY e.submitted_at {sort_dir}
+                LIMIT  :lim OFFSET :off
+            '''),
+            {**params, 'lim': limit, 'off': (page - 1) * limit},
+        ).fetchall()
+
+        data = []
+        for r in rows:
+            data.append({
+                'id':               r.id,
+                'applicationId':    r.application_id,
+                'applicationCode':  ('#' + r.app_code[:8].upper()) if r.app_code else None,
+                'userId':           r.user_id,
+                'userName':         r.user_name or 'Khách vãng lai',
+                'serviceName':      r.service_name or '',
+                'attitudeRating':   r.attitude_rating,
+                'timeRating':       r.time_rating,
+                'facilitiesRating': r.facilities_rating,
+                'avgRating':        round(float(r.avg_rating), 1),
+                'comment':          r.comment or '',
+                'submittedAt':      r.submitted_at.isoformat() if r.submitted_at else None,
+                'adminReply':       r.admin_reply,
+                'adminRepliedAt':   r.admin_replied_at.isoformat() if r.admin_replied_at else None,
+            })
+
+        return jsonify({
+            'success': True,
+            'data': data,
+            'pagination': {'total': count_row, 'page': page, 'limit': limit},
+        })
+    except Exception as e:
+        log.error(f'admin_list_evaluations: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@admin_bp.route('/evaluations/<eval_id>/reply', methods=['POST'])
+def admin_reply_evaluation(eval_id: str):
+    """Thêm / cập nhật phản hồi admin cho một đánh giá.
+    Body: { replyText: str }
+    """
+    err = _require_admin()
+    if err:
+        return err
+    try:
+        payload    = request.get_json(silent=True) or {}
+        reply_text = (payload.get('replyText') or '').strip()[:2000]
+        admin_id   = getattr(request, 'user_id', None)
+
+        if not reply_text:
+            return jsonify({'success': False, 'message': 'replyText không được trống'}), 400
+
+        result = db.session.execute(
+            text('''
+                UPDATE public.evaluations
+                SET    admin_reply       = :reply,
+                       admin_replied_at  = now(),
+                       admin_id          = :admin_id
+                WHERE  id = :id
+                RETURNING id
+            '''),
+            {'reply': reply_text, 'admin_id': admin_id, 'id': eval_id},
+        ).fetchone()
+
+        if not result:
+            return jsonify({'success': False, 'message': 'Không tìm thấy đánh giá'}), 404
+
+        db.session.commit()
+        _write_audit('REPLY', 'evaluation', eval_id, {'length': len(reply_text)})
+
+        return jsonify({'success': True, 'message': 'Đã lưu phản hồi', 'data': {'id': eval_id}})
+    except Exception as e:
+        db.session.rollback()
+        log.error(f'admin_reply_evaluation: {e}', exc_info=True)
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@admin_bp.route('/settings/public', methods=['GET'])
+def get_public_settings():
+    """Trả về các setting dành cho người dùng thường (không cần auth).
+    Chỉ export: announcementActive, announcementText, announcementType, appName,
+                enableChatbot, enableQueue, maintenanceMode
+    """
+    PUBLIC_KEYS = {
+        'announcementActive', 'announcementText', 'announcementType',
+        'appName', 'enableChatbot', 'enableQueue', 'maintenanceMode',
+        'contactPhone', 'contactEmail',
+    }
+    try:
+        rows = db.session.execute(
+            text("SELECT key, value, type FROM public.system_settings WHERE key = ANY(:keys)"),
+            {'keys': list(PUBLIC_KEYS)}
+        ).fetchall()
+        data = {r[0]: _parse_value(r[1], r[2]) for r in rows}
+        return jsonify({'success': True, 'data': data})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
