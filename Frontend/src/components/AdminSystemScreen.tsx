@@ -17,9 +17,10 @@ import {
   Globe, ChevronLeft, ChevronRight,
   User, AlertCircle, CheckCircle2, Inbox,
   Megaphone, Phone, Mail, MapPin, Save,
-  Loader2, Mic, BotMessageSquare, Server,
+  Loader2, Mic, BotMessageSquare, Server, LogOut,
 } from 'lucide-react';
 import * as adminSvc from '../services/adminService';
+import { useAuth } from '../contexts/AuthContext';
 
 const P = '#8f000d';
 
@@ -98,7 +99,8 @@ function ToggleRow({ label, desc, checked, saving, onChange }: {
 /* ═══════════════════════════════════════════════════════════════════════════
    TAB: CÀI ĐẶT
 ═══════════════════════════════════════════════════════════════════════════ */
-function SettingsTab() {
+function SettingsTab({ onNavigate }: { onNavigate: (s: string) => void }) {
+  const { logout } = useAuth();
   const [raw,       setRaw]       = useState<Record<string, any>>({});
   const [loading,   setLoading]   = useState(true);
   const [saving,    setSaving]    = useState<Record<string, boolean>>({});
@@ -330,6 +332,16 @@ function SettingsTab() {
         {savingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
         Lưu cấu hình
       </button>
+
+      {/* ── Logout ───────────────────────────────────────────────────────── */}
+      <button
+        onClick={async () => { await logout(); onNavigate('login'); }}
+        className="w-full h-11 rounded-2xl text-sm font-semibold text-red-600 flex items-center justify-center
+          gap-2 border border-red-200 hover:bg-red-50 active:scale-[.98] transition-all"
+      >
+        <LogOut className="w-4 h-4" />
+        Đăng xuất
+      </button>
     </div>
   );
 }
@@ -529,7 +541,7 @@ export function AdminSystemScreen({ onNavigate }: Props) {
 
       {/* Content */}
       <div className="px-4 pb-6">
-        {tab === 'settings' && <SettingsTab />}
+        {tab === 'settings' && <SettingsTab onNavigate={onNavigate} />}
         {tab === 'auditlog' && <AuditLogTab />}
       </div>
     </div>
