@@ -663,41 +663,6 @@ export function AdminUsersScreen({ onNavigate }: Props) {
           </div>
         </div>
 
-        {/* ── Image anchor ────────────────────────────────────────────── */}
-        <section className="relative h-64 overflow-hidden rounded-3xl"
-          style={{ background: 'linear-gradient(135deg, #1a1c1c 0%, #2f3131 40%, #8f000d 80%, #b22222 100%)' }}>
-          {/* Data grid pattern */}
-          <div className="absolute inset-0 opacity-10"
-            style={{
-              backgroundImage:
-                'repeating-linear-gradient(0deg,transparent,transparent 59px,rgba(255,255,255,0.3) 59px,rgba(255,255,255,0.3) 60px),' +
-                'repeating-linear-gradient(90deg,transparent,transparent 59px,rgba(255,255,255,0.3) 59px,rgba(255,255,255,0.3) 60px)',
-            }} />
-          {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-          <div className="absolute inset-0 flex flex-col justify-end p-10">
-            <h4 className="text-white font-bold leading-tight mb-2" style={{ fontSize: '2.25rem' }}>
-              Hạ tầng Dữ liệu Quốc gia
-            </h4>
-            <p className="text-white/75 max-w-2xl font-medium text-sm leading-relaxed">
-              Đảm bảo tính bảo mật và toàn vẹn của dữ liệu công dân là ưu tiên hàng đầu.
-              Hệ thống được bảo vệ bởi lớp mã hóa đa tầng và xác thực sinh trắc học tiên tiến.
-            </p>
-          </div>
-          {/* Floating stats */}
-          <div className="absolute top-8 right-10 hidden md:flex gap-6">
-            {[
-              { label: 'Địa điểm', value: stats?.totalLocations ?? '–' },
-              { label: 'Thủ tục', value: stats?.totalProcedures ?? '–' },
-            ].map(({ label, value }) => (
-              <div key={label} className="text-right">
-                <p className="text-white/50 text-[10px] uppercase tracking-widest">{label}</p>
-                <p className="text-white text-2xl font-black">{value}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
       </div>
     </div>
   );
