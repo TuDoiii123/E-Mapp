@@ -1,28 +1,33 @@
 /**
  * AdminShell — Khung giao diện admin
- * Bottom navigation 5 tab (không có header)
- * Tabs: Tổng quan | Địa điểm | Thủ tục | Chatbot | Hệ thống
+ * Bottom navigation 7 tab (không có header)
+ * Tabs: Tổng quan | Hồ sơ | Thành viên | Địa điểm | Thủ tục | Chatbot | Hệ thống
  */
 import React, { useState } from 'react';
 import {
-  LayoutDashboard, MapPin, FileText, Bot, Settings,
+  LayoutDashboard, FolderOpen, Users,
+  MapPin, FileText, Bot, Settings,
 } from 'lucide-react';
 import { AdminDashboardScreen }   from './AdminDashboardScreen';
-import { AdminLocationsScreen }   from './AdminLocationsScreen';
-import { AdminProceduresScreen }  from './AdminProceduresScreen';
-import { AdminChatbotScreen }     from './AdminChatbotScreen';
-import { AdminSystemScreen }      from './AdminSystemScreen';
+import { AdminApplicationsScreen } from './AdminApplicationsScreen';
+import { AdminUsersScreen }        from './AdminUsersScreen';
+import { AdminLocationsScreen }    from './AdminLocationsScreen';
+import { AdminProceduresScreen }   from './AdminProceduresScreen';
+import { AdminChatbotScreen }      from './AdminChatbotScreen';
+import { AdminSystemScreen }       from './AdminSystemScreen';
 
 interface Props { onNavigate: (screen: string, params?: any) => void }
 
-type AdminTab = 'dashboard' | 'locations' | 'procedures' | 'chatbot' | 'system';
+type AdminTab = 'dashboard' | 'applications' | 'users' | 'locations' | 'procedures' | 'chatbot' | 'system';
 
 const TABS: { key: AdminTab; label: string; Icon: any }[] = [
-  { key: 'dashboard',  label: 'Tổng quan', Icon: LayoutDashboard },
-  { key: 'locations',  label: 'Địa điểm',  Icon: MapPin          },
-  { key: 'procedures', label: 'Thủ tục',   Icon: FileText        },
-  { key: 'chatbot',    label: 'Chatbot',   Icon: Bot             },
-  { key: 'system',     label: 'Hệ thống',  Icon: Settings        },
+  { key: 'dashboard',    label: 'Tổng quan',  Icon: LayoutDashboard },
+  { key: 'applications', label: 'Hồ sơ',      Icon: FolderOpen      },
+  { key: 'users',        label: 'Thành viên',  Icon: Users           },
+  { key: 'locations',    label: 'Địa điểm',   Icon: MapPin          },
+  { key: 'procedures',   label: 'Thủ tục',    Icon: FileText        },
+  { key: 'chatbot',      label: 'Chatbot',    Icon: Bot             },
+  { key: 'system',       label: 'Hệ thống',   Icon: Settings        },
 ];
 
 export function AdminShell({ onNavigate }: Props) {
@@ -33,11 +38,13 @@ export function AdminShell({ onNavigate }: Props) {
 
       {/* ── Content ────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto pb-20 pt-10">
-        {activeTab === 'dashboard'  && <AdminDashboardScreen  onNavigate={onNavigate} hideHeader />}
-        {activeTab === 'locations'  && <AdminLocationsScreen  onNavigate={onNavigate} />}
-        {activeTab === 'procedures' && <AdminProceduresScreen onNavigate={onNavigate} />}
-        {activeTab === 'chatbot'    && <AdminChatbotScreen    onNavigate={onNavigate} />}
-        {activeTab === 'system'     && <AdminSystemScreen     onNavigate={onNavigate} />}
+        {activeTab === 'dashboard'    && <AdminDashboardScreen    onNavigate={onNavigate} hideHeader />}
+        {activeTab === 'applications' && <AdminApplicationsScreen onNavigate={onNavigate} />}
+        {activeTab === 'users'        && <AdminUsersScreen        onNavigate={onNavigate} />}
+        {activeTab === 'locations'    && <AdminLocationsScreen    onNavigate={onNavigate} />}
+        {activeTab === 'procedures'   && <AdminProceduresScreen   onNavigate={onNavigate} />}
+        {activeTab === 'chatbot'      && <AdminChatbotScreen      onNavigate={onNavigate} />}
+        {activeTab === 'system'       && <AdminSystemScreen       onNavigate={onNavigate} />}
       </div>
 
       {/* ── Bottom Nav ─────────────────────────────────────────────────────── */}
@@ -55,8 +62,8 @@ export function AdminShell({ onNavigate }: Props) {
               {active && (
                 <span className="absolute top-0 inset-x-0 h-0.5 bg-red-700 rounded-full" />
               )}
-              <Icon className={`w-5 h-5 ${active ? 'scale-110' : ''} transition-transform`} />
-              <span className="text-[9px] font-medium leading-none">{label}</span>
+              <Icon className={`w-4 h-4 ${active ? 'scale-110' : ''} transition-transform`} />
+              <span className="text-[8px] font-medium leading-none">{label}</span>
             </button>
           );
         })}
