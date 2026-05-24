@@ -61,7 +61,7 @@ function ConfirmDialog({ msg, onYes, onNo }: { msg: string; onYes(): void; onNo(
 }
 
 /* ── Toast ─────────────────────────────────────────────────────────────────── */
-function Toast({ text, ok }: { text: string; ok: boolean }) {
+export function Toast({ text, ok }: { text: string; ok: boolean }) {
   return (
     <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-full
       shadow-lg text-sm font-medium text-white flex items-center gap-2 whitespace-nowrap
@@ -534,7 +534,7 @@ function LocationForm({ initial, onSave, onClose }: {
   );
 }
 
-function LocationsTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+export function LocationsTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
   const [items,   setItems]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [q,       setQ]       = useState('');
@@ -696,7 +696,7 @@ function ProcedureForm({ initial, onSave, onClose }: {
   );
 }
 
-function ProceduresTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+export function ProceduresTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
   const [items,   setItems]   = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [q,       setQ]       = useState('');
@@ -1487,7 +1487,7 @@ function RulesSection({ onToast }: { onToast(msg: string, ok: boolean): void }) 
   );
 }
 
-function ChatbotTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
+export function ChatbotTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
   const [section, setSection] = useState<'personas' | 'prompts' | 'rules'>('personas');
 
   const handleInvalidate = async () => {
@@ -1524,18 +1524,8 @@ function ChatbotTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════════════ */
 export function AdminDashboardScreen({ onNavigate, hideHeader = false }: Props) {
-  const [tab,   setTab]   = useState<DashTab>('locations');
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
-
-  const showToast = useCallback((msg: string, ok: boolean) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
-
   return (
     <div className={hideHeader ? 'bg-transparent pb-6' : 'min-h-screen bg-[#fff4f4] pb-6'}>
-      {toast && <Toast text={toast.msg} ok={toast.ok} />}
-
       {/* Standalone header (hidden when inside AdminShell) */}
       {!hideHeader && (
         <div className="bg-[#1c0003] text-white px-4 pt-12 pb-3 flex items-center gap-3">
@@ -1550,19 +1540,8 @@ export function AdminDashboardScreen({ onNavigate, hideHeader = false }: Props) 
         </div>
       )}
 
-      {/* Overview card — luôn hiển thị trên cùng */}
+      {/* Chỉ hiển thị tổng quan — các tab đã thành màn hình riêng */}
       <OverviewTab />
-
-      {/* Tab bar nằm ngay dưới thẻ tổng quan */}
-      <DashTabBar active={tab} onChange={t => setTab(t)} />
-
-      {/* Divider */}
-      <div className="mx-4 h-px bg-[#de9ca4]/15 mb-1" />
-
-      {/* Tab content */}
-      {tab === 'locations'  && <LocationsTab  onToast={showToast} />}
-      {tab === 'procedures' && <ProceduresTab onToast={showToast} />}
-      {tab === 'chatbot'    && <ChatbotTab    onToast={showToast} />}
     </div>
   );
 }

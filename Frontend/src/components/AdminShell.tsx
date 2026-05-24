@@ -1,27 +1,28 @@
 /**
  * AdminShell — Khung giao diện admin
  * Bottom navigation 5 tab (không có header)
+ * Tabs: Tổng quan | Địa điểm | Thủ tục | Chatbot | Hệ thống
  */
 import React, { useState } from 'react';
 import {
-  LayoutDashboard, FolderOpen, CalendarDays, Users, Settings,
+  LayoutDashboard, MapPin, FileText, Bot, Settings,
 } from 'lucide-react';
-import { AdminDashboardScreen }      from './AdminDashboardScreen';
-import { AdminApplicationsScreen }   from './AdminApplicationsScreen';
-import { AdminAppointmentsScreen }   from './AdminAppointmentsScreen';
-import { AdminUsersScreen }          from './AdminUsersScreen';
-import { AdminSystemScreen }         from './AdminSystemScreen';
+import { AdminDashboardScreen }   from './AdminDashboardScreen';
+import { AdminLocationsScreen }   from './AdminLocationsScreen';
+import { AdminProceduresScreen }  from './AdminProceduresScreen';
+import { AdminChatbotScreen }     from './AdminChatbotScreen';
+import { AdminSystemScreen }      from './AdminSystemScreen';
 
 interface Props { onNavigate: (screen: string, params?: any) => void }
 
-type AdminTab = 'dashboard' | 'applications' | 'appointments' | 'users' | 'system';
+type AdminTab = 'dashboard' | 'locations' | 'procedures' | 'chatbot' | 'system';
 
 const TABS: { key: AdminTab; label: string; Icon: any }[] = [
-  { key: 'dashboard',    label: 'Tổng quan',  Icon: LayoutDashboard },
-  { key: 'applications', label: 'Hồ sơ',      Icon: FolderOpen      },
-  { key: 'appointments', label: 'Lịch hẹn',   Icon: CalendarDays    },
-  { key: 'users',        label: 'Thành viên',  Icon: Users           },
-  { key: 'system',       label: 'Hệ thống',   Icon: Settings        },
+  { key: 'dashboard',  label: 'Tổng quan', Icon: LayoutDashboard },
+  { key: 'locations',  label: 'Địa điểm',  Icon: MapPin          },
+  { key: 'procedures', label: 'Thủ tục',   Icon: FileText        },
+  { key: 'chatbot',    label: 'Chatbot',   Icon: Bot             },
+  { key: 'system',     label: 'Hệ thống',  Icon: Settings        },
 ];
 
 export function AdminShell({ onNavigate }: Props) {
@@ -32,11 +33,11 @@ export function AdminShell({ onNavigate }: Props) {
 
       {/* ── Content ────────────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto pb-20 pt-10">
-        {activeTab === 'dashboard'    && <AdminDashboardScreen    onNavigate={onNavigate} hideHeader />}
-        {activeTab === 'applications' && <AdminApplicationsScreen onNavigate={onNavigate} />}
-        {activeTab === 'appointments' && <AdminAppointmentsScreen onNavigate={onNavigate} />}
-        {activeTab === 'users'        && <AdminUsersScreen        onNavigate={onNavigate} />}
-        {activeTab === 'system'       && <AdminSystemScreen       onNavigate={onNavigate} />}
+        {activeTab === 'dashboard'  && <AdminDashboardScreen  onNavigate={onNavigate} hideHeader />}
+        {activeTab === 'locations'  && <AdminLocationsScreen  onNavigate={onNavigate} />}
+        {activeTab === 'procedures' && <AdminProceduresScreen onNavigate={onNavigate} />}
+        {activeTab === 'chatbot'    && <AdminChatbotScreen    onNavigate={onNavigate} />}
+        {activeTab === 'system'     && <AdminSystemScreen     onNavigate={onNavigate} />}
       </div>
 
       {/* ── Bottom Nav ─────────────────────────────────────────────────────── */}
