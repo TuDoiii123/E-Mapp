@@ -1,466 +1,335 @@
-import { useState } from 'react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ArrowLeft, Shield, Eye, EyeOff, Check, AlertCircle } from 'lucide-react';
-import { Checkbox } from './ui/checkbox';
-import { Alert, AlertDescription } from './ui/alert';
+import React, { useState } from 'react';
+import {
+  ShieldCheck, ChevronLeft, CreditCard, User, Calendar,
+  Phone, Mail, Lock, Eye, EyeOff, Check, AlertCircle, ArrowRight,
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import React from 'react';
 
-interface RegisterScreenProps {
-  onNavigate: (screen: string) => void;
+interface Props { onNavigate: (screen: string) => void }
+
+const P = '#8f000d';
+
+const patternStyle: React.CSSProperties = {
+  backgroundImage: 'radial-gradient(rgba(255,255,255,0.15) 0.5px, transparent 0.5px)',
+  backgroundSize: '18px 18px',
+};
+
+/* ── Shared field component ─────────────────────────────────────────────── */
+function Field({
+  label, icon: Icon, type = 'text', placeholder, value, onChange,
+  maxLength, disabled, right,
+}: {
+  label: string; icon: any; type?: string; placeholder: string;
+  value: string; onChange: (v: string) => void;
+  maxLength?: number; disabled?: boolean; right?: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 block">
+        {label}
+      </label>
+      <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 h-13
+        border border-gray-100 focus-within:border-[#8f000d] transition-colors">
+        <Icon className="w-4 h-4 text-gray-300 shrink-0" />
+        <input
+          type={type}
+          placeholder={placeholder}
+          value={value}
+          maxLength={maxLength}
+          disabled={disabled}
+          onChange={e => onChange(e.target.value)}
+          className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-300 py-3.5"
+        />
+        {right}
+      </div>
+    </div>
+  );
 }
 
-export function RegisterScreen({ onNavigate }: RegisterScreenProps) {
-  const [step, setStep] = useState(1); // 1: thông tin cơ bản, 2: xác thực OTP, 3: hoàn tất
-  const [formData, setFormData] = useState({
-    cccdNumber: '',
-    fullName: '',
-    dateOfBirth: '',
-    phone: '',
-    email: '',
-    password: '',
-    confirmPassword: '',
+/* ── Password strength dot ──────────────────────────────────────────────── */
+function PwdHint({ ok, text }: { ok: boolean; text: string }) {
+  return (
+    <div className={`flex items-center gap-1.5 text-[11px] ${ok ? 'text-green-600' : 'text-gray-400'}`}>
+      <Check className={`w-3 h-3 ${ok ? '' : 'opacity-30'}`} /> {text}
+    </div>
+  );
+}
+
+export function RegisterScreen({ onNavigate }: Props) {
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({
+    cccdNumber: '', fullName: '', dateOfBirth: '',
+    phone: '', email: '', password: '', confirmPassword: '',
   });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [otp, setOtp] = useState('');
-  const [agreeTerms, setAgreeTerms] = useState(false);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [showPwd, setShowPwd]   = useState(false);
+  const [showCPwd, setShowCPwd] = useState(false);
+  const [otp, setOtp]           = useState('');
+  const [agreeTerms, setAgree]  = useState(false);
+  const [error, setError]       = useState('');
+  const [loading, setLoading]   = useState(false);
   const { register } = useAuth();
 
-  const handleInputChange = (field: string, value: string) => {
-    if (field === 'cccdNumber') {
-      value = value.replace(/\D/g, '').slice(0, 12);
-    } else if (field === 'phone') {
-      value = value.replace(/\D/g, '').slice(0, 11);
-    }
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const set = (k: string) => (v: string) => {
+    if (k === 'cccdNumber') v = v.replace(/\D/g, '').slice(0, 12);
+    if (k === 'phone')      v = v.replace(/\D/g, '').slice(0, 11);
+    setForm(f => ({ ...f, [k]: v }));
     setError('');
   };
 
+  const pwReq = {
+    length:    form.password.length >= 8,
+    upper:     /[A-Z]/.test(form.password),
+    number:    /\d/.test(form.password),
+    special:   /[!@#$%^&*(),.?":{}|<>]/.test(form.password),
+  };
+  const pwValid = Object.values(pwReq).every(Boolean);
+
   const handleNext = async () => {
     if (step === 1) {
-      // Validate step 1
-      if (!formData.cccdNumber || formData.cccdNumber.length !== 12) {
-        setError('Số CCCD phải có 12 chữ số');
-        return;
-      }
-      if (!formData.fullName || formData.fullName.length < 2) {
-        setError('Họ và tên phải có ít nhất 2 ký tự');
-        return;
-      }
-      if (!formData.dateOfBirth) {
-        setError('Vui lòng chọn ngày sinh');
-        return;
-      }
-      if (!formData.phone || formData.phone.length < 10) {
-        setError('Số điện thoại không hợp lệ');
-        return;
-      }
-      if (!formData.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-        setError('Email không hợp lệ');
-        return;
-      }
-      if (!isPasswordValid) {
-        setError('Mật khẩu không đáp ứng yêu cầu');
-        return;
-      }
-      if (formData.password !== formData.confirmPassword) {
-        setError('Mật khẩu xác nhận không khớp');
-        return;
-      }
-      if (!agreeTerms) {
-        setError('Vui lòng đồng ý với điều khoản sử dụng');
-        return;
-      }
-      setError('');
-      setStep(2);
+      if (form.cccdNumber.length !== 12) { setError('Số CCCD phải có 12 chữ số'); return; }
+      if (form.fullName.length < 2)      { setError('Họ và tên phải ít nhất 2 ký tự'); return; }
+      if (!form.dateOfBirth)             { setError('Vui lòng chọn ngày sinh'); return; }
+      if (form.phone.length < 10)        { setError('Số điện thoại không hợp lệ'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) { setError('Email không hợp lệ'); return; }
+      if (!pwValid)                      { setError('Mật khẩu chưa đủ mạnh'); return; }
+      if (form.password !== form.confirmPassword) { setError('Mật khẩu xác nhận không khớp'); return; }
+      if (!agreeTerms)                   { setError('Vui lòng đồng ý điều khoản'); return; }
+      setError(''); setStep(2);
     } else if (step === 2) {
-      // Validate OTP
-      if (!otp || otp.length !== 6) {
-        setError('Vui lòng nhập mã OTP 6 chữ số');
-        return;
-      }
-      setError('');
-      // Proceed to registration
-      await handleRegister();
+      if (otp.length !== 6) { setError('Vui lòng nhập mã OTP 6 số'); return; }
+      setError(''); setLoading(true);
+      try {
+        await register({ ...form, otp, useVNeID: false });
+        setStep(3);
+      } catch (e: any) { setError(e.message || 'Đăng ký thất bại'); }
+      finally { setLoading(false); }
     } else {
-      // Step 3 - Navigate to login
       onNavigate('login');
     }
   };
 
-  const handleRegister = async () => {
-    setIsLoading(true);
-    setError('');
-
-    try {
-      await register({
-        ...formData,
-        otp: otp,
-        useVNeID: false
-      });
-      setStep(3);
-    } catch (err: any) {
-      setError(err.message || 'Đăng ký thất bại. Vui lòng thử lại.');
-      // Stay on step 2 if registration fails
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const validatePassword = (password: string) => {
-    const requirements = {
-      length: password.length >= 8,
-      uppercase: /[A-Z]/.test(password),
-      number: /\d/.test(password),
-      special: /[!@#$%^&*(),.?":{}|<>]/.test(password),
-    };
-    return requirements;
-  };
-
-  const passwordRequirements = validatePassword(formData.password);
-  const isPasswordValid = Object.values(passwordRequirements).every(Boolean);
-
-  const renderStepContent = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="space-y-4">
-            <div className="text-center mb-4">
-              <p className="text-gray-600">Tạo tài khoản dịch vụ công số</p>
-            </div>
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="cccd">Số CCCD *</Label>
-                <Input
-                  id="cccd"
-                  type="text"
-                  placeholder="Nhập số CCCD"
-                  value={formData.cccdNumber}
-                  onChange={(e) => handleInputChange('cccdNumber', e.target.value)}
-                  maxLength={12}
-                  disabled={isLoading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="fullName">Họ và tên *</Label>
-                <Input
-                  id="fullName"
-                  type="text"
-                  placeholder="Nhập họ và tên"
-                  value={formData.fullName}
-                  onChange={(e) => handleInputChange('fullName', e.target.value)}
-                  disabled={isLoading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Ngày sinh *</Label>
-                <Input
-                  id="dateOfBirth"
-                  type="date"
-                  value={formData.dateOfBirth}
-                  onChange={(e) => handleInputChange('dateOfBirth', e.target.value)}
-                  disabled={isLoading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="phone">Số điện thoại *</Label>
-                <Input
-                  id="phone"
-                  type="tel"
-                  placeholder="Nhập số điện thoại"
-                  value={formData.phone}
-                  onChange={(e) => handleInputChange('phone', e.target.value)}
-                  disabled={isLoading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="email">Email *</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="Nhập địa chỉ email"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
-                  disabled={isLoading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Mật khẩu *</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Nhập mật khẩu"
-                    value={formData.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                    disabled={isLoading}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-                
-                {formData.password && (
-                  <div className="text-sm space-y-1">
-                    <div className={`flex items-center space-x-2 ${passwordRequirements.length ? 'text-green-600' : 'text-gray-500'}`}>
-                      <Check className={`w-3 h-3 ${passwordRequirements.length ? 'opacity-100' : 'opacity-30'}`} />
-                      <span>Ít nhất 8 ký tự</span>
-                    </div>
-                    <div className={`flex items-center space-x-2 ${passwordRequirements.uppercase ? 'text-green-600' : 'text-gray-500'}`}>
-                      <Check className={`w-3 h-3 ${passwordRequirements.uppercase ? 'opacity-100' : 'opacity-30'}`} />
-                      <span>Ít nhất 1 chữ hoa</span>
-                    </div>
-                    <div className={`flex items-center space-x-2 ${passwordRequirements.number ? 'text-green-600' : 'text-gray-500'}`}>
-                      <Check className={`w-3 h-3 ${passwordRequirements.number ? 'opacity-100' : 'opacity-30'}`} />
-                      <span>Ít nhất 1 chữ số</span>
-                    </div>
-                    <div className={`flex items-center space-x-2 ${passwordRequirements.special ? 'text-green-600' : 'text-gray-500'}`}>
-                      <Check className={`w-3 h-3 ${passwordRequirements.special ? 'opacity-100' : 'opacity-30'}`} />
-                      <span>Ít nhất 1 ký tự đặc biệt</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Xác nhận mật khẩu *</Label>
-                <div className="relative">
-                  <Input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    placeholder="Nhập lại mật khẩu"
-                    value={formData.confirmPassword}
-                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
-                    disabled={isLoading}
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  >
-                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
-                </div>
-                {formData.confirmPassword && formData.password !== formData.confirmPassword && (
-                  <p className="text-sm text-red-600">Mật khẩu không khớp</p>
-                )}
-              </div>
-
-              <div className="p-4 bg-gray-50 rounded-lg border">
-                <div className="flex items-start space-x-3">
-                  <Checkbox 
-                    id="terms" 
-                    checked={agreeTerms}
-                    onCheckedChange={(checked: boolean | 'indeterminate') => setAgreeTerms(checked === true)}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <Label htmlFor="terms" className="text-sm leading-relaxed cursor-pointer">
-                      Tôi đã đọc và đồng ý với{' '}
-                      <button className="text-red-600 underline font-medium hover:text-red-700">
-                        Điều khoản sử dụng
-                      </button>
-                      {' '}và{' '}
-                      <button className="text-red-600 underline font-medium hover:text-red-700">
-                        Chính sách bảo mật
-                      </button>
-                      {' '}của dịch vụ công số
-                    </Label>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Bằng việc tạo tài khoản, bạn xác nhận rằng thông tin cung cấp là chính xác và đầy đủ
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Button 
-              onClick={handleNext}
-              className="w-full bg-red-600 hover:bg-red-700"
-              disabled={!formData.cccdNumber || !formData.fullName || !formData.phone || 
-                       !formData.email || !isPasswordValid || 
-                       formData.password !== formData.confirmPassword || !agreeTerms || isLoading}
-            >
-              {isLoading ? 'Đang xử lý...' : 'Tiếp tục'}
-            </Button>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-4">
-            <div className="text-center mb-4">
-              <p className="text-gray-600">Mã xác thực đã được gửi đến số điện thoại {formData.phone}</p>
-            </div>
-
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-            
-            <div className="space-y-2">
-              <Label htmlFor="otp">Mã xác thực (6 số)</Label>
-              <Input
-                id="otp"
-                type="text"
-                placeholder="Nhập mã xác thực"
-                value={otp}
-                onChange={(e) => {
-                  setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
-                  setError('');
-                }}
-                maxLength={6}
-                className="text-center text-lg tracking-widest"
-                disabled={isLoading}
-              />
-            </div>
-
-            <Button 
-              onClick={handleNext}
-              className="w-full bg-red-600 hover:bg-red-700"
-              disabled={!otp || otp.length !== 6 || isLoading}
-            >
-              {isLoading ? 'Đang đăng ký...' : 'Xác thực'}
-            </Button>
-
-            <Button 
-              variant="ghost" 
-              className="w-full"
-              onClick={() => {
-                setOtp('');
-                setError('');
-                // In production, this would resend OTP
-              }}
-              disabled={isLoading}
-            >
-              Gửi lại mã
-            </Button>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-4 text-center">
-            <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-              <Check className="w-8 h-8 text-green-600" />
-            </div>
-            
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Đăng ký thành công!</h3>
-              <p className="text-gray-600">Tài khoản của bạn đã được tạo thành công. Bạn có thể đăng nhập ngay bây giờ.</p>
-            </div>
-
-            <Button 
-              onClick={handleNext}
-              className="w-full bg-red-600 hover:bg-red-700"
-            >
-              Đăng nhập ngay
-            </Button>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
+  const STEP_LABELS = ['Thông tin', 'Xác thực OTP', 'Hoàn tất'];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="w-full max-w-md mx-auto space-y-6 p-4">
-        {/* iOS Style Header */}
-        <div className="bg-white shadow-sm sticky top-0 z-10">
-          <div className="flex items-center justify-between p-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => step === 1 ? onNavigate('login') : setStep(step - 1)}
-              className="p-2"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <h1 className="text-lg font-semibold text-gray-900">Đăng ký</h1>
-            <div className="w-9"></div> {/* Spacer for center alignment */}
+    <div className="min-h-screen flex flex-col"
+      style={{ background: 'linear-gradient(160deg, #1c0003 0%, #8f000d 55%, #c0392b 100%)' }}>
+
+      <div className="absolute inset-0 pointer-events-none" style={patternStyle} />
+
+      {/* ── Brand + back ──────────────────────────────────────────────────── */}
+      <div className="relative z-10 px-4 pt-12 pb-8">
+        <button
+          onClick={() => step === 1 ? onNavigate('login') : setStep(s => s - 1)}
+          className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center mb-6
+            hover:bg-white/20 transition-colors"
+        >
+          <ChevronLeft className="w-5 h-5 text-white" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/20
+            flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-black text-white leading-tight">Tạo tài khoản</h1>
+            <p className="text-white/50 text-xs">Cổng Dịch vụ công</p>
           </div>
         </div>
 
-        <div className="px-4 pt-6">
-          <div className="text-center mb-6">
-            <div className="mx-auto w-16 h-16 bg-red-600 rounded-full flex items-center justify-center mb-4">
-              <Shield className="w-8 h-8 text-white" />
+        {/* Step pills */}
+        <div className="flex items-center gap-2 mt-5">
+          {STEP_LABELS.map((label, i) => {
+            const idx = i + 1;
+            const done    = idx < step;
+            const current = idx === step;
+            return (
+              <React.Fragment key={idx}>
+                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold transition-all
+                  ${current ? 'bg-white text-[#8f000d]'
+                  : done    ? 'bg-white/20 text-white'
+                  :           'bg-white/10 text-white/40'}`}>
+                  {done
+                    ? <Check className="w-3 h-3" />
+                    : <span className="w-3 h-3 rounded-full border flex items-center justify-center text-[8px]
+                        font-black border-current">{idx}</span>}
+                  <span className={done ? '' : ''}>{label}</span>
+                </div>
+                {i < 2 && <div className={`flex-1 h-px ${idx < step ? 'bg-white/40' : 'bg-white/10'}`} />}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Form card ─────────────────────────────────────────────────────── */}
+      <div className="relative z-10 flex-1 bg-white rounded-t-[2rem] px-6 pt-7 pb-10 shadow-2xl
+        overflow-y-auto">
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-center gap-2.5 bg-red-50 border border-red-200 rounded-2xl
+            px-4 py-3 mb-5 text-sm text-red-700">
+            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+          </div>
+        )}
+
+        {/* ── Step 1 ─────────────────────────────────────────────────────── */}
+        {step === 1 && (
+          <div className="space-y-4">
+            <Field label="Số CCCD *" icon={CreditCard} placeholder="12 chữ số"
+              value={form.cccdNumber} onChange={set('cccdNumber')} maxLength={12} />
+            <Field label="Họ và tên *" icon={User} placeholder="Nguyễn Văn A"
+              value={form.fullName} onChange={set('fullName')} />
+            <Field label="Ngày sinh *" icon={Calendar} type="date" placeholder=""
+              value={form.dateOfBirth} onChange={set('dateOfBirth')} />
+            <Field label="Số điện thoại *" icon={Phone} type="tel" placeholder="09xxxxxxxx"
+              value={form.phone} onChange={set('phone')} maxLength={11} />
+            <Field label="Email *" icon={Mail} type="email" placeholder="example@email.com"
+              value={form.email} onChange={set('email')} />
+
+            {/* Password */}
+            <Field label="Mật khẩu *" icon={Lock} type={showPwd ? 'text' : 'password'}
+              placeholder="Ít nhất 8 ký tự" value={form.password} onChange={set('password')}
+              right={
+                <button onClick={() => setShowPwd(v => !v)}
+                  className="text-gray-300 hover:text-gray-500">
+                  {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              }
+            />
+            {form.password && (
+              <div className="grid grid-cols-2 gap-1 -mt-1 px-1">
+                <PwdHint ok={pwReq.length}  text="≥ 8 ký tự" />
+                <PwdHint ok={pwReq.upper}   text="Chữ hoa" />
+                <PwdHint ok={pwReq.number}  text="Chữ số" />
+                <PwdHint ok={pwReq.special} text="Ký tự đặc biệt" />
+              </div>
+            )}
+
+            {/* Confirm password */}
+            <Field label="Xác nhận mật khẩu *" icon={Lock} type={showCPwd ? 'text' : 'password'}
+              placeholder="Nhập lại mật khẩu" value={form.confirmPassword} onChange={set('confirmPassword')}
+              right={
+                <button onClick={() => setShowCPwd(v => !v)}
+                  className="text-gray-300 hover:text-gray-500">
+                  {showCPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              }
+            />
+            {form.confirmPassword && form.password !== form.confirmPassword && (
+              <p className="text-xs text-red-500 -mt-1 px-1">Mật khẩu không khớp</p>
+            )}
+
+            {/* Terms */}
+            <div className="flex items-start gap-3 bg-gray-50 rounded-2xl p-4">
+              <button
+                onClick={() => setAgree(v => !v)}
+                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors
+                  ${agreeTerms ? 'border-[#8f000d] bg-[#8f000d]' : 'border-gray-300'}`}
+              >
+                {agreeTerms && <Check className="w-3 h-3 text-white" />}
+              </button>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Tôi đồng ý với{' '}
+                <span className="text-[#8f000d] font-semibold">Điều khoản sử dụng</span>
+                {' '}và{' '}
+                <span className="text-[#8f000d] font-semibold">Chính sách bảo mật</span>
+              </p>
             </div>
-            <h2 className="text-lg font-medium text-gray-900">Tạo tài khoản mới</h2>
-            <p className="text-sm text-gray-600 mt-1">Dịch vụ công số Việt Nam</p>
-          </div>
-        </div>
 
-        {/* Progress indicator */}
-        <div className="px-4 mb-6">
-          <div className="flex items-center justify-center space-x-2 mb-3">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className={`w-3 h-3 rounded-full transition-colors ${
-                  i <= step ? 'bg-red-600' : 'bg-gray-300'
-                }`}
-              />
-            ))}
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600">
-              Bước {step} / 3: {' '}
-              {step === 1 && 'Thông tin cá nhân'}
-              {step === 2 && 'Xác thực OTP'}
-              {step === 3 && 'Hoàn tất'}
+            <button
+              onClick={handleNext}
+              disabled={!form.cccdNumber || !form.fullName || !form.phone || !form.email
+                || !pwValid || form.password !== form.confirmPassword || !agreeTerms}
+              className="w-full h-14 rounded-2xl text-white font-bold text-sm flex items-center
+                justify-center gap-2 hover:opacity-90 active:scale-[.98] transition-all
+                disabled:opacity-40 shadow-lg shadow-red-900/30"
+              style={{ background: `linear-gradient(135deg, ${P} 0%, #c0392b 100%)` }}
+            >
+              Tiếp tục <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <p className="text-center text-sm text-gray-400">
+              Đã có tài khoản?{' '}
+              <button onClick={() => onNavigate('login')}
+                className="font-bold" style={{ color: P }}>Đăng nhập</button>
             </p>
           </div>
-        </div>
+        )}
 
-        {/* Form */}
-        <div className="px-4">
-          <Card className="border-0 shadow-lg">
-            <CardContent className="p-6">
-              {renderStepContent()}
-            </CardContent>
-          </Card>
-        </div>
+        {/* ── Step 2 ─────────────────────────────────────────────────────── */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+                style={{ backgroundColor: P + '18' }}>
+                <Phone className="w-8 h-8" style={{ color: P }} />
+              </div>
+              <h2 className="text-lg font-black text-gray-900">Xác thực OTP</h2>
+              <p className="text-sm text-gray-400 mt-1">
+                Mã đã gửi tới <span className="font-semibold text-gray-700">{form.phone}</span>
+              </p>
+            </div>
 
-        {/* Support info */}
-        <div className="px-4 pb-8">
-          <div className="text-center text-sm text-gray-500 bg-white rounded-lg p-4">
-            <p>Cần hỗ trợ? Gọi hotline:</p>
-            <p className="font-medium text-red-600">1900 1234</p>
-            <p className="text-xs mt-1">Hoạt động 24/7</p>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 block">
+                Mã OTP (6 chữ số)
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="• • • • • •"
+                value={otp}
+                maxLength={6}
+                onChange={e => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+                className="w-full h-16 bg-gray-50 border border-gray-100 rounded-2xl text-center
+                  text-2xl font-black tracking-[0.5em] text-gray-800 outline-none
+                  focus:border-[#8f000d] transition-colors"
+              />
+            </div>
+
+            <button
+              onClick={handleNext}
+              disabled={otp.length !== 6 || loading}
+              className="w-full h-14 rounded-2xl text-white font-bold text-sm flex items-center
+                justify-center gap-2 hover:opacity-90 active:scale-[.98] transition-all
+                disabled:opacity-40 shadow-lg shadow-red-900/30"
+              style={{ background: `linear-gradient(135deg, ${P} 0%, #c0392b 100%)` }}
+            >
+              {loading
+                ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Đang xử lý...</>
+                : <>Xác thực <ArrowRight className="w-4 h-4" /></>}
+            </button>
+
+            <button className="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors py-2">
+              Gửi lại mã
+            </button>
           </div>
-        </div>
+        )}
+
+        {/* ── Step 3 ─────────────────────────────────────────────────────── */}
+        {step === 3 && (
+          <div className="flex flex-col items-center text-center space-y-5 py-6">
+            <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-10 h-10 text-green-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-gray-900">Đăng ký thành công!</h2>
+              <p className="text-sm text-gray-400 mt-2">
+                Tài khoản của bạn đã được tạo. Đăng nhập để bắt đầu sử dụng dịch vụ.
+              </p>
+            </div>
+            <button
+              onClick={handleNext}
+              className="w-full h-14 rounded-2xl text-white font-bold text-sm flex items-center
+                justify-center gap-2 hover:opacity-90 active:scale-[.98] transition-all shadow-lg shadow-red-900/30"
+              style={{ background: `linear-gradient(135deg, ${P} 0%, #c0392b 100%)` }}
+            >
+              Đăng nhập ngay <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
