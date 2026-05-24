@@ -1,278 +1,326 @@
-import { useState } from 'react';
-import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { ArrowLeft, Shield, Phone, Mail } from 'lucide-react';
-import { Badge } from './ui/badge';
-import React from 'react';
-interface ForgotPasswordScreenProps {
-  onNavigate: (screen: string) => void;
-}
+import React, { useState } from 'react';
+import {
+  ShieldCheck, ChevronLeft, CreditCard, Phone, Mail,
+  Lock, Eye, EyeOff, Check, AlertCircle, ArrowRight, KeyRound,
+} from 'lucide-react';
 
-export function ForgotPasswordScreen({ onNavigate }: ForgotPasswordScreenProps) {
-  const [step, setStep] = useState(1); // 1: nhập CCCD, 2: chọn phương thức, 3: nhập OTP, 4: đặt lại mật khẩu
-  const [cccdNumber, setCccdNumber] = useState('');
-  const [selectedMethod, setSelectedMethod] = useState('');
-  const [otp, setOtp] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+interface Props { onNavigate: (screen: string) => void }
+
+const P = '#8f000d';
+
+const patternStyle: React.CSSProperties = {
+  backgroundImage: 'radial-gradient(rgba(255,255,255,0.15) 0.5px, transparent 0.5px)',
+  backgroundSize: '18px 18px',
+};
+
+const STEPS = ['Xác thực', 'Nhận mã', 'OTP', 'Mật khẩu mới'];
+
+export function ForgotPasswordScreen({ onNavigate }: Props) {
+  const [step, setStep]               = useState(1);
+  const [cccd, setCccd]               = useState('');
+  const [method, setMethod]           = useState<'sms' | 'email' | ''>('');
+  const [otp, setOtp]                 = useState('');
+  const [newPwd, setNewPwd]           = useState('');
+  const [confirmPwd, setConfirmPwd]   = useState('');
+  const [showPwd, setShowPwd]         = useState(false);
+  const [showCPwd, setShowCPwd]       = useState(false);
+  const [error, setError]             = useState('');
+
+  const pwReq = {
+    length:  newPwd.length >= 8,
+    upper:   /[A-Z]/.test(newPwd),
+    number:  /\d/.test(newPwd),
+    special: /[!@#$%^&*(),.?":{}|<>]/.test(newPwd),
+  };
+  const pwValid = Object.values(pwReq).every(Boolean);
 
   const handleNext = () => {
-    if (step < 4) {
-      setStep(step + 1);
+    setError('');
+    if (step === 1) {
+      if (cccd.length !== 12) { setError('Số CCCD phải đủ 12 chữ số'); return; }
+      setStep(2);
+    } else if (step === 2) {
+      if (!method) { setError('Vui lòng chọn phương thức'); return; }
+      setStep(3);
+    } else if (step === 3) {
+      if (otp.length !== 6) { setError('Vui lòng nhập mã 6 số'); return; }
+      setStep(4);
     } else {
-      // Hoàn tất đặt lại mật khẩu
+      if (!pwValid)              { setError('Mật khẩu chưa đủ mạnh'); return; }
+      if (newPwd !== confirmPwd) { setError('Mật khẩu xác nhận không khớp'); return; }
       onNavigate('login');
     }
   };
 
-  const renderStepContent = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="space-y-4">
-            <div className="text-center mb-4">
-              <p className="text-gray-600">Nhập số CCCD để xác thực danh t��nh</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cccd">Số CCCD</Label>
-              <Input
-                id="cccd"
-                type="text"
-                placeholder="Nhập số CCCD"
-                value={cccdNumber}
-                onChange={(e) => setCccdNumber(e.target.value)}
-                maxLength={12}
-              />
-            </div>
-            <Button 
-              onClick={handleNext}
-              className="w-full bg-red-600 hover:bg-red-700"
-              disabled={!cccdNumber || cccdNumber.length !== 12}
-            >
-              Tiếp tục
-            </Button>
-          </div>
-        );
-
-      case 2:
-        return (
-          <div className="space-y-4">
-            <div className="text-center mb-4">
-              <p className="text-gray-600">Chọn phương thức nhận mã xác thực</p>
-            </div>
-            
-            <div className="space-y-3">
-              <div 
-                className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                  selectedMethod === 'sms' ? 'border-red-500 bg-red-50' : 'border-gray-200'
-                }`}
-                onClick={() => setSelectedMethod('sms')}
-              >
-                <div className="flex items-center space-x-3">
-                  <Phone className="w-5 h-5 text-red-600" />
-                  <div>
-                    <p className="font-medium">SMS</p>
-                    <p className="text-sm text-gray-600">Gửi mã đến số điện thoại ****1234</p>
-                  </div>
-                </div>
-              </div>
-
-              <div 
-                className={`p-4 border rounded-lg cursor-pointer transition-colors ${
-                  selectedMethod === 'email' ? 'border-red-500 bg-red-50' : 'border-gray-200'
-                }`}
-                onClick={() => setSelectedMethod('email')}
-              >
-                <div className="flex items-center space-x-3">
-                  <Mail className="w-5 h-5 text-red-600" />
-                  <div>
-                    <p className="font-medium">Email</p>
-                    <p className="text-sm text-gray-600">Gửi mã đến email n****@example.com</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Button 
-              onClick={handleNext}
-              className="w-full bg-red-600 hover:bg-red-700"
-              disabled={!selectedMethod}
-            >
-              Gửi mã xác thực
-            </Button>
-          </div>
-        );
-
-      case 3:
-        return (
-          <div className="space-y-4">
-            <div className="text-center mb-4">
-              <p className="text-gray-600">
-                Nhập mã xác thực đã được gửi đến {selectedMethod === 'sms' ? 'số điện thoại' : 'email'} của bạn
-              </p>
-              <div className="flex items-center justify-center mt-3">
-                <Badge variant="secondary" className="bg-orange-100 text-orange-800">
-                  Mã có hiệu lực trong 5 phút
-                </Badge>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="otp">Mã xác thực (6 số)</Label>
-              <Input
-                id="otp"
-                type="text"
-                placeholder="Nhập mã xác thực"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                maxLength={6}
-                className="text-center text-lg tracking-widest"
-              />
-            </div>
-
-            <Button 
-              onClick={handleNext}
-              className="w-full bg-red-600 hover:bg-red-700"
-              disabled={!otp || otp.length !== 6}
-            >
-              Xác thực
-            </Button>
-
-            <Button 
-              variant="ghost" 
-              className="w-full"
-              onClick={() => {/* Gửi lại mã */}}
-            >
-              Gửi lại mã
-            </Button>
-          </div>
-        );
-
-      case 4:
-        return (
-          <div className="space-y-4">
-            <div className="text-center mb-4">
-              <p className="text-gray-600">Đặt mật khẩu mới cho tài khoản của bạn</p>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="newPassword">Mật khẩu mới</Label>
-              <Input
-                id="newPassword"
-                type="password"
-                placeholder="Nhập mật khẩu mới"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Xác nhận mật khẩu</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                placeholder="Nhập lại mật khẩu mới"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-              />
-            </div>
-
-            <div className="text-sm text-gray-600 space-y-1">
-              <p>Mật khẩu phải có:</p>
-              <ul className="list-disc list-inside space-y-1 ml-2">
-                <li>Ít nhất 8 ký tự</li>
-                <li>Ít nhất 1 chữ hoa</li>
-                <li>Ít nhất 1 chữ số</li>
-                <li>Ít nhất 1 ký tự đặc biệt</li>
-              </ul>
-            </div>
-
-            <Button 
-              onClick={handleNext}
-              className="w-full bg-red-600 hover:bg-red-700"
-              disabled={!newPassword || !confirmPassword || newPassword !== confirmPassword}
-            >
-              Đặt lại mật khẩu
-            </Button>
-          </div>
-        );
-
-      default:
-        return null;
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="w-full max-w-md mx-auto space-y-6">
-        {/* iOS Style Header */}
-        <div className="bg-white shadow-sm sticky top-0 z-10">
-          <div className="flex items-center justify-between p-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => step === 1 ? onNavigate('login') : setStep(step - 1)}
-              className="p-2"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <h1 className="text-lg font-semibold text-gray-900">Quên mật khẩu</h1>
-            <div className="w-9"></div> {/* Spacer for center alignment */}
+    <div className="min-h-screen flex flex-col"
+      style={{ background: 'linear-gradient(160deg, #1c0003 0%, #8f000d 55%, #c0392b 100%)' }}>
+
+      <div className="absolute inset-0 pointer-events-none" style={patternStyle} />
+
+      {/* ── Brand + back ──────────────────────────────────────────────────── */}
+      <div className="relative z-10 px-4 pt-12 pb-8">
+        <button
+          onClick={() => step === 1 ? onNavigate('login') : setStep(s => s - 1)}
+          className="w-9 h-9 rounded-full bg-white/10 flex items-center justify-center mb-6
+            hover:bg-white/20 transition-colors"
+        >
+          <ChevronLeft className="w-5 h-5 text-white" />
+        </button>
+
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/20
+            flex items-center justify-center">
+            <KeyRound className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-black text-white leading-tight">Quên mật khẩu</h1>
+            <p className="text-white/50 text-xs">Khôi phục tài khoản</p>
           </div>
         </div>
 
-        <div className="px-4 pt-6">
-          <div className="text-center mb-6">
-            <div className="mx-auto w-16 h-16 bg-red-600 rounded-full flex items-center justify-center mb-4">
-              <Shield className="w-8 h-8 text-white" />
+        {/* Step pills */}
+        <div className="flex items-center gap-1.5 mt-5">
+          {STEPS.map((label, i) => {
+            const idx  = i + 1;
+            const done = idx < step;
+            const cur  = idx === step;
+            return (
+              <React.Fragment key={idx}>
+                <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-bold transition-all
+                  ${cur  ? 'bg-white text-[#8f000d]'
+                  : done ? 'bg-white/20 text-white'
+                  :        'bg-white/10 text-white/40'}`}>
+                  {done
+                    ? <Check className="w-2.5 h-2.5" />
+                    : <span className="w-2.5 h-2.5 rounded-full border border-current flex items-center justify-center text-[7px] font-black">{idx}</span>}
+                  <span>{label}</span>
+                </div>
+                {i < 3 && <div className={`flex-1 h-px ${idx < step ? 'bg-white/40' : 'bg-white/10'}`} />}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Form card ─────────────────────────────────────────────────────── */}
+      <div className="relative z-10 flex-1 bg-white rounded-t-[2rem] px-6 pt-7 pb-10 shadow-2xl">
+
+        {error && (
+          <div className="flex items-center gap-2.5 bg-red-50 border border-red-200 rounded-2xl
+            px-4 py-3 mb-5 text-sm text-red-700">
+            <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+          </div>
+        )}
+
+        {/* ── Step 1: CCCD ─────────────────────────────────────────────── */}
+        {step === 1 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-black text-gray-900">Xác thực danh tính</h2>
+              <p className="text-sm text-gray-400 mt-1">Nhập số CCCD để tìm tài khoản</p>
             </div>
-            <h2 className="text-lg font-medium text-gray-900">Khôi phục mật khẩu</h2>
-            <p className="text-sm text-gray-600 mt-1">Làm theo hướng dẫn để đặt lại mật khẩu</p>
-          </div>
-        </div>
 
-        {/* Progress indicator */}
-        <div className="px-4 mb-6">
-          <div className="flex items-center justify-center space-x-2 mb-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className={`w-3 h-3 rounded-full transition-colors ${
-                  i <= step ? 'bg-red-600' : 'bg-gray-300'
-                }`}
-              />
-            ))}
-          </div>
-          <div className="text-center">
-            <p className="text-sm text-gray-600">
-              Bước {step} / 4: {' '}
-              {step === 1 && 'Xác thực danh tính'}
-              {step === 2 && 'Chọn phương thức'}
-              {step === 3 && 'Nhập mã xác thực'}
-              {step === 4 && 'Đặt mật khẩu mới'}
-            </p>
-          </div>
-        </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 block">
+                Số CCCD
+              </label>
+              <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 h-14
+                border border-gray-100 focus-within:border-[#8f000d] transition-colors">
+                <CreditCard className="w-4 h-4 text-gray-300 shrink-0" />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="12 chữ số CCCD"
+                  value={cccd}
+                  maxLength={12}
+                  onChange={e => { setCccd(e.target.value.replace(/\D/g, '')); setError(''); }}
+                  className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-300 font-mono tracking-wide"
+                />
+              </div>
+            </div>
 
-        {/* Form */}
-        <div className="px-4">
-          <Card className="border-0 shadow-lg">
-            <CardContent className="p-6">
-              {renderStepContent()}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Support info */}
-        <div className="px-4 pb-8">
-          <div className="text-center text-sm text-gray-500 bg-white rounded-lg p-4">
-            <p>Cần hỗ trợ? Gọi hotline:</p>
-            <p className="font-medium text-red-600">1900 1234</p>
-            <p className="text-xs mt-1">Hoạt động 24/7</p>
+            <button onClick={handleNext} disabled={cccd.length !== 12}
+              className="w-full h-14 rounded-2xl text-white font-bold text-sm flex items-center
+                justify-center gap-2 hover:opacity-90 active:scale-[.98] transition-all
+                disabled:opacity-40 shadow-lg shadow-red-900/30"
+              style={{ background: `linear-gradient(135deg, ${P} 0%, #c0392b 100%)` }}>
+              Tiếp tục <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
-        </div>
+        )}
+
+        {/* ── Step 2: Method ───────────────────────────────────────────── */}
+        {step === 2 && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-xl font-black text-gray-900">Nhận mã xác thực</h2>
+              <p className="text-sm text-gray-400 mt-1">Chọn phương thức nhận OTP</p>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                { id: 'sms' as const,   Icon: Phone, label: 'SMS',   desc: 'Gửi mã đến số điện thoại ****1234' },
+                { id: 'email' as const, Icon: Mail,  label: 'Email', desc: 'Gửi mã đến email n****@example.com' },
+              ].map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setMethod(m.id)}
+                  className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 text-left transition-all
+                    ${method === m.id
+                      ? 'border-[#8f000d] bg-[#fff4f4]'
+                      : 'border-gray-100 bg-gray-50 hover:border-gray-200'}`}
+                >
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0
+                    ${method === m.id ? 'bg-[#8f000d]' : 'bg-white border border-gray-200'}`}>
+                    <m.Icon className={`w-4 h-4 ${method === m.id ? 'text-white' : 'text-gray-400'}`} />
+                  </div>
+                  <div>
+                    <p className={`text-sm font-bold ${method === m.id ? 'text-[#8f000d]' : 'text-gray-800'}`}>
+                      {m.label}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">{m.desc}</p>
+                  </div>
+                  {method === m.id && (
+                    <div className="ml-auto w-5 h-5 rounded-full bg-[#8f000d] flex items-center justify-center">
+                      <Check className="w-3 h-3 text-white" />
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <button onClick={handleNext} disabled={!method}
+              className="w-full h-14 rounded-2xl text-white font-bold text-sm flex items-center
+                justify-center gap-2 hover:opacity-90 active:scale-[.98] transition-all
+                disabled:opacity-40 shadow-lg shadow-red-900/30"
+              style={{ background: `linear-gradient(135deg, ${P} 0%, #c0392b 100%)` }}>
+              Gửi mã xác thực <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* ── Step 3: OTP ──────────────────────────────────────────────── */}
+        {step === 3 && (
+          <div className="space-y-6">
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+                style={{ backgroundColor: P + '18' }}>
+                {method === 'sms'
+                  ? <Phone className="w-8 h-8" style={{ color: P }} />
+                  : <Mail className="w-8 h-8"  style={{ color: P }} />}
+              </div>
+              <h2 className="text-xl font-black text-gray-900">Nhập mã OTP</h2>
+              <p className="text-sm text-gray-400 mt-1">
+                Mã đã gửi qua {method === 'sms' ? 'SMS ****1234' : 'email n****@example.com'}
+              </p>
+              <span className="inline-block mt-2 px-3 py-1 bg-amber-50 text-amber-700 text-xs font-bold rounded-full">
+                Hết hạn sau 5 phút
+              </span>
+            </div>
+
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="• • • • • •"
+              value={otp}
+              maxLength={6}
+              onChange={e => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
+              className="w-full h-16 bg-gray-50 border border-gray-100 rounded-2xl text-center
+                text-2xl font-black tracking-[0.5em] text-gray-800 outline-none
+                focus:border-[#8f000d] transition-colors"
+            />
+
+            <button onClick={handleNext} disabled={otp.length !== 6}
+              className="w-full h-14 rounded-2xl text-white font-bold text-sm flex items-center
+                justify-center gap-2 hover:opacity-90 active:scale-[.98] transition-all
+                disabled:opacity-40 shadow-lg shadow-red-900/30"
+              style={{ background: `linear-gradient(135deg, ${P} 0%, #c0392b 100%)` }}>
+              Xác thực <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <button className="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors py-2">
+              Gửi lại mã
+            </button>
+          </div>
+        )}
+
+        {/* ── Step 4: New password ─────────────────────────────────────── */}
+        {step === 4 && (
+          <div className="space-y-5">
+            <div>
+              <h2 className="text-xl font-black text-gray-900">Mật khẩu mới</h2>
+              <p className="text-sm text-gray-400 mt-1">Đặt mật khẩu mới cho tài khoản</p>
+            </div>
+
+            {/* New password */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 block">
+                Mật khẩu mới
+              </label>
+              <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 h-14
+                border border-gray-100 focus-within:border-[#8f000d] transition-colors">
+                <Lock className="w-4 h-4 text-gray-300 shrink-0" />
+                <input
+                  type={showPwd ? 'text' : 'password'}
+                  placeholder="Ít nhất 8 ký tự"
+                  value={newPwd}
+                  onChange={e => { setNewPwd(e.target.value); setError(''); }}
+                  className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-300"
+                />
+                <button onClick={() => setShowPwd(v => !v)} className="text-gray-300 hover:text-gray-500">
+                  {showPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {newPwd && (
+                <div className="grid grid-cols-2 gap-1 mt-2 px-1">
+                  {[
+                    { ok: pwReq.length,  t: '≥ 8 ký tự' },
+                    { ok: pwReq.upper,   t: 'Chữ hoa' },
+                    { ok: pwReq.number,  t: 'Chữ số' },
+                    { ok: pwReq.special, t: 'Ký tự đặc biệt' },
+                  ].map(r => (
+                    <div key={r.t} className={`flex items-center gap-1.5 text-[11px] ${r.ok ? 'text-green-600' : 'text-gray-400'}`}>
+                      <Check className={`w-3 h-3 ${r.ok ? '' : 'opacity-30'}`} /> {r.t}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Confirm */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-1.5 block">
+                Xác nhận mật khẩu
+              </label>
+              <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 h-14
+                border border-gray-100 focus-within:border-[#8f000d] transition-colors">
+                <Lock className="w-4 h-4 text-gray-300 shrink-0" />
+                <input
+                  type={showCPwd ? 'text' : 'password'}
+                  placeholder="Nhập lại mật khẩu"
+                  value={confirmPwd}
+                  onChange={e => { setConfirmPwd(e.target.value); setError(''); }}
+                  className="flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-300"
+                />
+                <button onClick={() => setShowCPwd(v => !v)} className="text-gray-300 hover:text-gray-500">
+                  {showCPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              {confirmPwd && newPwd !== confirmPwd && (
+                <p className="text-xs text-red-500 mt-1.5 px-1">Mật khẩu không khớp</p>
+              )}
+            </div>
+
+            <button onClick={handleNext} disabled={!pwValid || newPwd !== confirmPwd}
+              className="w-full h-14 rounded-2xl text-white font-bold text-sm flex items-center
+                justify-center gap-2 hover:opacity-90 active:scale-[.98] transition-all
+                disabled:opacity-40 shadow-lg shadow-red-900/30"
+              style={{ background: `linear-gradient(135deg, ${P} 0%, #c0392b 100%)` }}>
+              Đặt lại mật khẩu <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
