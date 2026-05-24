@@ -34,3 +34,14 @@ Frontend/build/
 *.bin
 *.gguf
 sentencepiece.bpe.model
+
+# IDE / tools
+.vscode/
+.claude/skills/
+.superpowers/
+
+# ChromaDB vector store (local binary — không commit)
+Backend/RAG/chroma_db/
+
+# User uploads
+Backend/uploads/

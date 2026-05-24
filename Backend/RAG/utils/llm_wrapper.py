@@ -1,8 +1,9 @@
 import os
 import json
+import time
 import threading
 import logging
-from typing import List, Dict, Any
+from typing import Generator, List, Dict, Any
 
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
@@ -22,61 +23,125 @@ logger = logging.getLogger(__name__)
 
 # ── API Key Pool ──────────────────────────────────────────────────────────────
 
-class _ApiKeyPool:
-    """Thread-safe round-robin key pool. Khi gặp 429 tự động rotate sang key tiếp."""
+_QUOTA_COOLDOWN_SECS = 60  # Không thử lại key 429 trong vòng 60 giây
 
-    _ENV_VARS = ("GOOGLE_API_KEY_1", "GOOGLE_API_KEY_2", "GOOGLE_API_KEY_3", "GOOGLE_API_KEY")
+class _ApiKeyPool:
+    """Thread-safe round-robin key pool với cooldown cho key bị 429."""
 
     def __init__(self):
         self._lock = threading.Lock()
         self._keys: List[str] = self._collect_keys()
         self._idx: int = 0
+        # key -> timestamp khi bị 429 lần cuối
+        self._exhausted_at: Dict[str, float] = {}
 
     def _collect_keys(self) -> List[str]:
+        """
+        Đọc tất cả GOOGLE_API_KEY, GOOGLE_API_KEY_1..N từ env (deduplicate).
+        Thêm key mới chỉ cần đặt GOOGLE_API_KEY_4=..., GOOGLE_API_KEY_5=... trong .env.
+        """
         seen, result = set(), []
-        for env in self._ENV_VARS:
-            v = os.getenv(env, "").strip()
+        # Đọc key đánh số: GOOGLE_API_KEY_1, _2, ... đến _20
+        for i in range(1, 21):
+            v = os.getenv(f"GOOGLE_API_KEY_{i}", "").strip().strip('"').strip("'")
             if v and v not in seen:
                 seen.add(v)
                 result.append(v)
+        # Fallback: GOOGLE_API_KEY không đánh số
+        v = os.getenv("GOOGLE_API_KEY", "").strip().strip('"').strip("'")
+        if v and v not in seen:
+            seen.add(v)
+            result.append(v)
+        logger.info("[LLM] Loaded %d unique Gemini API key(s).", len(result))
         return result
 
-    def _current_key(self) -> str:
+    def _available_keys(self) -> List[str]:
+        """Trả danh sách key chưa trong cooldown."""
+        now = time.monotonic()
+        return [
+            k for k in self._keys
+            if now - self._exhausted_at.get(k, 0) >= _QUOTA_COOLDOWN_SECS
+        ]
+
+    def call(self, model_name: str, call_fn) -> str:
+        """Gọi call_fn(model) với auto-rotate + cooldown khi 429."""
         if not self._keys:
             raise ValueError(
                 "Không có Gemini API key nào trong .env. "
-                "Đặt GOOGLE_API_KEY_1 / GOOGLE_API_KEY_2 / GOOGLE_API_KEY_3 hoặc GOOGLE_API_KEY."
+                "Đặt GOOGLE_API_KEY_1 / GOOGLE_API_KEY_2 / ... hoặc GOOGLE_API_KEY."
             )
-        return self._keys[self._idx % len(self._keys)]
 
-    def _rotate(self):
         with self._lock:
-            self._idx += 1
+            candidates = self._available_keys()
+            if not candidates:
+                # Tất cả đang cooldown — thử key ít bị 429 nhất
+                candidates = sorted(
+                    self._keys,
+                    key=lambda k: self._exhausted_at.get(k, 0)
+                )
 
-    def call(self, model_name: str, call_fn) -> str:
-        """
-        Gọi call_fn(model) với auto-rotate khi 429.
-        Thử tất cả key trước khi raise.
-        """
-        n = max(len(self._keys), 1)
         last_exc: Exception = RuntimeError("Chưa thử key nào.")
-        for attempt in range(n):
-            with self._lock:
-                key = self._current_key()
+        tried: set = set()
+
+        for key in candidates:
+            if key in tried:
+                continue
+            tried.add(key)
             genai.configure(api_key=key)
             model = genai.GenerativeModel(model_name)
             try:
                 return call_fn(model)
             except ResourceExhausted as exc:
                 last_exc = exc
+                with self._lock:
+                    self._exhausted_at[key] = time.monotonic()
                 logger.warning(
                     "[LLM] Key ...%s hết quota (429) – thử key tiếp theo (%d/%d).",
-                    key[-4:], attempt + 1, n,
+                    key[-4:], len(tried), len(self._keys),
                 )
-                self._rotate()
+
         raise ResourceExhausted(
             "Tất cả Gemini API key đã hết quota (429). "
             "Vui lòng thêm key mới hoặc nâng cấp plan tại https://aistudio.google.com/."
+        ) from last_exc
+
+    def stream_call(self, model_name: str, prompt: str) -> Generator[str, None, None]:
+        """Gọi generate_content(stream=True) với auto-rotate 429, yield từng chunk text."""
+        if not self._keys:
+            raise ValueError("Không có Gemini API key nào trong .env.")
+
+        with self._lock:
+            candidates = self._available_keys()
+            if not candidates:
+                candidates = sorted(self._keys, key=lambda k: self._exhausted_at.get(k, 0))
+
+        last_exc: Exception = RuntimeError("Chưa thử key nào.")
+        tried: set = set()
+
+        for key in candidates:
+            if key in tried:
+                continue
+            tried.add(key)
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(model_name)
+            try:
+                response = model.generate_content(prompt, stream=True)
+                for chunk in response:
+                    text = getattr(chunk, 'text', None)
+                    if text:
+                        yield text
+                return
+            except ResourceExhausted as exc:
+                last_exc = exc
+                with self._lock:
+                    self._exhausted_at[key] = time.monotonic()
+                logger.warning(
+                    "[LLM] Key ...%s hết quota (429) khi stream – thử key tiếp theo.",
+                    key[-4:],
+                )
+
+        raise ResourceExhausted(
+            "Tất cả Gemini API key đã hết quota (429)."
         ) from last_exc
 
 
@@ -170,6 +235,10 @@ class GeminiSynthesizerLLM:
         except Exception as e:
             logger.error("[GeminiSynthesizerLLM] Lỗi: %s", e)
             return "Lỗi"
+
+    def stream_run(self, prompt: str) -> Generator[str, None, None]:
+        """Yield từng chunk text từ Gemini streaming."""
+        yield from _pool.stream_call(self.model_name, prompt)
 
 
 class GeminiChatParagraphSummarizer:

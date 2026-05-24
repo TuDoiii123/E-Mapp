@@ -35,6 +35,8 @@ export interface User {
   dateOfBirth: string;
   phone: string;
   email: string;
+  address?: string;
+  avatarUrl?: string;
   role: 'citizen' | 'admin';
   isVNeIDVerified: boolean;
   vneidId: string | null;
@@ -195,6 +197,21 @@ export const authAPI = {
       body: JSON.stringify(updates),
     });
   },
+
+  uploadAvatar: async (file: File): Promise<{ success: boolean; data: { avatarUrl: string } }> => {
+    const token = getToken();
+    const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API_BASE_URL}/auth/profile/avatar`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data?.message || 'Lỗi tải ảnh lên');
+    return data;
+  },
 };
 
 export interface ChatRequestPayload {
@@ -241,6 +258,56 @@ export interface ChatSessionMessagesResponse {
       timestamp?: string | null;
     }>;
   };
+}
+
+export type StreamEvent =
+  | { type: 'start' }
+  | { type: 'session'; sessionId: string }
+  | { type: 'chunk'; text: string }
+  | { type: 'done'; sessionId: string; latencyMs: number }
+  | { type: 'error'; message: string };
+
+export async function* streamChatMessage(payload: ChatRequestPayload): AsyncGenerator<StreamEvent> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/rag/chat/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    yield { type: 'error', message: 'Không thể kết nối đến server.' };
+    return;
+  }
+
+  if (!response.ok || !response.body) {
+    yield { type: 'error', message: `Lỗi ${response.status}: ${response.statusText}` };
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      try {
+        yield JSON.parse(line.slice(6)) as StreamEvent;
+      } catch { /* skip malformed */ }
+    }
+  }
 }
 
 export const chatbotAPI = {

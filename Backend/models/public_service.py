@@ -151,7 +151,7 @@ class PublicService:
                         sql = text('''
                             SELECT d.*, t.id AS theloai_id, t.name AS theloai_name
                             FROM ds_dichvucong d
-                            LEFT JOIN ds_theloai t ON (COALESCE(d.category_id::text, d.theloai_id::text, d.category::text) = t.id::text)
+                            LEFT JOIN ds_theloai t ON d.category_id = t.id
                         ''')
                         res = db.session.execute(sql)
                         rows = res.mappings().all()
@@ -183,7 +183,7 @@ class PublicService:
                     sql = text('''
                         SELECT d.*, t.id AS theloai_id, t.name AS theloai_name
                         FROM ds_dichvucong d
-                        LEFT JOIN ds_theloai t ON (COALESCE(d.category_id::text, d.theloai_id::text, d.category::text) = t.id::text)
+                        LEFT JOIN ds_theloai t ON d.category_id = t.id
                         WHERE (d.id::text = :id OR d.code::text = :id) LIMIT 1
                     ''')
                     res = db.session.execute(sql, {'id': service_id})

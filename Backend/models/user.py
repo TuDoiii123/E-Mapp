@@ -68,6 +68,8 @@ class User:
         self.role = data.get('role', 'citizen')  # 'citizen' or 'admin'
         self.isVNeIDVerified = data.get('isVNeIDVerified', False)
         self.vneidId = data.get('vneidId')
+        self.address = data.get('address', '')
+        self.avatarUrl = data.get('avatarUrl', '')
         self.createdAt = data.get('createdAt', datetime.now().isoformat())
         self.updatedAt = data.get('updatedAt', datetime.now().isoformat())
     
@@ -83,6 +85,8 @@ class User:
             'role': self.role,
             'isVNeIDVerified': self.isVNeIDVerified,
             'vneidId': self.vneidId,
+            'address': self.address or '',
+            'avatarUrl': self.avatarUrl or '',
             'createdAt': self.createdAt,
             'updatedAt': self.updatedAt
         }
@@ -113,6 +117,8 @@ class User:
                         'role': row.get('role'),
                         'isVNeIDVerified': row.get('is_vneid_verified'),
                         'vneidId': row.get('vneid_id'),
+                        'address': row.get('address') or '',
+                        'avatarUrl': row.get('avatar_url') or '',
                         'createdAt': row.get('created_at'),
                         'updatedAt': row.get('updated_at')
                     }
@@ -148,6 +154,8 @@ class User:
                         'role': row.get('role'),
                         'isVNeIDVerified': row.get('is_vneid_verified'),
                         'vneidId': row.get('vneid_id'),
+                        'address': row.get('address') or '',
+                        'avatarUrl': row.get('avatar_url') or '',
                         'createdAt': row.get('created_at'),
                         'updatedAt': row.get('updated_at')
                     }
@@ -198,29 +206,32 @@ class User:
                 if exists:
                     raise ValueError('CCCD hoặc Email đã được đăng ký')
 
-                hashed = generate_password_hash(user_data.get('password', ''), method='pbkdf2:sha256')
-                now = datetime.now(timezone.utc).isoformat()
-                ins = db.session.execute(
-                    text('''INSERT INTO users (id, cccd_number, full_name, date_of_birth, phone, email, password, role, is_vneid_verified, vneid_id, created_at, updated_at)
-                                  VALUES (:id, :cccd, :full_name, :dob, :phone, :email, :password, :role, :is_vneid, :vneid_id, :created_at, :updated_at)'''),
+                hashed    = generate_password_hash(user_data.get('password', ''), method='pbkdf2:sha256')
+                now       = datetime.now(timezone.utc).isoformat()
+                new_id    = user_data.get('id') or str(int(datetime.now().timestamp() * 1000))
+                db.session.execute(
+                    text('''INSERT INTO users (id, cccd_number, full_name, date_of_birth, phone, email, password, role, is_vneid_verified, vneid_id, address, avatar_url, created_at, updated_at)
+                                  VALUES (:id, :cccd, :full_name, :dob, :phone, :email, :password, :role, :is_vneid, :vneid_id, :address, :avatar_url, :created_at, :updated_at)'''),
                     {
-                        'id': user_data.get('id', str(int(datetime.now().timestamp() * 1000))),
-                        'cccd': user_data.get('cccdNumber'),
-                        'full_name': user_data.get('fullName'),
-                        'dob': user_data.get('dateOfBirth'),
-                        'phone': user_data.get('phone'),
-                        'email': user_data.get('email'),
-                        'password': hashed,
-                        'role': user_data.get('role', 'citizen'),
-                        'is_vneid': bool(user_data.get('isVNeIDVerified', False)),
-                        'vneid_id': user_data.get('vneidId'),
+                        'id':         new_id,
+                        'cccd':       user_data.get('cccdNumber'),
+                        'full_name':  user_data.get('fullName'),
+                        'dob':        user_data.get('dateOfBirth'),
+                        'phone':      user_data.get('phone'),
+                        'email':      user_data.get('email'),
+                        'password':   hashed,
+                        'role':       user_data.get('role', 'citizen'),
+                        'is_vneid':   bool(user_data.get('isVNeIDVerified', False)),
+                        'vneid_id':   user_data.get('vneidId'),
+                        'address':    user_data.get('address', ''),
+                        'avatar_url': user_data.get('avatarUrl', ''),
                         'created_at': now,
-                        'updated_at': now
+                        'updated_at': now,
                     }
                 )
                 db.session.commit()
                 return {
-                    'id': user_data.get('id'),
+                    'id': new_id,
                     'cccdNumber': user_data.get('cccdNumber'),
                     'fullName': user_data.get('fullName'),
                     'dateOfBirth': user_data.get('dateOfBirth'),
@@ -229,6 +240,8 @@ class User:
                     'role': user_data.get('role', 'citizen'),
                     'isVNeIDVerified': bool(user_data.get('isVNeIDVerified', False)),
                     'vneidId': user_data.get('vneidId'),
+                    'address': user_data.get('address', ''),
+                    'avatarUrl': user_data.get('avatarUrl', ''),
                     'createdAt': now,
                     'updatedAt': now
                 }
@@ -279,6 +292,8 @@ class User:
                         col = 'is_vneid_verified'
                     elif k == 'vneidId':
                         col = 'vneid_id'
+                    elif k == 'avatarUrl':
+                        col = 'avatar_url'
                     params[col] = v
                     set_parts.append(f"{col} = :{col}")
 
@@ -287,7 +302,10 @@ class User:
                     params['updated_at'] = datetime.now(timezone.utc).isoformat()
                     db.session.execute(sql, params)
                     db.session.commit()
-                    return User.find_by_id(user_id)
+                else:
+                    # nothing to update but still return current data
+                    pass
+                return User.find_by_id(user_id)
             except Exception as e:
                 _log.warning(f'DB user update failed, falling back to file: {e}')
 

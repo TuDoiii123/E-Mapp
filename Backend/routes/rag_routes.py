@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -269,6 +269,102 @@ def rag_chat():
     if warnings:
         response_payload['warnings'] = warnings
     return jsonify(response_payload)
+
+
+@rag_bp.route('/api/rag/chat/stream', methods=['POST'])
+def rag_chat_stream():
+    payload      = request.get_json(silent=True) or {}
+    user_message = (payload.get('message') or '').strip()
+    session_id   = payload.get('sessionId') or None
+
+    if not user_message:
+        return jsonify({'success': False, 'message': 'message is required'}), 400
+
+    def _sse(data: dict) -> str:
+        return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    @stream_with_context
+    def generate():
+        start = time.perf_counter()
+        try:
+            agent = _get_agent()
+        except Exception as exc:
+            yield _sse({'type': 'error', 'message': str(exc)})
+            return
+
+        # ── Phase 1: pipeline (cache check + tool execution) ──────────────
+        try:
+            state = agent.create_new_state(user_message, session_id or '')
+            agent.run_pipeline_only(state)
+        except Exception as exc:
+            err = str(exc)
+            is_quota = '429' in err or 'quota' in err.lower()
+            msg = 'Hệ thống AI đang quá tải, vui lòng thử lại sau ít phút.' if is_quota else 'Xảy ra lỗi khi xử lý yêu cầu.'
+            yield _sse({'type': 'error', 'message': msg})
+            return
+
+        # ── Cache HIT: stream cached answer word by word ───────────────────
+        if state.get('cache_hit'):
+            cached = (state.get('final_answer') or '').strip()
+            stored_sid = _log_chat(session_id, user_message, cached, '{}') or session_id
+            yield _sse({'type': 'session', 'sessionId': stored_sid})
+            words = cached.split(' ')
+            for i, word in enumerate(words):
+                chunk = word + ('' if i == len(words) - 1 else ' ')
+                yield _sse({'type': 'chunk', 'text': chunk})
+            yield _sse({'type': 'done', 'sessionId': stored_sid,
+                        'latencyMs': round((time.perf_counter() - start) * 1000, 2)})
+            return
+
+        # ── Phase 2: stream synthesis ──────────────────────────────────────
+        try:
+            from RAG.agent_core.node import build_synthesis_prompt
+            from RAG.utils.llm_wrapper import GeminiSynthesizerLLM
+            synthesis_prompt = build_synthesis_prompt(state)
+        except Exception as exc:
+            yield _sse({'type': 'error', 'message': f'Lỗi xây dựng prompt: {exc}'})
+            return
+
+        synthesizer = GeminiSynthesizerLLM()
+        full_chunks: List[str] = []
+
+        yield _sse({'type': 'start'})
+        try:
+            for chunk in synthesizer.stream_run(synthesis_prompt):
+                full_chunks.append(chunk)
+                yield _sse({'type': 'chunk', 'text': chunk})
+        except Exception as exc:
+            err = str(exc)
+            is_quota = '429' in err or 'quota' in err.lower()
+            msg = 'Hệ thống AI đang quá tải, vui lòng thử lại sau ít phút.' if is_quota else f'Lỗi sinh câu trả lời: {err}'
+            yield _sse({'type': 'error', 'message': msg})
+            return
+
+        final_answer = ''.join(full_chunks).strip()
+
+        # ── Phase 3: cache store + DB log ─────────────────────────────────
+        state['final_answer'] = final_answer
+        try:
+            from RAG.agent_core.node import cache_store
+            cache_store(state)
+        except Exception:
+            pass
+
+        intermediate = _clean_docs(state.get('tool_results') or [])
+        stored_sid = _log_chat(session_id, user_message, final_answer, intermediate) or session_id
+
+        yield _sse({'type': 'done', 'sessionId': stored_sid,
+                    'latencyMs': round((time.perf_counter() - start) * 1000, 2)})
+
+    return Response(
+        generate(),
+        content_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive',
+        },
+    )
 
 
 @rag_bp.route('/api/rag/sessions', methods=['GET'])

@@ -4,7 +4,7 @@ import {
   User, ArrowLeft, Search as SearchIcon, Calendar, Image,
   Menu, Share2, Bot, Sun, MessageSquarePlus,
 } from 'lucide-react';
-import { chatbotAPI, voiceAPI, type ChatSessionSummary } from '../services/api';
+import { chatbotAPI, streamChatMessage, voiceAPI, type ChatSessionSummary } from '../services/api';
 import { VoiceBookingModal } from './VoiceBookingModal';
 
 interface ChatbotScreenProps {
@@ -212,34 +212,89 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
         }
 
       } else {
-        const response = await chatbotAPI.sendMessage({ message: trimmed, sessionId: sessionId ?? undefined, intent: mode === 'administrative_qa' ? 'administrative_qa' : undefined, speak: true });
-        const nextSessionId = response.data?.sessionId ?? sessionId;
-        const normalizedSessionId = nextSessionId && nextSessionId.trim().length > 0 ? nextSessionId : null;
-        if (sessionId == null && normalizedSessionId) {
-          setConversations((prev) => {
-            const localId = '__local__';
-            const idxLocal = prev.findIndex((c) => c.id === localId);
-            if (idxLocal === -1) return prev;
-            const idxTarget = prev.findIndex((c) => c.id === normalizedSessionId);
-            let next = [...prev];
-            if (idxTarget === -1) { next[idxLocal] = { ...next[idxLocal], id: normalizedSessionId }; }
-            else {
-              next[idxTarget] = { ...next[idxTarget], lastUpdated: Math.max(next[idxTarget].lastUpdated, next[idxLocal].lastUpdated), messages: [...next[idxTarget].messages, ...next[idxLocal].messages] };
-              next = next.filter((_, i) => i !== idxLocal);
+        // Streaming mode — char-by-char animation
+        const botMsgId = createMessageId('bot');
+        const botMsg: Message = { id: botMsgId, text: '', isBot: true, timestamp: new Date() };
+        setMessages((prev) => [...prev, botMsg]);
+
+        let displayed   = '';   // text đang hiển thị trên màn hình
+        let fullBuffer  = '';   // toàn bộ text đã nhận từ server
+        let resolvedSessionId = sessionId;
+        let streamDone  = false;
+
+        // Drain buffer: hiện từng ký tự từ fullBuffer → displayed
+        const drainBuffer = (): Promise<void> => new Promise((resolve) => {
+          const tick = () => {
+            if (displayed.length < fullBuffer.length) {
+              displayed += fullBuffer[displayed.length];
+              const snap = displayed;
+              setMessages((prev) =>
+                prev.map((m) => m.id === botMsgId ? { ...m, text: snap } : m)
+              );
+              setTimeout(tick, 8); // 8ms/ký tự ≈ 125 ký tự/giây
+            } else if (streamDone) {
+              resolve();
+            } else {
+              setTimeout(tick, 16); // chờ chunk tiếp theo
             }
+          };
+          tick();
+        });
+
+        // Nhận stream song song với animation
+        const receiveStream = async () => {
+          for await (const event of streamChatMessage({
+            message: trimmed,
+            sessionId: sessionId ?? undefined,
+            intent: mode === 'administrative_qa' ? 'administrative_qa' : undefined,
+          })) {
+            if (event.type === 'start') {
+              setIsTyping(false); // ẩn typing indicator, bắt đầu hiện text
+            } else if (event.type === 'chunk') {
+              fullBuffer += event.text;
+            } else if (event.type === 'session' || event.type === 'done') {
+              const sid = (event as any).sessionId?.trim() || null;
+              if (sid && sid !== resolvedSessionId) {
+                resolvedSessionId = sid;
+                setSessionId(sid);
+                setConversations((prev) => {
+                  const localId = '__local__';
+                  const idxLocal = prev.findIndex((c) => c.id === localId);
+                  if (idxLocal === -1) return prev;
+                  const idxTarget = prev.findIndex((c) => c.id === sid);
+                  let next = [...prev];
+                  if (idxTarget === -1) { next[idxLocal] = { ...next[idxLocal], id: sid }; }
+                  else {
+                    next[idxTarget] = { ...next[idxTarget], lastUpdated: Math.max(next[idxTarget].lastUpdated, next[idxLocal].lastUpdated), messages: [...next[idxTarget].messages, ...next[idxLocal].messages] };
+                    next = next.filter((_, i) => i !== idxLocal);
+                  }
+                  saveConversations(next);
+                  return next;
+                });
+              }
+            } else if (event.type === 'error') {
+              fullBuffer += event.message;
+              streamDone = true;
+              return;
+            }
+          }
+          streamDone = true;
+        };
+
+        await Promise.all([receiveStream(), drainBuffer()]);
+
+        // Persist final message
+        if (fullBuffer) {
+          setConversations((prev) => {
+            const id = resolvedSessionId ?? '__local__';
+            const next = [...prev];
+            const idx = next.findIndex((c) => c.id === id);
+            const finalMsg = { ...botMsg, text: fullBuffer };
+            if (idx === -1) { next.push({ id, lastUpdated: Date.now(), messages: [finalMsg] }); }
+            else { next[idx] = { ...next[idx], lastUpdated: Date.now(), messages: [...next[idx].messages.filter(m => m.id !== botMsgId), finalMsg] }; }
             saveConversations(next);
             return next;
           });
-        }
-        setSessionId(normalizedSessionId);
-        appendBotMessage(response.data?.response ?? 'Xin lỗi, hệ thống chưa có phản hồi phù hợp.');
-        if (response.data?.audio?.base64) {
-          try {
-            if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; }
-            const audioEl = new Audio(`data:${response.data.audio.mimeType || 'audio/mpeg'};base64,${response.data.audio.base64}`);
-            audioRef.current = audioEl;
-            void audioEl.play();
-          } catch { /* audio non-critical */ }
         }
       }
     } catch (error) {
@@ -354,6 +409,67 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
 
   const formatTime = (date: Date) =>
     date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+  const stripMarkdown = (text: string): string =>
+    text
+      .replace(/^#{1,6}\s+/gm, '')           // xóa heading ###
+      .replace(/\*\*(.+?)\*\*/gs, '$1')       // xóa **bold**
+      .replace(/\*(.+?)\*/gs, '$1')            // xóa *italic*
+      .replace(/^[-*_]{3,}\s*$/gm, '')        // xóa --- ngang
+      .replace(/`{1,3}([^`]*)`{1,3}/g, '$1') // xóa `code`
+      // KHÔNG xóa gạch đầu dòng và số thứ tự — giữ nguyên để render đúng
+      .trim();
+
+  // Kiểm tra 1 dòng có phải list item không
+  const isListItem = (line: string): boolean =>
+    /^\s*(\d+[.)]\s+|[-•*+]\s+)/.test(line);
+
+  // Lấy marker và nội dung của list item
+  const parseListItem = (line: string): { marker: string; text: string } => {
+    const m = line.match(/^\s*(\d+[.)]\s*|[-•*+]\s*)(.*)/);
+    if (!m) return { marker: '•', text: line.trim() };
+    const rawMarker = m[1].trim();
+    // Chuẩn hóa marker: số → "1.", gạch → "•"
+    const marker = /^\d+/.test(rawMarker)
+      ? rawMarker.replace(/[.)]\s*$/, '.') // "1)" → "1."
+      : '•';
+    return { marker, text: m[2].trim() };
+  };
+
+  type Segment =
+    | { type: 'paragraph'; text: string }
+    | { type: 'list'; items: { marker: string; text: string }[] };
+
+  const parseSegments = (clean: string): Segment[] => {
+    const lines = clean.split('\n');
+    const segments: Segment[] = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const line = lines[i];
+      if (!line.trim()) { i++; continue; }
+
+      if (isListItem(line)) {
+        // Thu gom toàn bộ list items liên tiếp
+        const items: { marker: string; text: string }[] = [];
+        while (i < lines.length && (isListItem(lines[i]) || (lines[i].trim() === '' && i + 1 < lines.length && isListItem(lines[i + 1])))) {
+          if (lines[i].trim()) items.push(parseListItem(lines[i]));
+          i++;
+        }
+        if (items.length) segments.push({ type: 'list', items });
+      } else {
+        // Thu gom các dòng paragraph liên tiếp
+        let text = '';
+        while (i < lines.length && lines[i].trim() !== '' && !isListItem(lines[i])) {
+          text += (text ? ' ' : '') + lines[i].trim();
+          i++;
+        }
+        if (text) segments.push({ type: 'paragraph', text });
+        if (i < lines.length && lines[i].trim() === '') i++;
+      }
+    }
+    return segments;
+  };
 
   /* ── mode list ── */
   const MODES = [
@@ -680,53 +796,70 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
         {/* ── Chat Messages ── */}
         <section className="flex-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#de9ca4_transparent]">
           <div
-            className="max-w-3xl mx-auto px-3 md:px-4 space-y-6 md:space-y-8"
-            style={{ paddingTop: '1.5rem', paddingBottom: '9rem' }}
+            className="max-w-3xl mx-auto px-4 md:px-6 space-y-5"
+            style={{ paddingTop: '1.5rem', paddingBottom: '2rem' }}
           >
             {messages.map((msg) => (
-              <div
-                key={msg.id}
-                ref={el => { messageRefs.current[msg.id] = el; }}
-                className={`flex items-end gap-2 md:gap-3 ${msg.isBot ? '' : 'flex-row-reverse'}`}
-              >
-                {/* Avatar */}
-                <div
-                  className="w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center flex-shrink-0 mb-5"
-                  style={msg.isBot
-                    ? { backgroundColor: '#fdc003', color: '#3d2b00' }
-                    : { backgroundColor: '#b7131a', color: '#ffffff' }
-                  }
-                >
-                  {msg.isBot ? <Bot className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
-                </div>
-
-                {/* Bubble + meta */}
-                <div className={`space-y-1.5 min-w-0 ${msg.isBot ? 'max-w-[88%] md:max-w-[80%]' : 'max-w-[88%] md:max-w-[75%] flex flex-col items-end'}`}>
-                  <div
-                    className="px-4 py-3 md:px-5 md:py-4 leading-relaxed"
-                    style={msg.isBot
-                      ? { backgroundColor: '#ffffff', color: '#4d2128', borderRadius: '0.25rem 1rem 1rem 1rem', boxShadow: '0px 4px 16px rgba(183,19,26,0.06)' }
-                      : { backgroundColor: '#ffd9dd', color: '#4d2128', borderRadius: '1rem 0.25rem 1rem 1rem', boxShadow: '0 2px 8px rgba(183,19,26,0.08)', border: '1px solid rgba(222,156,164,0.25)' }
-                    }
+              <div key={msg.id} ref={el => { messageRefs.current[msg.id] = el; }}>
+                {msg.isBot ? (
+                  msg.text.trim() === '' ? null :
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
+                      style={{ backgroundColor: '#fdc003', color: '#3d2b00' }}>
+                      <Bot className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0 space-y-2">
+                  <div className="w-full rounded-2xl rounded-tl-sm px-5 py-4"
+                    style={{ backgroundColor: '#ffffff', boxShadow: '0 2px 12px rgba(183,19,26,0.07)' }}
                   >
-                    {msg.text.includes('\n') ? (
-                      <div className="text-sm leading-relaxed">
-                        {msg.text.split('\n').map((line, i) => (
-                          <p key={i} className="m-0">{line.trim() === '' ? '\u00A0' : line}</p>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                    )}
+                    {(() => {
+                      const segments = parseSegments(stripMarkdown(msg.text));
+                      const TEXT_STYLE: React.CSSProperties = {
+                        fontSize: '15px', lineHeight: '1.8', color: '#1f1f1f',
+                        fontWeight: 450, letterSpacing: '0.01em',
+                      };
+                      return (
+                        <div style={TEXT_STYLE}>
+                          {segments.map((seg, si) => {
+                            if (seg.type === 'list') {
+                              return (
+                                <div key={si} style={{ marginTop: si === 0 ? 0 : '0.75em' }}>
+                                  {seg.items.map((item, ii) => (
+                                    <div key={ii} style={{
+                                      display: 'flex', alignItems: 'flex-start', gap: '8px',
+                                      marginTop: ii === 0 ? 0 : '0.4em',
+                                    }}>
+                                      <span style={{
+                                        color: '#b7131a', fontWeight: 700,
+                                        minWidth: /^\d/.test(item.marker) ? '24px' : '16px',
+                                        flexShrink: 0, paddingTop: '0.05em',
+                                        fontSize: '14px',
+                                      }}>
+                                        {item.marker}
+                                      </span>
+                                      <span style={{ flex: 1 }}>{item.text}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return (
+                              <p key={si} style={{ margin: si === 0 ? 0 : '0.75em 0 0' }}>
+                                {seg.text}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
 
-                  {/* Action chips */}
                   {msg.actions && msg.actions.length > 0 && (
-                    <div className="flex gap-1.5 flex-wrap">
+                    <div className="flex gap-2 flex-wrap">
                       {msg.actions.map((action, i) => (
                         <button key={i} onClick={action.action}
-                          className="px-3 py-1.5 rounded-full text-xs font-bold transition-colors"
-                          style={{ border: '1px solid #de9ca4', color: '#4d2128', backgroundColor: 'transparent' }}
+                          className="px-4 py-2 rounded-full text-sm font-semibold transition-colors"
+                          style={{ border: '1.5px solid #de9ca4', color: '#4d2128', backgroundColor: 'transparent' }}
                           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.backgroundColor = '#ffeced'; }}
                           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'; }}
                         >
@@ -736,25 +869,59 @@ export function ChatbotScreen({ onNavigate }: ChatbotScreenProps) {
                     </div>
                   )}
 
-                  <span className="text-[10px] font-medium px-1" style={{ color: '#824c54', opacity: 0.55 }}>
+                  <span className="text-[11px] font-medium pl-1 block" style={{ color: '#824c54', opacity: 0.45 }}>
                     {formatTime(msg.timestamp)}
                   </span>
                 </div>
+                  </div>
+                ) : (
+                  <div className="flex items-end justify-end gap-2.5">
+                    <div className="flex flex-col items-end gap-1.5 max-w-[75%] md:max-w-[60%]">
+                      <div className="px-4 py-3 rounded-2xl rounded-br-sm"
+                        style={{ backgroundColor: '#ffd9dd', color: '#4d2128', fontSize: '15px', lineHeight: '1.7', fontWeight: 500, boxShadow: '0 2px 8px rgba(183,19,26,0.08)', border: '1px solid rgba(222,156,164,0.3)', letterSpacing: '0.01em' }}>
+                        <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{msg.text}</p>
+                      </div>
+                      <span className="text-[11px] font-medium pr-1" style={{ color: '#824c54', opacity: 0.45 }}>
+                        {formatTime(msg.timestamp)}
+                      </span>
+                    </div>
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mb-5"
+                      style={{ backgroundColor: '#b7131a', color: '#ffffff' }}>
+                      <User className="w-4 h-4" />
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
 
-            {/* Typing indicator */}
+            {/* Typing indicator — wave */}
             {isTyping && (
-              <div className="flex items-end gap-2 md:gap-3">
-                <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
                   style={{ backgroundColor: '#fdc003', color: '#3d2b00' }}>
-                  <Bot className="w-3.5 h-3.5" />
+                  <Bot className="w-4 h-4" />
                 </div>
-                <div className="px-5 py-4 rounded-xl" style={{ backgroundColor: '#ffffff', boxShadow: '0px 4px 16px rgba(183,19,26,0.06)', borderRadius: '0.25rem 1rem 1rem 1rem' }}>
-                  <div className="flex gap-1.5 items-center h-4">
-                    <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: '#b7131a', animationDelay: '0ms' }} />
-                    <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: '#b7131a', animationDelay: '150ms' }} />
-                    <div className="w-2 h-2 rounded-full animate-bounce" style={{ backgroundColor: '#b7131a', animationDelay: '300ms' }} />
+                <div className="px-5 py-3.5 rounded-2xl rounded-tl-sm flex items-center"
+                  style={{ backgroundColor: '#ffffff', boxShadow: '0 2px 12px rgba(183,19,26,0.07)' }}>
+                  <style>{`
+                    @keyframes wave-bar {
+                      0%, 100% { transform: scaleY(0.35); opacity: 0.4; }
+                      50%       { transform: scaleY(1);    opacity: 1;   }
+                    }
+                    .wave-bar {
+                      width: 3px;
+                      height: 20px;
+                      border-radius: 99px;
+                      background: #b7131a;
+                      transform-origin: center;
+                      animation: wave-bar 1s ease-in-out infinite;
+                    }
+                  `}</style>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', height: '24px' }}>
+                    {[0, 1, 2, 3, 4].map(i => (
+                      <div key={i} className="wave-bar"
+                        style={{ animationDelay: `${i * 0.12}s` }} />
+                    ))}
                   </div>
                 </div>
               </div>

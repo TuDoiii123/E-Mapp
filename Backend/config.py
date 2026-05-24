@@ -14,7 +14,7 @@ if JWT_SECRET == 'default-secret-key-change-in-production':
 
 # ── Gemini model names ────────────────────────────────────────────────────────
 # Voice/NLU/STT/TTS: dùng GEMINI_MODEL_NAME (prefix "models/" theo Generative AI SDK)
-GEMINI_MODEL_VOICE: str = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.0-flash')
+GEMINI_MODEL_VOICE: str = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-3-flash-preview')
 
 # RAG/LLM wrapper: dùng GEMINI_MODEL_RAG (không cần prefix "models/")
-GEMINI_MODEL_RAG: str = os.getenv('GEMINI_MODEL_RAG', 'gemini-2.0-flash')
+GEMINI_MODEL_RAG: str = os.getenv('GEMINI_MODEL_RAG', 'gemini-3-flash-preview')

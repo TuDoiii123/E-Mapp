@@ -59,6 +59,8 @@ def init_db(app):
               role VARCHAR(50) NOT NULL DEFAULT 'citizen',
               is_vneid_verified BOOLEAN NOT NULL DEFAULT FALSE,
               vneid_id VARCHAR(255),
+              address TEXT NOT NULL DEFAULT '',
+              avatar_url VARCHAR(500) NOT NULL DEFAULT '',
               created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
               updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
             );
@@ -69,6 +71,17 @@ def init_db(app):
             db.session.commit()
         except Exception as e:
             log.warning(f'Ensuring users table failed: {e}')
+
+        # Migrate existing users table — add new columns if absent
+        try:
+            migrate_users_ddl = text('''
+            ALTER TABLE public.users ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT '';
+            ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500) NOT NULL DEFAULT '';
+            ''')
+            db.session.execute(migrate_users_ddl)
+            db.session.commit()
+        except Exception as e:
+            log.warning(f'Migrating users table (address/avatar_url) failed: {e}')
 
         # RAG chatbot + CAG cache tables
         try:
@@ -567,6 +580,72 @@ def init_db(app):
                     facilities_rating BETWEEN 1 AND 5
                 );
 
+            -- Xóa orphan references trước khi thêm FK (tránh lỗi constraint violation)
+            UPDATE public.queue_tickets
+                SET user_id = NULL
+                WHERE user_id IS NOT NULL
+                AND user_id NOT IN (SELECT id FROM public.users);
+
+            UPDATE public.chatbot_sessions
+                SET user_id = NULL
+                WHERE user_id IS NOT NULL
+                AND user_id NOT IN (SELECT id FROM public.users);
+
+            UPDATE public.audit_logs
+                SET actor_id = NULL
+                WHERE actor_id IS NOT NULL
+                AND actor_id NOT IN (SELECT id FROM public.users);
+
+            UPDATE public.form_templates
+                SET created_by = NULL
+                WHERE created_by IS NOT NULL
+                AND created_by NOT IN (SELECT id FROM public.users);
+
+            UPDATE public.application_documents
+                SET requirement_id = NULL
+                WHERE requirement_id IS NOT NULL
+                AND requirement_id NOT IN (SELECT id FROM public.service_requirements);
+
+            -- FK: queue_tickets → users (user_id nullable — khách lấy số không cần đăng nhập)
+            ALTER TABLE public.queue_tickets
+                DROP CONSTRAINT IF EXISTS fk_qt_user;
+            ALTER TABLE public.queue_tickets
+                ADD CONSTRAINT fk_qt_user
+                FOREIGN KEY (user_id) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: chatbot_sessions → users (user_id nullable — session ẩn danh)
+            ALTER TABLE public.chatbot_sessions
+                DROP CONSTRAINT IF EXISTS fk_csess_user;
+            ALTER TABLE public.chatbot_sessions
+                ADD CONSTRAINT fk_csess_user
+                FOREIGN KEY (user_id) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: audit_logs → users (actor_id nullable — system actions)
+            ALTER TABLE public.audit_logs
+                DROP CONSTRAINT IF EXISTS fk_audit_actor;
+            ALTER TABLE public.audit_logs
+                ADD CONSTRAINT fk_audit_actor
+                FOREIGN KEY (actor_id) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: form_templates → users (created_by nullable)
+            ALTER TABLE public.form_templates
+                DROP CONSTRAINT IF EXISTS fk_ft_created_by;
+            ALTER TABLE public.form_templates
+                ADD CONSTRAINT fk_ft_created_by
+                FOREIGN KEY (created_by) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: application_documents → service_requirements (requirement_id nullable)
+            ALTER TABLE public.application_documents
+                DROP CONSTRAINT IF EXISTS fk_appdoc_req;
+            ALTER TABLE public.application_documents
+                ADD CONSTRAINT fk_appdoc_req
+                FOREIGN KEY (requirement_id) REFERENCES public.service_requirements(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
             ''')
             db.session.execute(hardening_ddl)
             db.session.commit()
@@ -584,6 +663,294 @@ def init_db(app):
             "ALTER TABLE public.appointments ALTER COLUMN status SET NOT NULL",
         ]
         for stmt in _notnull_stmts:
+            try:
+                db.session.execute(text(stmt))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+        # ── Map data tables: ds_theloai + ds_dichvucong ──────────────────────
+        try:
+            map_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.ds_theloai (
+                id          VARCHAR(50)  PRIMARY KEY,
+                name        VARCHAR(100) NOT NULL,
+                code        VARCHAR(50)  UNIQUE,
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+
+            CREATE TABLE IF NOT EXISTS public.ds_dichvucong (
+                id          VARCHAR(80)  PRIMARY KEY,
+                name        VARCHAR(255) NOT NULL,
+                description TEXT         NOT NULL DEFAULT '',
+                category_id VARCHAR(50)  REFERENCES public.ds_theloai(id) ON DELETE SET NULL,
+                address     TEXT         NOT NULL DEFAULT '',
+                latitude    DOUBLE PRECISION,
+                longitude   DOUBLE PRECISION,
+                phone       VARCHAR(50)  NOT NULL DEFAULT '',
+                email       VARCHAR(100) NOT NULL DEFAULT '',
+                website     VARCHAR(255) NOT NULL DEFAULT '',
+                level       VARCHAR(30)  NOT NULL DEFAULT 'district',
+                status      VARCHAR(20)  NOT NULL DEFAULT 'normal',
+                rating      FLOAT        NOT NULL DEFAULT 0,
+                field       VARCHAR(255) NOT NULL DEFAULT '',
+                province    VARCHAR(100) NOT NULL DEFAULT '',
+                district    VARCHAR(100) NOT NULL DEFAULT '',
+                ward        VARCHAR(100) NOT NULL DEFAULT '',
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_dv_category ON public.ds_dichvucong(category_id);
+            CREATE INDEX IF NOT EXISTS idx_dv_level    ON public.ds_dichvucong(level);
+            CREATE INDEX IF NOT EXISTS idx_dv_coords   ON public.ds_dichvucong(latitude, longitude)
+                WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
+            ''')
+            db.session.execute(map_ddl)
+            db.session.commit()
+            log.debug('Map data tables OK')
+        except Exception as e:
+            log.warning(f'Ensuring map tables failed: {e}')
+            db.session.rollback()
+
+        # ── Agencies table + FK constraints ──────────────────────────────────
+        try:
+            agencies_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.agencies (
+                id          VARCHAR(255) PRIMARY KEY,
+                name        VARCHAR(255) NOT NULL DEFAULT '',
+                address     TEXT         NOT NULL DEFAULT '',
+                ward        VARCHAR(100) NOT NULL DEFAULT '',
+                district    VARCHAR(100) NOT NULL DEFAULT '',
+                province    VARCHAR(100) NOT NULL DEFAULT '',
+                latitude    DOUBLE PRECISION,
+                longitude   DOUBLE PRECISION,
+                level       VARCHAR(30)  NOT NULL DEFAULT 'district',
+                phone       VARCHAR(50)  NOT NULL DEFAULT '',
+                email       VARCHAR(255) NOT NULL DEFAULT '',
+                website     VARCHAR(255) NOT NULL DEFAULT '',
+                is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+                created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_agencies_level
+                ON public.agencies(level, is_active);
+            CREATE INDEX IF NOT EXISTS idx_agencies_district
+                ON public.agencies(district);
+
+            -- Seed placeholder agencies từ agency_id đang tồn tại (tránh vi phạm FK)
+            INSERT INTO public.agencies (id, name)
+                SELECT DISTINCT agency_id, agency_id FROM public.queue_tickets
+                WHERE agency_id IS NOT NULL AND agency_id <> ''
+            ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO public.agencies (id, name)
+                SELECT DISTINCT agency_id, agency_id FROM public.appointments
+                WHERE agency_id IS NOT NULL AND agency_id <> ''
+            ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO public.agencies (id, name)
+                SELECT DISTINCT agency_id, agency_id FROM public.agency_counters
+                WHERE agency_id IS NOT NULL AND agency_id <> ''
+            ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO public.agencies (id, name)
+                SELECT DISTINCT agency_id, agency_id FROM public.service_stats
+                WHERE agency_id IS NOT NULL AND agency_id <> ''
+            ON CONFLICT (id) DO NOTHING;
+
+            INSERT INTO public.agencies (id, name)
+                SELECT DISTINCT agency_id, agency_id FROM public.agency_queue_realtime
+                WHERE agency_id IS NOT NULL AND agency_id <> ''
+            ON CONFLICT (id) DO NOTHING;
+
+            -- evaluations.agency_id có thể là '' (empty) → đổi sang nullable trước khi add FK
+            ALTER TABLE public.evaluations
+                ALTER COLUMN agency_id DROP NOT NULL;
+            UPDATE public.evaluations
+                SET agency_id = NULL WHERE agency_id = '';
+
+            INSERT INTO public.agencies (id, name)
+                SELECT DISTINCT agency_id, agency_id FROM public.evaluations
+                WHERE agency_id IS NOT NULL AND agency_id <> ''
+            ON CONFLICT (id) DO NOTHING;
+
+            -- FK: queue_tickets → agencies (RESTRICT — không xóa cơ quan đang có vé)
+            ALTER TABLE public.queue_tickets
+                DROP CONSTRAINT IF EXISTS fk_qt_agency;
+            ALTER TABLE public.queue_tickets
+                ADD CONSTRAINT fk_qt_agency
+                FOREIGN KEY (agency_id) REFERENCES public.agencies(id)
+                ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: appointments → agencies
+            ALTER TABLE public.appointments
+                DROP CONSTRAINT IF EXISTS fk_appt_agency;
+            ALTER TABLE public.appointments
+                ADD CONSTRAINT fk_appt_agency
+                FOREIGN KEY (agency_id) REFERENCES public.agencies(id)
+                ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: evaluations → agencies (SET NULL vì nullable)
+            ALTER TABLE public.evaluations
+                DROP CONSTRAINT IF EXISTS fk_eval_agency;
+            ALTER TABLE public.evaluations
+                ADD CONSTRAINT fk_eval_agency
+                FOREIGN KEY (agency_id) REFERENCES public.agencies(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: agency_queue_realtime → agencies (CASCADE — xóa snapshot khi xóa cơ quan)
+            ALTER TABLE public.agency_queue_realtime
+                DROP CONSTRAINT IF EXISTS fk_aqr_agency;
+            ALTER TABLE public.agency_queue_realtime
+                ADD CONSTRAINT fk_aqr_agency
+                FOREIGN KEY (agency_id) REFERENCES public.agencies(id)
+                ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: agency_counters → agencies
+            ALTER TABLE public.agency_counters
+                DROP CONSTRAINT IF EXISTS fk_ac_agency;
+            ALTER TABLE public.agency_counters
+                ADD CONSTRAINT fk_ac_agency
+                FOREIGN KEY (agency_id) REFERENCES public.agencies(id)
+                ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+
+            -- FK: service_stats → agencies
+            ALTER TABLE public.service_stats
+                DROP CONSTRAINT IF EXISTS fk_ss_agency;
+            ALTER TABLE public.service_stats
+                ADD CONSTRAINT fk_ss_agency
+                FOREIGN KEY (agency_id) REFERENCES public.agencies(id)
+                ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED;
+            ''')
+            db.session.execute(agencies_ddl)
+            db.session.commit()
+            log.debug('Agencies table + FK OK')
+        except Exception as e:
+            log.warning(f'Ensuring agencies table/FK failed: {e}')
+            db.session.rollback()
+
+        # ── Remaining FK constraints ──────────────────────────────────────────
+        try:
+            remaining_ddl = text('''
+            -- 1. Thêm user_id vào chat_sessions (RAG) để liên kết phiên với tài khoản
+            ALTER TABLE public.chat_sessions
+                ADD COLUMN IF NOT EXISTS user_id VARCHAR(80);
+            CREATE INDEX IF NOT EXISTS idx_chat_sess_user
+                ON public.chat_sessions(user_id);
+
+            UPDATE public.chat_sessions
+                SET user_id = NULL
+                WHERE user_id IS NOT NULL
+                AND user_id NOT IN (SELECT id FROM public.users);
+
+            ALTER TABLE public.chat_sessions
+                DROP CONSTRAINT IF EXISTS fk_chat_sess_user;
+            ALTER TABLE public.chat_sessions
+                ADD CONSTRAINT fk_chat_sess_user
+                FOREIGN KEY (user_id) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- 2. application_status_history.by → users (ai thay đổi trạng thái hồ sơ)
+            UPDATE public.application_status_history
+                SET by = NULL
+                WHERE by IS NOT NULL
+                AND by NOT IN (SELECT id FROM public.users);
+
+            ALTER TABLE public.application_status_history
+                DROP CONSTRAINT IF EXISTS fk_apphist_by;
+            ALTER TABLE public.application_status_history
+                ADD CONSTRAINT fk_apphist_by
+                FOREIGN KEY (by) REFERENCES public.users(id)
+                ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;
+
+            -- 3. procedures.code → thêm UNIQUE để appointments.service_code có thể tham chiếu
+            -- Xử lý duplicate code trước: giữ lại bản ghi mới nhất
+            UPDATE public.procedures p
+                SET code = id
+                WHERE code IS NOT NULL
+                AND (
+                    SELECT COUNT(*) FROM public.procedures p2
+                    WHERE p2.code = p.code AND p2.id <> p.id
+                ) > 0;
+
+            -- Xử lý code NULL → dùng id làm code
+            UPDATE public.procedures
+                SET code = id
+                WHERE code IS NULL OR code = '';
+
+            ALTER TABLE public.procedures
+                DROP CONSTRAINT IF EXISTS uq_procedures_code;
+            ALTER TABLE public.procedures
+                ADD CONSTRAINT uq_procedures_code UNIQUE (code);
+
+            ''')
+            db.session.execute(remaining_ddl)
+            db.session.commit()
+            log.debug('Remaining FK constraints OK')
+        except Exception as e:
+            log.warning(f'Remaining FK constraints partially failed: {e}')
+            db.session.rollback()
+
+        # ── System settings table ─────────────────────────────────────────────
+        try:
+            settings_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.system_settings (
+                key         VARCHAR(100) PRIMARY KEY,
+                value       TEXT         NOT NULL DEFAULT '',
+                type        VARCHAR(20)  NOT NULL DEFAULT 'string',
+                label       VARCHAR(255) NOT NULL DEFAULT '',
+                description TEXT         NOT NULL DEFAULT '',
+                updated_by  VARCHAR(80),
+                updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+
+            -- Seed giá trị mặc định nếu chưa có
+            INSERT INTO public.system_settings (key, value, type, label, description) VALUES
+                ('enableChatbot',       'true',  'bool',   'Trợ lý Chatbot AI',         'Bật/tắt chatbot trên toàn ứng dụng')
+               ,('enableQueue',         'true',  'bool',   'Hàng đợi trực tuyến',        'Cho phép lấy số thứ tự qua app')
+               ,('enableVoice',         'false', 'bool',   'Đặt lịch bằng giọng nói',    'Tính năng Voice AI cho đặt lịch')
+               ,('enableNotifications', 'true',  'bool',   'Push notification',           'Gửi thông báo đẩy đến người dùng')
+               ,('maintenanceMode',     'false', 'bool',   'Chế độ bảo trì',             'Tạm dừng ứng dụng cho người dùng thường')
+               ,('debugMode',           'false', 'bool',   'Debug mode',                  'In log chi tiết ra console')
+               ,('announcementActive',  'false', 'bool',   'Banner thông báo',            'Hiện banner ở trang chủ')
+               ,('announcementText',    '',      'string', 'Nội dung thông báo',          'Nội dung hiện trong banner trang chủ')
+               ,('announcementType',    'info',  'string', 'Loại thông báo',              'info | warning | error | success')
+               ,('appName',             'E-Mapp Dịch vụ công', 'string', 'Tên ứng dụng', 'Tên hiển thị của ứng dụng')
+               ,('contactEmail',        '',      'string', 'Email liên hệ',               'Email hỗ trợ người dùng')
+               ,('contactPhone',        '',      'string', 'Hotline',                     'Số điện thoại hỗ trợ')
+               ,('contactAddress',      '',      'string', 'Địa chỉ',                     'Địa chỉ cơ quan chủ quản')
+            ON CONFLICT (key) DO NOTHING;
+            ''')
+            db.session.execute(settings_ddl)
+            db.session.commit()
+            log.debug('System settings table OK')
+        except Exception as e:
+            log.warning(f'Ensuring system_settings table failed: {e}')
+            db.session.rollback()
+
+        # ── Thêm admin_reply vào evaluations (nếu chưa có) ──────────────────
+        try:
+            db.session.execute(text('''
+                ALTER TABLE public.evaluations
+                    ADD COLUMN IF NOT EXISTS admin_reply       TEXT         DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS admin_replied_at  TIMESTAMPTZ  DEFAULT NULL,
+                    ADD COLUMN IF NOT EXISTS admin_id          VARCHAR(80)  DEFAULT NULL;
+            '''))
+            db.session.commit()
+            log.debug('evaluations admin_reply columns OK')
+        except Exception as e:
+            log.warning(f'evaluations admin_reply migration failed: {e}')
+            db.session.rollback()
+
+        # ── Xóa FK service-related bị add nhầm (service_code/service_id dùng keyword tự do)
+        _drop_wrong_fks = [
+            "ALTER TABLE public.appointments DROP CONSTRAINT IF EXISTS fk_appt_service",
+            "ALTER TABLE public.service_requirements DROP CONSTRAINT IF EXISTS fk_req_procedure",
+            "ALTER TABLE public.form_templates DROP CONSTRAINT IF EXISTS fk_ft_procedure",
+            "ALTER TABLE public.queue_tickets DROP CONSTRAINT IF EXISTS fk_qt_service",
+            "ALTER TABLE public.service_stats DROP CONSTRAINT IF EXISTS fk_ss_service",
+        ]
+        for stmt in _drop_wrong_fks:
             try:
                 db.session.execute(text(stmt))
                 db.session.commit()

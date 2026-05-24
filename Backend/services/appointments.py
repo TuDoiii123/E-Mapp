@@ -166,6 +166,46 @@ def create_appointment(payload: Dict[str, Any]) -> Tuple[bool, Dict[str, Any], O
         return False, {}, f'Lỗi hệ thống: {e}'
 
 
+def update_appointment_status(appt_id: str, new_status: str) -> Tuple[bool, Optional[str]]:
+    """Cập nhật trạng thái lịch hẹn. Trả về (ok, error_msg)."""
+    VALID = {'pending', 'completed', 'cancelled'}
+    if new_status not in VALID:
+        return False, f'Trạng thái không hợp lệ: {new_status}. Chỉ chấp nhận: {", ".join(VALID)}'
+
+    db, text = _get_db()
+    if db is not None:
+        try:
+            result = db.session.execute(text('''
+                UPDATE public.appointments
+                SET status = :status, updated_at = NOW()
+                WHERE id = :id
+                RETURNING id
+            '''), {'status': new_status, 'id': appt_id})
+            row = result.fetchone()
+            db.session.commit()
+            if row is None:
+                return False, f'Không tìm thấy lịch hẹn: {appt_id}'
+            return True, None
+        except Exception as e:
+            db.session.rollback()
+            log.error(f'update_appointment_status DB error: {e}', exc_info=True)
+            return False, f'Lỗi hệ thống: {e}'
+
+    # File fallback
+    with _LOCK:
+        items = _file_read()
+        found = False
+        for a in items:
+            if a.get('id') == appt_id:
+                a['status'] = new_status
+                found = True
+                break
+        if not found:
+            return False, f'Không tìm thấy lịch hẹn: {appt_id}'
+        _file_write(items)
+    return True, None
+
+
 def suggest_slots(date_iso: str, agency_id: str = 'default') -> List[str]:
     """Trả về danh sách khung giờ còn trống (HH:MM:SS) cho ngày và cơ quan."""
     db, text = _get_db()

@@ -67,6 +67,8 @@ export const getApplications = (params: Record<string, string> = {}) => {
   const q = new URLSearchParams(params).toString();
   return apiFull(`/applications/search${q ? '?' + q : ''}`);
 };
+export const getApplicationDetail = (id: string) =>
+  apiFull(`/applications/${id}`);
 export const getMyApplications = (params: Record<string, string> = {}) => {
   const q = new URLSearchParams(params).toString();
   return apiFull(`/applications/my${q ? '?' + q : ''}`);
@@ -76,6 +78,8 @@ export const reviewApplication = (applicationId: string, action: string, note = 
 
 // ── Appointments ──────────────────────────────────────────────────────────────
 export const getAppointments = () => apiFull('/appointments/all');
+export const updateAppointmentStatus = (id: string, status: string) =>
+  apiFull(`/appointments/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
 
 // ── Chatbot Config ────────────────────────────────────────────────────────────
 export const getChatbotPersonas    = ()                          => apiFull('/chatbot/personas');
@@ -101,3 +105,58 @@ export const getEvaluations    = ()           => apiFull('/evaluations');
 export const getEvaluationStats= ()           => apiFull('/evaluations/stats');
 export const submitEvaluation  = (data: object) =>
   apiFull('/evaluations', { method: 'POST', body: JSON.stringify(data) });
+
+// ── Evaluations (Admin — all) ─────────────────────────────────────────────────
+export const getAllEvaluations = (params: Record<string, string> = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return api(`/evaluations${q ? '?' + q : ''}`);
+};
+
+/** POST /api/admin/evaluations/:id/reply  — thêm / cập nhật phản hồi */
+export const replyToEvaluation = (id: string, replyText: string) =>
+  api(`/evaluations/${id}/reply`, { method: 'POST', body: JSON.stringify({ replyText }) });
+
+// ── Audit Logs ────────────────────────────────────────────────────────────────
+export const getAuditLogs = (params: Record<string, string> = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return api(`/audit-logs${q ? '?' + q : ''}`);
+};
+
+// ── Queue Management (Admin) ──────────────────────────────────────────────────
+export const getQueueSummary = (agencyId: string) =>
+  apiFull(`/queue/summary/${agencyId}`);
+
+export const getQueueList = (agencyId: string) =>
+  apiFull(`/queue/list/${agencyId}`);
+
+// counterNo là int (1, 2, 3...) — backend: POST /api/queue/call-next { agencyId, counterNo }
+export const callNextTicket = (data: { agencyId: string; counterNo?: number; serviceId?: string }) =>
+  apiFull('/queue/call-next', { method: 'POST', body: JSON.stringify(data) });
+
+export const updateQueueTicket = (ticketId: string, status: string) =>
+  apiFull(`/queue/ticket/${ticketId}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+
+export const getCounters = (agencyId: string) =>
+  apiFull(`/queue/counters/${agencyId}`);
+
+export const upsertCounter = (data: object) =>
+  apiFull('/queue/counters', { method: 'POST', body: JSON.stringify(data) });
+
+export const getQueueMapOverview = () =>
+  apiFull('/queue/map-overview');
+
+// ── System Settings ───────────────────────────────────────────────────────────
+/** Lấy tất cả cài đặt — GET /api/admin/settings */
+export const getSystemSettings = () => api('/settings');
+
+/** Cập nhật một cài đặt — PUT /api/admin/settings/:key */
+export const updateSystemSetting = (key: string, value: string | boolean | number) =>
+  api(`/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) });
+
+/** Cập nhật nhiều cài đặt — PUT /api/admin/settings */
+export const updateSystemSettings = (settings: Record<string, string | boolean | number>) =>
+  api('/settings', { method: 'PUT', body: JSON.stringify({ settings }) });
+
+/** Public settings (không cần auth) — GET /api/admin/settings/public */
+export const getPublicSettings = () =>
+  apiFull('/admin/settings/public');
