@@ -20,9 +20,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   RefreshCw, Settings, ScrollText, Bell, Shield, Server,
   Globe, ChevronLeft, ChevronRight,
-  User, AlertCircle, CheckCircle2, Info, Inbox,
+  User, AlertCircle, CheckCircle2, Inbox,
   Megaphone, Phone, Mail, MapPin, Save,
-  Loader2, Mic, BotMessageSquare, Home, Bug,
+  Loader2, Mic, BotMessageSquare,
 } from 'lucide-react';
 import * as adminSvc from '../services/adminService';
 
@@ -411,32 +411,6 @@ function SettingsTab() {
               </div>
             );
           })}
-        </div>
-      </section>
-
-      {/* ── Thông tin kỹ thuật (read-only) ────────────────────────────── */}
-      <section className="bg-white rounded-2xl p-5 shadow-sm overflow-hidden relative">
-        <div className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl bg-[#de9ca4]/50" />
-        <div className="flex items-center gap-3 mb-5 mt-1">
-          <Info className="w-5 h-5 text-[#9f364c]/60" />
-          <h3 className="text-sm font-extrabold uppercase tracking-widest text-[#4d2128]">
-            Thông tin kỹ thuật
-          </h3>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8">
-          {[
-            ['Phiên bản',  'v2.0.0'],
-            ['Môi trường', 'Production'],
-            ['Backend',    'Flask + PostgreSQL'],
-            ['AI Engine',  'Claude (Anthropic)'],
-            ['RAG',        'ChromaDB + LangChain'],
-            ['Realtime',   'WebSocket (gevent)'],
-          ].map(([l, v]) => (
-            <div key={String(l)} className="flex justify-between items-center py-2 border-b border-[#de9ca4]/15">
-              <span className="text-xs text-[#9f364c]/60">{l}</span>
-              <span className="text-xs font-semibold text-[#4d2128]">{v}</span>
-            </div>
-          ))}
         </div>
       </section>
 

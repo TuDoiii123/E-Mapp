@@ -73,17 +73,13 @@ function Toast({ text, ok }: { text: string; ok: boolean }) {
 }
 
 /* ── Custom Tab Bar ────────────────────────────────────────────────────────── */
-type DashTab = 'overview' | 'users' | 'locations' | 'procedures'
-             | 'applications' | 'appointments' | 'chatbot';
+type DashTab = 'overview' | 'locations' | 'procedures' | 'chatbot';
 
 const DASH_TABS: { key: DashTab; label: string; Icon: any }[] = [
-  { key: 'overview',     label: 'Tổng quan', Icon: BarChart3     },
-  { key: 'users',        label: 'Tài khoản', Icon: Users         },
-  { key: 'locations',    label: 'Địa điểm',  Icon: MapPin        },
-  { key: 'procedures',   label: 'Thủ tục',   Icon: FileText      },
-  { key: 'applications', label: 'Hồ sơ',     Icon: ClipboardList },
-  { key: 'appointments', label: 'Lịch hẹn',  Icon: CalendarCheck },
-  { key: 'chatbot',      label: 'Chatbot',   Icon: Bot           },
+  { key: 'overview',   label: 'Tổng quan', Icon: BarChart3 },
+  { key: 'locations',  label: 'Địa điểm',  Icon: MapPin    },
+  { key: 'procedures', label: 'Thủ tục',   Icon: FileText  },
+  { key: 'chatbot',    label: 'Chatbot',   Icon: Bot       },
 ];
 
 function DashTabBar({ active, onChange }: { active: DashTab; onChange(t: DashTab): void }) {
@@ -1562,13 +1558,10 @@ export function AdminDashboardScreen({ onNavigate, hideHeader = false }: Props) 
       <div className="mx-4 h-px bg-[#de9ca4]/15 mb-1" />
 
       {/* Content */}
-      {tab === 'overview'     && <OverviewTab />}
-      {tab === 'users'        && <UsersTab        onToast={showToast} />}
-      {tab === 'locations'    && <LocationsTab    onToast={showToast} />}
-      {tab === 'procedures'   && <ProceduresTab   onToast={showToast} />}
-      {tab === 'applications' && <ApplicationsTab onToast={showToast} />}
-      {tab === 'appointments' && <AppointmentsTab />}
-      {tab === 'chatbot'      && <ChatbotTab      onToast={showToast} />}
+      {tab === 'overview'   && <OverviewTab />}
+      {tab === 'locations'  && <LocationsTab  onToast={showToast} />}
+      {tab === 'procedures' && <ProceduresTab onToast={showToast} />}
+      {tab === 'chatbot'    && <ChatbotTab    onToast={showToast} />}
     </div>
   );
 }

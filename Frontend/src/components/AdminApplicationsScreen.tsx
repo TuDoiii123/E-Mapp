@@ -9,7 +9,7 @@ import {
   Search, RefreshCw, ChevronLeft, ChevronRight,
   Eye, ClipboardList, FileText, CheckCircle,
   AlertCircle, ThumbsUp, ThumbsDown, MessageSquare,
-  X, Clock, TrendingUp, Plus, FolderOpen,
+  X, Clock, TrendingUp, FolderOpen,
   Download, ImageIcon, FileIcon, History, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import * as adminSvc from '../services/adminService';
@@ -741,49 +741,16 @@ export function AdminApplicationsScreen({ onNavigate }: Props) {
       </div>
 
       {/* ── Bottom Stats Row ──────────────────────────────────────────────── */}
-      <div className="px-4 mt-4 grid grid-cols-3 gap-3">
-        {/* Card 1 — Tổng hồ sơ tháng */}
-        <div className="rounded-2xl p-3.5 relative overflow-hidden col-span-1"
-          style={{ backgroundColor: '#fef2f2' }}>
-          {/* decorative icon */}
-          <div className="absolute -right-3 -bottom-3 w-14 h-14 rounded-full opacity-10"
-            style={{ backgroundColor: PRIMARY }} />
+      <div className="px-4 mt-4 grid grid-cols-2 gap-3">
+        <div className="rounded-2xl p-3.5 relative overflow-hidden" style={{ backgroundColor: '#fef2f2' }}>
           <FileText className="w-5 h-5 mb-2" style={{ color: PRIMARY }} />
-          <p className="text-xl font-black leading-none" style={{ color: PRIMARY }}>
-            {totalMonth}
-          </p>
-          <p className="text-[10px] mt-1 font-medium" style={{ color: '#b91c1c' }}>
-            Hồ sơ tháng này
-          </p>
+          <p className="text-xl font-black leading-none" style={{ color: PRIMARY }}>{totalMonth}</p>
+          <p className="text-[10px] mt-1 font-medium" style={{ color: '#b91c1c' }}>Hồ sơ tháng này</p>
         </div>
-
-        {/* Card 2 — Tỷ lệ đúng hạn */}
-        <div className="rounded-2xl p-3.5 relative overflow-hidden col-span-1"
-          style={{ backgroundColor: '#fffde7' }}>
-          <div className="absolute -right-3 -bottom-3 w-14 h-14 rounded-full opacity-10"
-            style={{ backgroundColor: '#a16207' }} />
+        <div className="rounded-2xl p-3.5 relative overflow-hidden" style={{ backgroundColor: '#fffde7' }}>
           <TrendingUp className="w-5 h-5 mb-2" style={{ color: '#92400e' }} />
-          <p className="text-xl font-black leading-none" style={{ color: '#78350f' }}>
-            {approvedPercent}%
-          </p>
-          <p className="text-[10px] mt-1 font-medium" style={{ color: '#92400e' }}>
-            Tỷ lệ đã xử lý
-          </p>
-        </div>
-
-        {/* Card 3 — Tạo hồ sơ mới (placeholder) */}
-        <div className="rounded-2xl p-3.5 flex flex-col items-center justify-center gap-1.5
-          border-2 border-dashed border-[#de9ca4]/40 bg-white col-span-1 cursor-pointer
-          hover:border-[#8f000d] transition-colors group"
-          onClick={() => showToast('Tính năng đang phát triển', false)}>
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center
-            bg-[#fff4f4] group-hover:bg-red-50 transition-colors">
-            <Plus className="w-4 h-4 text-[#9f364c]/50 group-hover:text-[#8f000d] transition-colors" />
-          </div>
-          <p className="text-[10px] text-gray-400 text-center font-medium
-            group-hover:text-[#8f000d] transition-colors leading-tight">
-            Tạo hồ sơ mới
-          </p>
+          <p className="text-xl font-black leading-none" style={{ color: '#78350f' }}>{approvedPercent}%</p>
+          <p className="text-[10px] mt-1 font-medium" style={{ color: '#92400e' }}>Tỷ lệ đã xử lý</p>
         </div>
       </div>
 
