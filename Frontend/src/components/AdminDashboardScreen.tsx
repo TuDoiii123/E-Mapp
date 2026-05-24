@@ -73,10 +73,9 @@ function Toast({ text, ok }: { text: string; ok: boolean }) {
 }
 
 /* ── Custom Tab Bar ────────────────────────────────────────────────────────── */
-type DashTab = 'overview' | 'locations' | 'procedures' | 'chatbot';
+type DashTab = 'locations' | 'procedures' | 'chatbot';
 
 const DASH_TABS: { key: DashTab; label: string; Icon: any }[] = [
-  { key: 'overview',   label: 'Tổng quan', Icon: BarChart3 },
   { key: 'locations',  label: 'Địa điểm',  Icon: MapPin    },
   { key: 'procedures', label: 'Thủ tục',   Icon: FileText  },
   { key: 'chatbot',    label: 'Chatbot',   Icon: Bot       },
@@ -1525,7 +1524,7 @@ function ChatbotTab({ onToast }: { onToast(msg: string, ok: boolean): void }) {
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════════════ */
 export function AdminDashboardScreen({ onNavigate, hideHeader = false }: Props) {
-  const [tab,   setTab]   = useState<DashTab>('overview');
+  const [tab,   setTab]   = useState<DashTab>('locations');
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const showToast = useCallback((msg: string, ok: boolean) => {
@@ -1551,14 +1550,16 @@ export function AdminDashboardScreen({ onNavigate, hideHeader = false }: Props) 
         </div>
       )}
 
-      {/* Tab bar */}
+      {/* Overview card — luôn hiển thị trên cùng */}
+      <OverviewTab />
+
+      {/* Tab bar nằm ngay dưới thẻ tổng quan */}
       <DashTabBar active={tab} onChange={t => setTab(t)} />
 
-      {/* Tab divider */}
+      {/* Divider */}
       <div className="mx-4 h-px bg-[#de9ca4]/15 mb-1" />
 
-      {/* Content */}
-      {tab === 'overview'   && <OverviewTab />}
+      {/* Tab content */}
       {tab === 'locations'  && <LocationsTab  onToast={showToast} />}
       {tab === 'procedures' && <ProceduresTab onToast={showToast} />}
       {tab === 'chatbot'    && <ChatbotTab    onToast={showToast} />}
