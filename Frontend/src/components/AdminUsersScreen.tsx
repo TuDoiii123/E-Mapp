@@ -403,59 +403,31 @@ export function AdminUsersScreen({ onNavigate }: Props) {
       )}
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
 
-      <div className="px-4 py-4 space-y-5">
+      <div className="px-4 py-4 space-y-4">
 
-        {/* ── Hero section ────────────────────────────────────────────── */}
-        <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-end">
-          <div className="lg:col-span-8">
-            <div className="flex items-baseline gap-3 mb-3">
-              <h1 className="font-extrabold text-gray-900 leading-none tracking-tight text-4xl">
-                Quản lý <span style={{ color: PRIMARY }}>Tài khoản.</span>
-              </h1>
-              <button onClick={load}
-                className="text-gray-400 hover:text-gray-600 p-1 self-center"
-                title="Làm mới">
-                <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-            <p className="text-[#4d2128]/70 max-w-xl pl-4 py-2 border-l-4 border-yellow-400 bg-[#fff4f4] rounded-r-xl text-sm leading-relaxed">
-              Hệ thống định danh và xác thực tập trung. Quản trị viên có quyền kiểm soát truy cập
-              cho Công dân và Cán bộ Nhà nước trên toàn quốc.
-            </p>
-          </div>
-
-          {/* Stats 2-col grid */}
-          <div className="lg:col-span-4 grid grid-cols-2 gap-3">
-            <div className="bg-[#fff0f0] rounded-2xl p-5 flex flex-col justify-between aspect-square">
-              <Users className="w-7 h-7" style={{ color: PRIMARY }} />
+        {/* ── Stats row ───────────────────────────────────────────────── */}
+        <section className="flex gap-2">
+          {[
+            { label: 'Tổng tài khoản', value: stats?.totalUsers,        Icon: Users,      bg: 'bg-red-50',  color: 'text-[#8f000d]' },
+            { label: 'Hồ sơ đã nộp',  value: stats?.totalApplications, Icon: ShieldCheck, bg: 'bg-blue-50', color: 'text-blue-600'  },
+          ].map(s => (
+            <div key={s.label} className="flex-1 bg-white rounded-2xl px-4 py-3 shadow-sm flex items-center gap-3">
+              <div className={`w-9 h-9 ${s.bg} rounded-xl flex items-center justify-center shrink-0`}>
+                <s.Icon className={`w-4 h-4 ${s.color}`} />
+              </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900 leading-none">
-                  {stats?.totalUsers != null
-                    ? stats.totalUsers > 999_999
-                      ? `${(stats.totalUsers / 1_000_000).toFixed(1)}M`
-                      : stats.totalUsers.toLocaleString('vi-VN')
-                    : '–'}
+                <p className="text-lg font-black text-gray-900 leading-none">
+                  {loading ? '—' : (s.value?.toLocaleString('vi-VN') ?? '—')}
                 </p>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500 mt-1">
-                  Tổng người dùng
-                </p>
+                <p className="text-[9px] font-bold uppercase tracking-wide text-gray-400 mt-0.5">{s.label}</p>
               </div>
             </div>
-            <div className="rounded-2xl p-5 flex flex-col justify-between aspect-square text-white"
-              style={{ backgroundColor: PRIMARY }}>
-              <ShieldCheck className="w-7 h-7 text-yellow-300" />
-              <div>
-                <p className="text-2xl font-bold leading-none">
-                  {stats?.totalApplications != null
-                    ? stats.totalApplications.toLocaleString('vi-VN')
-                    : '–'}
-                </p>
-                <p className="text-[10px] font-bold uppercase tracking-widest opacity-80 mt-1">
-                  Hồ sơ đã nộp
-                </p>
-              </div>
-            </div>
-          </div>
+          ))}
+          <button onClick={load}
+            className="w-11 h-11 bg-white rounded-2xl shadow-sm flex items-center justify-center
+              text-gray-400 hover:text-gray-600 transition-colors shrink-0 self-center">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </section>
 
         {/* ── Filter bar ──────────────────────────────────────────────── */}
