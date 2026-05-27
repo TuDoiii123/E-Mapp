@@ -72,7 +72,14 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
 
   const meta = procedure ? (CATEGORY_META[procedure.category] || { label: procedure.category, icon: '📄', color: '#9f364c' }) : null;
   const agencies = procedure ? (LEVEL_AGENCY[procedure.implementingLevel] || LEVEL_AGENCY.province) : [];
-  const requirements: Requirement[] = procedure?.requirements || [];
+
+  // Lọc bỏ "header item" trong DB: doc_name kết thúc bằng ':' và không có mô tả
+  // Ví dụ: "Giấy tờ phải nộp:", "Lưu ý:", "Người có yêu cầu... các giấy tờ sau:"
+  const isHeaderItem = (r: Requirement) =>
+    r.docName.trim().endsWith(':') && !r.docDescription?.trim();
+
+  const allRaw: Requirement[] = procedure?.requirements || [];
+  const requirements: Requirement[] = allRaw.filter(r => !isHeaderItem(r));
   const required = requirements.filter(r => r.isRequired);
   const optional = requirements.filter(r => !r.isRequired);
 
@@ -195,7 +202,7 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
               <div className="bg-white rounded-2xl p-5 border border-[#de9ca4]/15">
                 <h3 className="font-black text-[#4d2128] text-sm mb-4 flex items-center gap-2">
                   <FileText className="w-4 h-4 text-[#b7131a]" />
-                  Thành phần hồ sơ ({requirements.length} loại giấy tờ)
+                  Chuẩn bị tài liệu ({requirements.length} loại giấy tờ)
                 </h3>
 
                 {/* Bắt buộc */}
