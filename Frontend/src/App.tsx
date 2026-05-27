@@ -121,7 +121,7 @@ function AppContent() {
       case 'map':
         return <MapScreen onNavigate={handleNavigate} />;
       case 'search':
-        return <SearchDocumentScreen onNavigate={handleNavigate} />;
+        return <SearchDocumentScreen onNavigate={handleNavigateWithParams} params={screenParams} />;
       case 'submit':
         return <SubmitDocumentScreen onNavigate={handleNavigate} />;
       case 'notifications':

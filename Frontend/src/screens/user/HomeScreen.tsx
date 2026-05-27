@@ -31,14 +31,32 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
   const [sysStats,      setSysStats]      = useState<{totalApplications:number; pendingApplications:number; ticketsToday:number} | null>(null);
 
   useEffect(() => {
+    // Load all apps (for stats computation), then slice to 3 for display
     adminSvc.getMyApplications()
-      .then(r => setRecentApps(Array.isArray(r.data) ? r.data.slice(0, 3) : []))
+      .then(r => {
+        const apps = Array.isArray(r.data) ? r.data : [];
+        setRecentApps(apps.slice(0, 3));
+        // Non-admin: compute personal stats from own applications
+        if (role !== 'admin') {
+          setSysStats({
+            totalApplications: apps.length,
+            pendingApplications: apps.filter((a: any) =>
+              ['submitted', 'in_review', 'more_info'].includes(a.status)
+            ).length,
+            ticketsToday: apps.filter((a: any) => a.status === 'approved').length,
+          });
+        }
+      })
       .catch(() => setRecentApps([]))
       .finally(() => setLoadingApps(false));
-    adminSvc.getStats()
-      .then(r => setSysStats(r.data || null))
-      .catch(() => {});
-  }, []);
+
+    // Admin only: load system-wide stats
+    if (role === 'admin') {
+      adminSvc.getStats()
+        .then(r => setSysStats(r.data || null))
+        .catch(() => {});
+    }
+  }, [role]);
 
   const handleSearch = () => {
     if (searchQuery.trim()) onNavigate('search');
@@ -280,26 +298,18 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
 
         {/* ── Stats ── */}
         <section className="grid grid-cols-3 gap-2 sm:gap-3">
-          {[
-            {
-              label: 'Tổng hồ sơ',
-              value: sysStats ? sysStats.totalApplications.toLocaleString('vi-VN') : '—',
-              icon: FileText, iconBg: 'bg-red-50', iconColor: 'text-[#8f000d]', trendColor: 'text-green-600',
-              trend: 'Hệ thống',
-            },
-            {
-              label: 'Đang xử lý',
-              value: sysStats ? sysStats.pendingApplications.toLocaleString('vi-VN') : '—',
-              icon: Clock, iconBg: 'bg-yellow-50', iconColor: 'text-[#a17d00]', trendColor: 'text-[#a17d00]',
-              trend: 'Chờ duyệt',
-            },
-            {
-              label: 'Vé hôm nay',
-              value: sysStats ? sysStats.ticketsToday.toLocaleString('vi-VN') : '—',
-              icon: CheckCircle2, iconBg: 'bg-green-50', iconColor: 'text-green-600', trendColor: 'text-neutral-500',
-              trend: 'Hàng chờ',
-            },
-          ].map((s) => (
+          {(role === 'admin'
+            ? [
+                { label: 'Tổng hồ sơ',    value: sysStats ? sysStats.totalApplications.toLocaleString('vi-VN') : '—',  icon: FileText,    iconBg: 'bg-red-50',    iconColor: 'text-[#8f000d]',  trendColor: 'text-green-600',    trend: 'Hệ thống' },
+                { label: 'Đang xử lý',    value: sysStats ? sysStats.pendingApplications.toLocaleString('vi-VN') : '—', icon: Clock,       iconBg: 'bg-yellow-50', iconColor: 'text-[#a17d00]',  trendColor: 'text-[#a17d00]',    trend: 'Chờ duyệt' },
+                { label: 'Vé hôm nay',    value: sysStats ? sysStats.ticketsToday.toLocaleString('vi-VN') : '—',        icon: CheckCircle2, iconBg: 'bg-green-50', iconColor: 'text-green-600',  trendColor: 'text-neutral-500',  trend: 'Hàng chờ' },
+              ]
+            : [
+                { label: 'Hồ sơ của tôi', value: sysStats ? sysStats.totalApplications.toLocaleString('vi-VN') : '—',  icon: FileText,    iconBg: 'bg-red-50',    iconColor: 'text-[#8f000d]',  trendColor: 'text-green-600',    trend: 'Tất cả' },
+                { label: 'Đang xử lý',    value: sysStats ? sysStats.pendingApplications.toLocaleString('vi-VN') : '—', icon: Clock,       iconBg: 'bg-yellow-50', iconColor: 'text-[#a17d00]',  trendColor: 'text-[#a17d00]',    trend: 'Chờ duyệt' },
+                { label: 'Đã duyệt',      value: sysStats ? sysStats.ticketsToday.toLocaleString('vi-VN') : '—',        icon: CheckCircle2, iconBg: 'bg-green-50', iconColor: 'text-green-600',  trendColor: 'text-neutral-500',  trend: 'Thành công' },
+              ]
+          ).map((s) => (
             <div key={s.label} className="bg-white rounded-2xl p-3 sm:p-4 border border-neutral-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all">
               <div className={`w-8 h-8 sm:w-10 sm:h-10 ${s.iconBg} rounded-xl flex items-center justify-center mb-2`}>
                 <s.icon className={`w-4 h-4 sm:w-5 sm:h-5 ${s.iconColor}`} />
@@ -358,7 +368,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
                     {STATUS_LABEL[app.status] || app.status}
                   </span>
                   <button
-                    onClick={() => onNavigate('search')}
+                    onClick={() => onNavigate('search', { selectedApp: app })}
                     className="shrink-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full border border-neutral-200 flex items-center justify-center text-neutral-400 hover:bg-[#8f000d] hover:text-white hover:border-[#8f000d] transition-all"
                     aria-label="Xem chi tiết"
                   >
