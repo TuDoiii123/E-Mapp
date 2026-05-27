@@ -203,7 +203,8 @@ def init_db(app):
                 doc_description TEXT,
                 is_required     BOOLEAN NOT NULL DEFAULT TRUE,
                 doc_type        VARCHAR(50) NOT NULL DEFAULT 'original',
-                order_index     INTEGER NOT NULL DEFAULT 0
+                order_index     INTEGER NOT NULL DEFAULT 0,
+                template_file   VARCHAR(255)
             );
             CREATE INDEX IF NOT EXISTS idx_req_service
                 ON public.service_requirements(service_id);
@@ -940,6 +941,18 @@ def init_db(app):
             log.debug('evaluations admin_reply columns OK')
         except Exception as e:
             log.warning(f'evaluations admin_reply migration failed: {e}')
+            db.session.rollback()
+
+        # ── Migrate service_requirements — thêm template_file nếu chưa có ────────
+        try:
+            db.session.execute(text('''
+                ALTER TABLE public.service_requirements
+                    ADD COLUMN IF NOT EXISTS template_file VARCHAR(255);
+            '''))
+            db.session.commit()
+            log.debug('service_requirements template_file migration OK')
+        except Exception as e:
+            log.warning(f'service_requirements template_file migration failed: {e}')
             db.session.rollback()
 
         # ── Xóa FK service-related bị add nhầm (service_code/service_id dùng keyword tự do)
