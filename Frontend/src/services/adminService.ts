@@ -63,9 +63,13 @@ export const updateProcedure = (id: string, data: object)=> api(`/procedures/${i
 export const deleteProcedure = (id: string)              => api(`/procedures/${id}`, { method: 'DELETE' });
 
 // ── Applications ──────────────────────────────────────────────────────────────
+/**
+ * Admin — lấy danh sách hồ sơ (có CCCD, docCount, filter nâng cao)
+ * Response: { success, data: { items[], total, page, perPage, pages } }
+ */
 export const getApplications = (params: Record<string, string> = {}) => {
   const q = new URLSearchParams(params).toString();
-  return apiFull(`/applications/search${q ? '?' + q : ''}`);
+  return apiFull(`/applications/admin/list${q ? '?' + q : ''}`);
 };
 export const getApplicationDetail = (id: string) =>
   apiFull(`/applications/${id}`);

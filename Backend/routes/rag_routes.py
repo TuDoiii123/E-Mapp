@@ -15,10 +15,8 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from RAG.agent_core.graph import MultiRoleAgentGraph
-from RAG.connect_SQL.connect_SQL import connect_sql
-from RAG.tools.suggest import init_suggest, suggest_procedures
 from logger import get_logger
+# RAG imports are lazy (loaded on first request) để không làm chậm startup
 
 log = get_logger('rag_routes')
 
@@ -27,17 +25,18 @@ rag_bp = Blueprint('rag', __name__)
 VN_TZ = timezone(timedelta(hours=7))
 
 # ── Lazy singletons (thread-safe) ─────────────────────────────────────────────
-_agent_graph: Optional[MultiRoleAgentGraph] = None
+_agent_graph: Optional[Any] = None  # MultiRoleAgentGraph — lazy import
 _db_engine = None
 _agent_lock = threading.Lock()
 _db_lock    = threading.Lock()
 
 
-def _get_agent() -> MultiRoleAgentGraph:
+def _get_agent():
     global _agent_graph
     if _agent_graph is None:
         with _agent_lock:
             if _agent_graph is None:
+                from RAG.agent_core.graph import MultiRoleAgentGraph  # lazy
                 _agent_graph = MultiRoleAgentGraph()
     return _agent_graph
 
@@ -47,8 +46,15 @@ def _get_db():
     if _db_engine is None:
         with _db_lock:
             if _db_engine is None:
+                from RAG.connect_SQL.connect_SQL import connect_sql  # lazy
                 _db_engine = connect_sql()
     return _db_engine
+
+
+def _suggest_procedures(*args, **kwargs):
+    """Lazy wrapper — defer sentence_transformers import đến lần gọi đầu tiên."""
+    from RAG.tools.suggest import suggest_procedures as _fn
+    return _fn(*args, **kwargs)
 
 
 def _tts_mp3_base64(text: str) -> Optional[str]:
@@ -163,6 +169,7 @@ def _fetch_session_messages(session_id: str) -> List[Dict[str, Any]]:
 
 def init_document_suggestion():
     """Alias để server.py preload vẫn hoạt động."""
+    from RAG.tools.suggest import init_suggest  # lazy
     return init_suggest()
 
 
@@ -195,13 +202,13 @@ def rag_chat():
             final_answer = format_for_chat(sug_result.get('suggestions', []))
             if not sug_result.get('suggestions'):
                 # Fallback: dùng suggest_procedures cũ
-                suggestion_result = suggest_procedures(user_message)
+                suggestion_result = _suggest_procedures(user_message)
                 final_answer = suggestion_result.get('explanation', 'Không tìm thấy thủ tục phù hợp.')
             raw_analysis    = {'mode': 'document_suggestion_with_requirements'}
             raw_tool_results = sug_result
         except Exception as _sug_exc:
             log.warning(f'[rag/chat] suggest_with_requirements failed: {_sug_exc}')
-            suggestion_result = suggest_procedures(user_message)
+            suggestion_result = _suggest_procedures(user_message)
             final_answer     = suggestion_result['explanation']
             raw_analysis     = {'mode': 'document_suggestion'}
             raw_tool_results  = suggestion_result
@@ -404,7 +411,7 @@ def api_suggest_procedure():
         return jsonify({'success': False, 'message': 'query is required'}), 400
 
     start_time = time.perf_counter()
-    result = suggest_procedures(query=query, top_k=top_k, threshold=threshold)
+    result = _suggest_procedures(query=query, top_k=top_k, threshold=threshold)
     latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
     if result.get('error'):

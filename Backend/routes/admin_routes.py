@@ -588,14 +588,17 @@ def admin_stats():
             text("SELECT COUNT(*) FROM public.queue_tickets WHERE date = CURRENT_DATE AND status = 'waiting'")
         ).scalar() or 0
 
-        # Locations và Procedures vẫn đọc từ file (file là source of truth)
-        locs  = FileStorage.read_json('locations.json')
-        procs = FileStorage.read_json('public_services.json')
+        # Locations vẫn đọc từ file; Procedures đọc từ PostgreSQL
+        locs = FileStorage.read_json('locations.json')
+
+        total_procedures = db.session.execute(
+            text('SELECT COUNT(*) FROM public.procedures WHERE is_active = TRUE')
+        ).scalar() or 0
 
         return jsonify({'success': True, 'data': {
             'totalUsers':          int(total_users),
             'totalLocations':      len(locs),
-            'totalProcedures':     len(procs),
+            'totalProcedures':     int(total_procedures),
             'totalApplications':   int(total_apps),
             'pendingApplications': int(pending_apps),
             'ticketsToday':        int(tickets_today),
@@ -649,66 +652,6 @@ def audit_logs():
                         'pagination': {'page': page, 'limit': limit, 'total': total}})
     except Exception as e:
         log.error(f'audit_logs error: {e}', exc_info=True)
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@admin_bp.route('/evaluations', methods=['GET'])
-def admin_evaluations():
-    """Admin xem tất cả đánh giá từ người dùng."""
-    err = _require_admin()
-    if err:
-        return err
-    try:
-        page    = max(int(request.args.get('page', 1)), 1)
-        limit   = min(int(request.args.get('limit', 20)), 100)
-        min_r   = request.args.get('minRating')
-        agency  = (request.args.get('agencyId') or '').strip()
-
-        conditions, params = [], {}
-        if min_r:
-            conditions.append('e.avg_rating >= :min_r')
-            params['min_r'] = float(min_r)
-        if agency:
-            conditions.append('e.agency_id = :agency')
-            params['agency'] = agency
-        where = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
-
-        total = db.session.execute(
-            text(f'SELECT COUNT(*) FROM public.evaluations e {where}'), params
-        ).scalar() or 0
-
-        rows = db.session.execute(text(f'''
-            SELECT e.id, e.application_id, e.user_id, e.agency_id, e.service_name,
-                   e.attitude_rating, e.time_rating, e.facilities_rating, e.avg_rating,
-                   e.comment, e.submitted_at,
-                   u.full_name AS user_name, u.cccd_number
-            FROM public.evaluations e
-            LEFT JOIN public.users u ON u.id = e.user_id
-            {where}
-            ORDER BY e.submitted_at DESC
-            LIMIT :limit OFFSET :offset
-        '''), {**params, 'limit': limit, 'offset': (page - 1) * limit}).fetchall()
-
-        data = [{
-            'id':               r[0],
-            'applicationId':    r[1],
-            'userId':           r[2],
-            'agencyId':         r[3],
-            'serviceName':      r[4],
-            'attitudeRating':   r[5],
-            'timeRating':       r[6],
-            'facilitiesRating': r[7],
-            'avgRating':        float(r[8]) if r[8] else 0,
-            'comment':          r[9],
-            'submittedAt':      r[10].isoformat() if r[10] else None,
-            'userName':         r[11],
-            'cccdNumber':       r[12],
-        } for r in rows]
-
-        return jsonify({'success': True, 'data': data,
-                        'pagination': {'page': page, 'limit': limit, 'total': int(total)}})
-    except Exception as e:
-        log.error(f'admin_evaluations error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
 
 

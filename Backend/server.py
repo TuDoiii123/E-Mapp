@@ -3,6 +3,7 @@ Flask application entry point.
 All business logic lives in routes/ blueprints.
 """
 import importlib
+import logging as _logging
 import os
 import threading
 import time
@@ -11,6 +12,28 @@ import traceback
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
+
+# ── Suppress noisy third-party loggers TRƯỚC KHI import bất kỳ thứ nặng nào ──
+for _lib in (
+    'werkzeug',            # Flask dev server request logs (ta có log riêng)
+    'sqlalchemy.engine',   # SQL query echoing
+    'sqlalchemy.pool',
+    'sqlalchemy.orm',
+    'sqlalchemy.dialects',
+    'langgraph',
+    'chromadb',
+    'sentence_transformers',
+    'httpx',
+    'httpcore',
+    'urllib3',
+    'urllib3.connectionpool',
+    'google.auth',
+    'google.auth.transport',
+    'google.api_core',
+    'grpc',
+    'absl',
+):
+    _logging.getLogger(_lib).setLevel(_logging.WARNING)
 
 from logger import get_logger, log_request, log_response, RESET, BOLD, CYAN, GREEN, YELLOW, RED
 
@@ -26,6 +49,9 @@ except ImportError:
 
 load_dotenv(override=True)
 
+# Bật per-request HTTP log bằng cách set LOG_HTTP=1 trong .env (mặc định tắt)
+_LOG_HTTP = os.getenv('LOG_HTTP', '0') == '1'
+
 # Origins đọc từ env — khi deploy thêm domain thật vào CORS_ORIGINS trong .env
 # Ví dụ: CORS_ORIGINS=https://emapp.thanhhoa.gov.vn,https://admin.emapp.vn
 _DEFAULT_ORIGINS = 'http://localhost:5173,http://localhost:3000,http://localhost:3001'
@@ -35,7 +61,7 @@ _CORS_ORIGINS: list[str] = [
     if o.strip()
 ]
 _CORS_ORIGIN_SET: set[str] = set(_CORS_ORIGINS)
-log.info(f'CORS allowed origins: {_CORS_ORIGINS}')
+log.debug(f'CORS allowed origins: {_CORS_ORIGINS}')
 
 app = Flask(__name__)
 
@@ -57,7 +83,7 @@ CORS(
 try:
     from models.db import init_db
     init_db(app)
-    log.info('PostgreSQL database initialized')
+    log.debug('PostgreSQL database initialized')
 except Exception as e:
     log.warning(f'Database initialization skipped: {e}')
 
@@ -82,13 +108,21 @@ _blueprints = [
     ('routes.procedures_routes',       'procedures_bp'),
 ]
 
+_bp_ok: list = []
+_bp_fail: list = []
 for module_path, bp_name in _blueprints:
     try:
         module = importlib.import_module(module_path)
         app.register_blueprint(getattr(module, bp_name))
-        log.info(f'{GREEN}✓{RESET} {bp_name} registered')
+        _bp_ok.append(bp_name)
     except Exception as e:
-        log.error(f'✗ {bp_name} failed to register: {e}', exc_info=True)
+        _bp_fail.append(bp_name)
+        log.error(f'✗ {bp_name} failed to register: {e}')
+
+_bp_summary = f'{GREEN}✓{RESET} {len(_bp_ok)}/{len(_blueprints)} blueprints'
+if _bp_fail:
+    _bp_summary += f' | {RED}✗ failed: {", ".join(_bp_fail)}{RESET}'
+log.info(_bp_summary)
 
 # ── WebSocket (flask-sock) ────────────────────────────────────────────────────
 if _SOCK_AVAILABLE:
@@ -100,18 +134,18 @@ if _SOCK_AVAILABLE:
     try:
         from routes.queue_routes import register_websocket
         register_websocket(sock)
-        log.info(f'{GREEN}✓{RESET} WebSocket /ws/queue/<agency_id> registered')
+        log.debug('WebSocket /ws/queue/<agency_id> registered')
     except Exception as e:
-        log.error(f'WebSocket registration failed: {e}', exc_info=True)
+        log.error(f'WebSocket registration failed: {e}')
 
 # ── Preload SuggestProcedure in background ────────────────────────────────────
 def _preload_suggest():
     try:
         from routes.rag_routes import init_document_suggestion
         init_document_suggestion()
-        log.info('SuggestProcedure model loaded')
+        log.debug('SuggestProcedure model loaded')
     except Exception as e:
-        log.error(f'[SuggestProcedure] preload failed: {e}', exc_info=True)
+        log.warning(f'[SuggestProcedure] preload failed: {e}')
 
 threading.Thread(target=_preload_suggest, daemon=True).start()
 
@@ -326,13 +360,18 @@ def handle_exception(e):
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
+    # Seed data chạy nền (không chặn startup)
     if os.getenv('FLASK_ENV', 'development') != 'production':
-        try:
-            from scripts.seed_data import seed_data
-            seed_data()
-        except Exception as e:
-            log.error(f'Error seeding data: {e}', exc_info=True)
+        def _seed_dev():
+            try:
+                with app.app_context():
+                    from scripts.seed_data import seed_data
+                    seed_data()
+            except Exception as e:
+                log.warning(f'[seed_data] {e}')
+        threading.Thread(target=_seed_dev, daemon=True).start()
 
     port = int(os.getenv('PORT', 8888))
-    log.info(f'{BOLD}{CYAN}E-Mapp Backend{RESET} starting on port {BOLD}{port}{RESET}')
+    log.info(f'{BOLD}{CYAN}■ E-Mapp Backend{RESET}  port {BOLD}{port}{RESET}  '
+             f'{CYAN}LOG_HTTP={_LOG_HTTP}{RESET}')
     app.run(host='0.0.0.0', port=port)

@@ -1536,7 +1536,8 @@ def admin_list_applications():
     date_to    = request.args.get('date_to', '').strip() or None
     q          = request.args.get('q', '').strip() or None
     page       = max(1, int(request.args.get('page', 1)))
-    per_page   = min(100, max(1, int(request.args.get('per_page', 20))))
+    # Accept both 'limit' (frontend) and 'per_page' (legacy) as page size param
+    per_page   = min(100, max(1, int(request.args.get('limit') or request.args.get('per_page', 20))))
     offset     = (page - 1) * per_page
 
     try:
@@ -1564,8 +1565,11 @@ def admin_list_applications():
         rows = db.session.execute(text(f'''
             SELECT a.id, a.applicant_id, a.service_id, a.status, a.data,
                    a.signature_type, a.submitted_at, a.created_at, a.updated_at,
-                   (SELECT COUNT(*) FROM public.application_documents d WHERE d.application_id = a.id) AS doc_count
+                   (SELECT COUNT(*) FROM public.application_documents d WHERE d.application_id = a.id) AS doc_count,
+                   u.cccd_number AS applicant_cccd,
+                   u.full_name   AS applicant_full_name
             FROM public.applications a
+            LEFT JOIN public.users u ON u.id = a.applicant_id
             {where}
             ORDER BY a.submitted_at DESC NULLS LAST, a.created_at DESC
             LIMIT :limit OFFSET :offset
@@ -1579,7 +1583,11 @@ def admin_list_applications():
         items = []
         for r in rows:
             d = _pg_row_to_dict(r[:9])
-            d['docCount'] = r[9]
+            d['docCount']      = r[9]
+            d['applicantCccd'] = r[10]
+            # Ưu tiên tên từ DB nếu data không có
+            if not d.get('applicantName') and r[11]:
+                d['applicantName'] = r[11]
             items.append(d)
 
         return jsonify({'success': True, 'data': {

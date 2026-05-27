@@ -1,5 +1,4 @@
 import { Home, FileText, MessageCircle, Hash, Settings, ShieldCheck, MonitorPlay } from 'lucide-react';
-import { Badge } from './ui/badge';
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -67,8 +66,7 @@ export function BottomNavigation({ currentScreen, onNavigate }: BottomNavigation
               <div className="relative">
                 <Icon className="w-5 h-5" />
                 {item.id === 'chatbot' && currentScreen !== 'chatbot' && (
-                  <Badge variant="destructive" className="absolute -top-2 -right-2 w-2 h-2 p-0 text-xs">
-                  </Badge>
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500" />
                 )}
               </div>
               <span className="text-xs mt-1 truncate">{item.label}</span>
