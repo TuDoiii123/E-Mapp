@@ -176,9 +176,9 @@ def seed_data():
         existing = ServiceCategory.find_by_code(cat['code'])
         if not existing:
             ServiceCategory.create(cat)
-            print(f"  + Created: {cat['name']}")
+            log.info(f"  + Created: {cat['name']}")
         else:
-            print(f"  - Exists:  {cat['name']}")
+            log.debug(f"  - Exists:  {cat['name']}")
 
     # Map category codes → IDs
     all_cats = ServiceCategory.find_all()
@@ -191,14 +191,14 @@ def seed_data():
     for s in services:
         category_id = code_map.get(s['categoryId'])
         if not category_id:
-            print(f"  ! Category not found: {s['categoryId']}")
+            log.warning(f"  ! Category not found: {s['categoryId']}")
             continue
         payload = {**s, 'categoryId': category_id}
         if (payload['name'], payload['address']) not in existing_names:
             PublicService.create(payload)
-            print(f"  + Created: {payload['name']}")
+            log.info(f"  + Created: {payload['name']}")
         else:
-            print(f"  - Exists:  {payload['name']}")
+            log.debug(f"  - Exists:  {payload['name']}")
 
     # Seed chatbot config defaults
     log.info('Seeding chatbot config...')

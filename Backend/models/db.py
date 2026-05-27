@@ -563,13 +563,13 @@ def init_db(app):
                 DROP CONSTRAINT IF EXISTS chk_app_status;
             ALTER TABLE public.applications
                 ADD CONSTRAINT chk_app_status
-                CHECK (status IN (''draft'',''submitted'',''in_review'',''approved'',''rejected'',''more_info'',''withdraw''));
+                CHECK (status IN ('draft','submitted','in_review','approved','rejected','more_info','withdraw'));
 
             ALTER TABLE public.queue_tickets
                 DROP CONSTRAINT IF EXISTS chk_qt_status;
             ALTER TABLE public.queue_tickets
                 ADD CONSTRAINT chk_qt_status
-                CHECK (status IN (''waiting'',''called'',''serving'',''done'',''absent'',''cancelled''));
+                CHECK (status IN ('waiting','called','serving','done','absent','cancelled'));
 
             ALTER TABLE public.evaluations
                 DROP CONSTRAINT IF EXISTS chk_eval_ratings;
