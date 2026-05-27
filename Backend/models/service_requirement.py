@@ -64,7 +64,9 @@ _KEYWORD_MAP = {
 
 
 def _detect_key(service_id: str) -> str:
-    s = service_id.lower()
+    # Normalize slug (dang-ky-ket-hon) → space-separated (dang ky ket hon)
+    # so slug-based IDs match the space-based keywords in _KEYWORD_MAP
+    s = service_id.lower().replace('-', ' ').replace('_', ' ')
     for key, keywords in _KEYWORD_MAP.items():
         if any(kw in s for kw in keywords):
             return key
