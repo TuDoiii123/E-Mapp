@@ -106,6 +106,8 @@ _blueprints = [
     ('routes.chatbot_config_routes',   'chatbot_cfg_bp'),
     ('routes.evaluation_routes',       'evaluation_bp'),
     ('routes.procedures_routes',       'procedures_bp'),
+    ('routes.templates_routes',        'templates_bp'),
+    ('routes.ai_routes',               'ai_bp'),
 ]
 
 _bp_ok: list = []

@@ -175,6 +175,67 @@ function FileTypeIcon({ mimeType }: { mimeType?: string }) {
   return <FileIcon className="w-4 h-4 text-gray-400" />;
 }
 
+// ── DocPreviewPanel ────────────────────────────────────────────────────────────
+function DocPreviewPanel({ doc, onClose }: { doc: any; onClose(): void }) {
+  const url = fileUrl(doc.filename);
+  const mime = (doc.mimeType || '').toLowerCase();
+  const isImage = mime.startsWith('image/');
+  const isPdf   = mime === 'application/pdf';
+  const isWord  = mime.includes('word') || mime.includes('openxmlformats');
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col">
+      <div className="flex items-center justify-between px-4 py-3 bg-[#1a0003] text-white flex-shrink-0">
+        <p className="text-sm font-semibold truncate max-w-xs">{doc.originalName || doc.filename}</p>
+        <div className="flex items-center gap-2">
+          <a href={url} target="_blank" rel="noreferrer" download={doc.originalName || doc.filename}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors">
+            <Download className="w-3.5 h-3.5" /> Tải xuống
+          </a>
+          <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 overflow-auto bg-[#111] flex items-center justify-center">
+        {isImage && (
+          <img src={url} alt={doc.originalName} className="max-w-full max-h-full object-contain" />
+        )}
+        {isPdf && (
+          <iframe src={url} className="w-full h-full border-0" title={doc.originalName} />
+        )}
+        {isWord && (
+          <div className="text-center text-white space-y-4 p-8">
+            <FileText className="w-16 h-16 text-blue-300 mx-auto" />
+            <p className="text-sm text-gray-300">File Word — xem trong trình duyệt qua Google Docs</p>
+            <a
+              href={`https://docs.google.com/viewer?url=${encodeURIComponent(window.location.origin + '/api' + url.split('/api')[1])}&embedded=true`}
+              target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium">
+              <Eye className="w-4 h-4" /> Mở trong Google Docs
+            </a>
+            <p className="text-xs text-gray-500">hoặc</p>
+            <a href={url} download={doc.originalName || doc.filename}
+              className="inline-flex items-center gap-2 px-5 py-2.5 border border-gray-600 text-gray-300 rounded-xl hover:bg-white/5 transition-colors text-sm">
+              <Download className="w-4 h-4" /> Tải về máy
+            </a>
+          </div>
+        )}
+        {!isImage && !isPdf && !isWord && (
+          <div className="text-center text-white space-y-4 p-8">
+            <FileIcon className="w-16 h-16 text-gray-400 mx-auto" />
+            <p className="text-sm text-gray-300">Không hỗ trợ xem trực tiếp định dạng này.</p>
+            <a href={url} download={doc.originalName || doc.filename}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/10 rounded-xl hover:bg-white/20 transition-colors text-sm">
+              <Download className="w-4 h-4" /> Tải xuống
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── ApplicationDetailModal ─────────────────────────────────────────────────────
 function ApplicationDetailModal({ app, onClose, onReview }: {
   app: any;
@@ -185,6 +246,7 @@ function ApplicationDetailModal({ app, onClose, onReview }: {
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState('');
   const [showHist,   setShowHist]   = useState(false);
+  const [previewDoc, setPreviewDoc] = useState<any>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -277,38 +339,56 @@ function ApplicationDetailModal({ app, onClose, onReview }: {
                   <p className="text-xs text-gray-400">Không có tài liệu đính kèm</p>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-[#de9ca4]/20 overflow-hidden divide-y divide-[#de9ca4]/10">
-                  {documents.map((doc: any, i: number) => (
-                    <div key={doc.id ?? i}
-                      className={`flex items-center gap-3 px-4 py-3
-                        ${i % 2 === 0 ? 'bg-white' : 'bg-[#fff4f4]/30'}`}>
-                      {/* icon */}
-                      <div className="w-8 h-8 rounded-lg bg-[#fff4f4] flex items-center justify-center flex-shrink-0">
-                        <FileTypeIcon mimeType={doc.mimeType} />
-                      </div>
-                      {/* info */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-gray-800 truncate">
-                          {doc.originalName || doc.filename}
-                        </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">
-                          {doc.mimeType || '—'} · {formatSize(doc.size)}
-                        </p>
-                      </div>
-                      {/* download */}
-                      <a
-                        href={fileUrl(doc.filename)}
-                        target="_blank"
-                        rel="noreferrer"
-                        download={doc.originalName || doc.filename}
-                        className="w-8 h-8 rounded-lg border border-[#de9ca4]/30 flex items-center justify-center
-                          hover:border-[#8f000d] hover:bg-red-50 transition-colors flex-shrink-0"
-                        title="Tải xuống">
-                        <Download className="w-3.5 h-3.5 text-[#9f364c]" />
-                      </a>
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <div className="rounded-2xl border border-[#de9ca4]/20 overflow-hidden divide-y divide-[#de9ca4]/10">
+                    {documents.map((doc: any, i: number) => {
+                      const mime = (doc.mimeType || '').toLowerCase();
+                      const canPreview = mime.startsWith('image/') || mime === 'application/pdf'
+                        || mime.includes('word') || mime.includes('openxmlformats');
+                      return (
+                        <div key={doc.id ?? i}
+                          className={`flex items-center gap-3 px-4 py-3
+                            ${i % 2 === 0 ? 'bg-white' : 'bg-[#fff4f4]/30'}`}>
+                          {/* icon */}
+                          <div className="w-8 h-8 rounded-lg bg-[#fff4f4] flex items-center justify-center flex-shrink-0">
+                            <FileTypeIcon mimeType={doc.mimeType} />
+                          </div>
+                          {/* info */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-gray-800 truncate">
+                              {doc.originalName || doc.filename}
+                            </p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              {doc.mimeType || '—'} · {formatSize(doc.size)}
+                            </p>
+                          </div>
+                          {/* view inline */}
+                          {canPreview && (
+                            <button
+                              onClick={() => setPreviewDoc(doc)}
+                              className="w-8 h-8 rounded-lg border border-[#de9ca4]/30 flex items-center justify-center
+                                hover:border-[#8f000d] hover:bg-red-50 transition-colors flex-shrink-0"
+                              title="Xem trước">
+                              <Eye className="w-3.5 h-3.5 text-[#9f364c]" />
+                            </button>
+                          )}
+                          {/* download */}
+                          <a
+                            href={fileUrl(doc.filename)}
+                            target="_blank"
+                            rel="noreferrer"
+                            download={doc.originalName || doc.filename}
+                            className="w-8 h-8 rounded-lg border border-[#de9ca4]/30 flex items-center justify-center
+                              hover:border-[#8f000d] hover:bg-red-50 transition-colors flex-shrink-0"
+                            title="Tải xuống">
+                            <Download className="w-3.5 h-3.5 text-[#9f364c]" />
+                          </a>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {previewDoc && <DocPreviewPanel doc={previewDoc} onClose={() => setPreviewDoc(null)} />}
+                </>
               )}
             </section>
 

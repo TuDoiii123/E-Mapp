@@ -18,7 +18,7 @@ import {
   ShieldCheck, Phone, X, FolderOpen,
   Trash2, CloudUpload,
   Paperclip, Smartphone, HardDrive, Image,
-  RefreshCw, AlertCircle,
+  RefreshCw, AlertCircle, Eye, Download, Sparkles, ExternalLink,
 } from 'lucide-react';
 
 interface SubmitDocumentScreenProps {
@@ -32,6 +32,7 @@ interface Requirement {
   isRequired: boolean;
   docType: string;
   orderIndex: number;
+  templateFile?: string;  // tên file Word mẫu (nếu có)
 }
 
 interface UploadedDoc {
@@ -108,7 +109,18 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
   const [submitted,      setSubmitted]      = useState(false);
 
   const fileInputsRef  = useRef<Record<string, HTMLInputElement | null>>({});
+  const aiInputsRef    = useRef<Record<string, HTMLInputElement | null>>({});
   const MAX_FILE_BYTES = 16 * 1024 * 1024; // 16 MB
+
+  // AI fill state
+  const [aiModal,       setAiModal]       = useState<{ req: Requirement } | null>(null);
+  const [aiExtracting,  setAiExtracting]  = useState(false);
+  const [aiFields,      setAiFields]      = useState<Record<string, string> | null>(null);
+  const [aiFilling,     setAiFilling]     = useState(false);
+  const [aiError,       setAiError]       = useState('');
+
+  // Template preview modal
+  const [previewUrl,    setPreviewUrl]    = useState<string | null>(null);
 
   const svc              = services.find(s => s.id === selectedService);
   const uploadedCount    = Object.keys(uploadedDocs).length;
@@ -268,6 +280,102 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
       return next;
     });
   }, [appId, uploadedDocs]);
+
+  // ── AI extract from source image ──────────────────────────────────────────
+
+  const handleAiSourcePick = (reqId: string) => aiInputsRef.current[reqId]?.click();
+
+  const onAiSourceChange = useCallback(async (req: Requirement, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file || !req.templateFile) return;
+
+    setAiExtracting(true);
+    setAiError('');
+    setAiFields(null);
+
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const resp = await fetch(`${API_BASE_URL}/ai/extract`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: form,
+      });
+      const data = await resp.json();
+      if (data.success) {
+        // Flatten nested fields
+        const flat: Record<string, string> = {};
+        const flatten = (obj: any, prefix = '') => {
+          for (const [k, v] of Object.entries(obj)) {
+            const key = prefix ? `${prefix}_${k}` : k;
+            if (v && typeof v === 'object' && !Array.isArray(v)) flatten(v, key);
+            else flat[key] = Array.isArray(v) ? (v as any[]).join(', ') : String(v ?? '');
+          }
+        };
+        flatten(data.data?.fields ?? {});
+        setAiFields(flat);
+      } else {
+        setAiError(data.message || 'Không thể trích xuất thông tin');
+      }
+    } catch {
+      setAiError('Lỗi kết nối AI');
+    } finally {
+      setAiExtracting(false);
+    }
+  }, []);
+
+  const handleAiFill = useCallback(async () => {
+    if (!aiModal || !aiFields || !appId) return;
+    setAiFilling(true);
+    setAiError('');
+    try {
+      const resp = await fetch(`${API_BASE_URL}/ai/fill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ templateFile: aiModal.req.templateFile, fields: aiFields }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setAiError(err.message || 'Lỗi khi điền mẫu');
+        return;
+      }
+      // Download the filled docx
+      const blob = await resp.blob();
+      const stem = (aiModal.req.templateFile || 'mau').replace(/\.(doc|docx)$/i, '');
+      const filename = `${stem}_dien.docx`;
+
+      // Convert blob to File and simulate upload
+      const filledFile = new File([blob], filename, {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+
+      // Upload filled file as the requirement's document
+      const form = new FormData();
+      form.append('file', filledFile);
+      form.append('requirementId', aiModal.req.id);
+      const uploadResp = await fetch(`${API_BASE_URL}/applications/${appId}/documents`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: form,
+      });
+      const uploadData = await uploadResp.json();
+      if (uploadData.success && uploadData.data?.document?.id) {
+        setUploadedDocs(prev => ({
+          ...prev,
+          [aiModal.req.id]: { file: filledFile, docId: uploadData.data.document.id },
+        }));
+        setAiModal(null);
+        setAiFields(null);
+      } else {
+        setAiError(uploadData.message || 'Lỗi upload file đã điền');
+      }
+    } catch {
+      setAiError('Lỗi kết nối khi nộp file');
+    } finally {
+      setAiFilling(false);
+    }
+  }, [aiModal, aiFields, appId]);
 
   // ── Final submit ───────────────────────────────────────────────────────────
 
@@ -506,6 +614,24 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                     <p className="text-on-surface-variant text-sm leading-relaxed flex-1">
                       {req.docDescription || `Loại: ${req.docType}`}
                     </p>
+                    {/* Template preview/download buttons */}
+                    {req.templateFile && (
+                      <div className="flex items-center gap-2 mt-4 pt-4 border-t border-outline-variant/10">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant flex-1">Mẫu đơn:</span>
+                        <button
+                          onClick={() => setPreviewUrl(`${API_BASE_URL}/templates/${req.templateFile}/preview`)}
+                          className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-primary bg-surface-container-low hover:bg-primary hover:text-on-primary rounded-lg transition-colors">
+                          <Eye className="w-3.5 h-3.5" /> Xem mẫu
+                        </button>
+                        <a
+                          href={`${API_BASE_URL}/templates/${req.templateFile}`}
+                          download={req.templateFile}
+                          target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-on-surface-variant bg-surface-container-low hover:bg-surface-container rounded-lg transition-colors">
+                          <Download className="w-3.5 h-3.5" /> Tải mẫu
+                        </a>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -551,17 +677,32 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                 const file = uploaded?.file;
                 const fileSizeKB = file ? Math.round(file.size / 1024) : 0;
                 const fileSizeLabel = fileSizeKB >= 1024 ? `${(fileSizeKB / 1024).toFixed(1)} MB` : `${fileSizeKB} KB`;
+                const isImage = file && /\.(jpg|jpeg|png|webp)$/i.test(file.name);
+                const isPdf   = file && /\.pdf$/i.test(file.name);
+                const isWord  = file && /\.(doc|docx)$/i.test(file.name);
+                const previewObjectUrl = (isImage || isPdf) && file ? URL.createObjectURL(file) : null;
 
                 return (
                   <div key={req.id}>
                     <input
                       type="file"
-                      accept="image/*,application/pdf"
+                      accept="image/*,application/pdf,.doc,.docx"
                       aria-label={`Tải lên: ${req.docName}`}
                       className="hidden"
                       ref={el => { fileInputsRef.current[req.id] = el; }}
                       onChange={e => onFileChange(req, e)}
                     />
+                    {/* Hidden input for AI source image */}
+                    {req.templateFile && (
+                      <input
+                        type="file"
+                        accept="image/*,application/pdf"
+                        aria-label={`Ảnh nguồn AI: ${req.docName}`}
+                        className="hidden"
+                        ref={el => { aiInputsRef.current[req.id] = el; }}
+                        onChange={e => { setAiModal({ req }); onAiSourceChange(req, e); }}
+                      />
+                    )}
 
                     {isUploading ? (
                       <div className="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/20 flex items-center gap-3">
@@ -569,44 +710,76 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                         <p className="text-sm text-on-surface-variant">Đang tải lên {req.docName}…</p>
                       </div>
                     ) : uploaded ? (
-                      <div className="group bg-surface-container-lowest p-6 rounded-xl border border-green-200 hover:shadow-lg transition-all duration-300">
-                        <div className="flex items-start gap-4">
-                          <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center shrink-0">
-                            <CheckCircle className="w-5 h-5 text-green-600 fill-green-600 stroke-white" />
+                      <div className="group bg-surface-container-lowest rounded-xl border border-green-200 hover:shadow-lg transition-all duration-300 overflow-hidden">
+                        {/* Image preview */}
+                        {isImage && previewObjectUrl && (
+                          <div className="relative">
+                            <img
+                              src={previewObjectUrl}
+                              alt={req.docName}
+                              className="w-full max-h-40 object-cover"
+                              onLoad={() => URL.revokeObjectURL(previewObjectUrl)}
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-bold text-on-surface text-sm leading-tight mb-1">
-                              {String(i + 1).padStart(2, '0')}. {req.docName}
-                            </p>
-                            <div className="flex items-center gap-2 text-[11px] text-on-surface-variant">
-                              <FileText className="w-3 h-3 shrink-0 text-primary" />
-                              <span className="truncate max-w-[160px] font-medium text-primary">{file?.name}</span>
-                              <span className="shrink-0">({fileSizeLabel})</span>
+                        )}
+                        {/* PDF preview */}
+                        {isPdf && previewObjectUrl && (
+                          <div className="bg-surface-container-low flex items-center justify-center py-3 gap-2 text-xs text-on-surface-variant border-b border-outline-variant/10">
+                            <FileText className="w-4 h-4 text-red-500" />
+                            <a href={previewObjectUrl} target="_blank" rel="noreferrer"
+                              className="font-medium text-primary hover:underline flex items-center gap-1">
+                              Xem PDF <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                        )}
+                        {/* Word file indicator */}
+                        {isWord && (
+                          <div className="bg-blue-50 flex items-center justify-center py-2 gap-2 text-xs text-blue-600 border-b border-blue-100">
+                            <FileText className="w-4 h-4" />
+                            <span className="font-medium">File Word đã điền (AI)</span>
+                          </div>
+                        )}
+                        <div className="p-4">
+                          <div className="flex items-start gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-green-50 flex items-center justify-center shrink-0">
+                              <CheckCircle className="w-5 h-5 text-green-600 fill-green-600 stroke-white" />
                             </div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button aria-label="Đổi file" className="p-1.5 text-on-surface-variant hover:text-primary rounded-lg hover:bg-surface-container transition-colors"
-                              onClick={() => handleFilePick(req.id)}>
-                              <Upload className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => removeFile(req.id)} aria-label="Xóa" className="p-1.5 text-on-surface-variant hover:text-red-600 rounded-lg hover:bg-surface-container transition-colors">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-on-surface text-sm leading-tight mb-1">
+                                {String(i + 1).padStart(2, '0')}. {req.docName}
+                              </p>
+                              <div className="flex items-center gap-2 text-[11px] text-on-surface-variant">
+                                <FileText className="w-3 h-3 shrink-0 text-primary" />
+                                <span className="truncate max-w-[140px] font-medium text-primary">{file?.name}</span>
+                                <span className="shrink-0">({fileSizeLabel})</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button aria-label="Đổi file" className="p-1.5 text-on-surface-variant hover:text-primary rounded-lg hover:bg-surface-container transition-colors"
+                                onClick={() => handleFilePick(req.id)}>
+                                <Upload className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => removeFile(req.id)} aria-label="Xóa" className="p-1.5 text-on-surface-variant hover:text-red-600 rounded-lg hover:bg-surface-container transition-colors">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
                     ) : (
-                      <div onClick={() => handleFilePick(req.id)}
+                      <div
                         onDragOver={e => e.preventDefault()}
                         onDrop={e => {
                           e.preventDefault();
                           const f = e.dataTransfer.files?.[0];
                           if (f) onFileChange(req, { target: { files: e.dataTransfer.files, value: '' } } as any);
                         }}
-                        className="group bg-surface-container-lowest p-6 rounded-xl border-2 border-dashed border-outline-variant/40 hover:border-primary/50 hover:shadow-xl transition-all duration-300 cursor-pointer">
-                        <div className="flex items-start gap-4 mb-4">
-                          <div className="w-10 h-10 rounded-xl bg-surface-container-low group-hover:bg-primary group-hover:text-on-primary flex items-center justify-center text-primary transition-colors shrink-0">
-                            <span className="material-symbols-outlined text-[20px]">upload_file</span>
+                        onClick={() => handleFilePick(req.id)}
+                        className="group bg-surface-container-lowest p-5 rounded-xl border-2 border-dashed border-outline-variant/40 hover:border-primary/50 hover:shadow-xl transition-all duration-300 cursor-pointer">
+                        <div className="flex items-start gap-3 mb-3">
+                          <div className="w-9 h-9 rounded-xl bg-surface-container-low group-hover:bg-primary group-hover:text-on-primary flex items-center justify-center text-primary transition-colors shrink-0">
+                            <span className="material-symbols-outlined text-[18px]">upload_file</span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-on-surface text-sm leading-tight">
@@ -616,11 +789,23 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                             <p className="text-[11px] text-on-surface-variant mt-0.5">PDF, JPG, PNG — tối đa 16MB</p>
                           </div>
                           <button onClick={e => { e.stopPropagation(); handleFilePick(req.id); }}
-                            className="flex items-center gap-1.5 px-4 py-2 bg-primary text-on-primary text-xs font-black uppercase tracking-widest rounded-lg hover:opacity-90 transition-opacity shrink-0">
-                            <CloudUpload className="w-3.5 h-3.5" /> Tải lên
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-on-primary text-[11px] font-black uppercase tracking-widest rounded-lg hover:opacity-90 transition-opacity shrink-0">
+                            <CloudUpload className="w-3 h-3" /> Tải lên
                           </button>
                         </div>
-                        <div className="flex items-center justify-center gap-2 py-3 border-t border-dashed border-outline-variant/30 text-[11px] text-outline font-medium">
+                        {/* AI Fill button — chỉ hiện nếu có template */}
+                        {req.templateFile && (
+                          <div onClick={e => e.stopPropagation()}
+                            className="flex items-center gap-2 mt-2 pt-2 border-t border-dashed border-outline-variant/30">
+                            <button
+                              onClick={() => handleAiSourcePick(req.id)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-bold rounded-lg hover:bg-amber-100 transition-colors">
+                              <Sparkles className="w-3.5 h-3.5" /> AI Điền mẫu
+                            </button>
+                            <span className="text-[10px] text-on-surface-variant">Chụp ảnh CCCD/giấy tờ để AI tự điền</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-center gap-2 pt-2 text-[11px] text-outline font-medium">
                           <Upload className="w-3.5 h-3.5" /> Kéo và thả file tại đây
                         </div>
                       </div>
@@ -851,6 +1036,118 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
           </button>
         </div>
       </footer>
+
+
+      {/* ── Template Preview Modal ── */}
+      {previewUrl && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 bg-[#1a0003] text-white">
+            <p className="text-sm font-bold">Xem trước mẫu đơn</p>
+            <div className="flex items-center gap-3">
+              <a href={previewUrl} target="_blank" rel="noreferrer"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors">
+                <ExternalLink className="w-3.5 h-3.5" /> Mở tab mới
+              </a>
+              <button onClick={() => setPreviewUrl(null)}
+                className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+          <iframe
+            src={previewUrl}
+            className="flex-1 w-full border-0"
+            title="Template preview"
+          />
+        </div>
+      )}
+
+      {/* ── AI Fill Modal ── */}
+      {aiModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto shadow-2xl flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+                  <Sparkles className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-sm">AI Điền mẫu tự động</h3>
+                  <p className="text-[11px] text-gray-400 truncate max-w-[280px]">{aiModal.req.docName}</p>
+                </div>
+              </div>
+              <button onClick={() => { setAiModal(null); setAiFields(null); setAiError(''); }}
+                className="p-1.5 rounded-xl hover:bg-gray-100 transition-colors">
+                <X className="w-4 h-4 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              {/* Error */}
+              {aiError && (
+                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-xs text-red-600">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{aiError}</span>
+                </div>
+              )}
+
+              {aiExtracting ? (
+                <div className="flex flex-col items-center justify-center py-8 gap-3">
+                  <RefreshCw className="w-8 h-8 animate-spin text-amber-500" />
+                  <p className="text-sm text-gray-500">Đang trích xuất thông tin từ ảnh…</p>
+                </div>
+              ) : !aiFields ? (
+                /* Step: upload source image */
+                <div className="text-center py-4">
+                  <p className="text-sm text-gray-600 mb-4">
+                    Chụp ảnh hoặc tải lên <span className="font-bold">giấy tờ gốc</span> (CCCD, giấy khai sinh, v.v.) để AI trích xuất thông tin và tự điền vào mẫu đơn.
+                  </p>
+                  <button
+                    onClick={() => handleAiSourcePick(aiModal.req.id)}
+                    className="flex items-center gap-2 px-5 py-3 bg-amber-500 text-white font-bold rounded-xl hover:bg-amber-600 transition-colors mx-auto">
+                    <Image className="w-4 h-4" /> Chọn ảnh giấy tờ nguồn
+                  </button>
+                </div>
+              ) : (
+                /* Step: review extracted fields */
+                <>
+                  <p className="text-xs text-gray-500">Kiểm tra và chỉnh sửa thông tin trích xuất được trước khi điền vào mẫu:</p>
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {Object.entries(aiFields).map(([key, val]) => (
+                      <div key={key}>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{key}</label>
+                        <input
+                          value={val}
+                          onChange={e => setAiFields(prev => prev ? { ...prev, [key]: e.target.value } : prev)}
+                          className="w-full mt-0.5 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      onClick={() => { setAiFields(null); handleAiSourcePick(aiModal.req.id); }}
+                      className="flex-1 h-10 rounded-xl border border-gray-200 text-sm font-medium text-gray-500 hover:bg-gray-50 transition-colors">
+                      Chụp lại
+                    </button>
+                    <button
+                      onClick={handleAiFill}
+                      disabled={aiFilling}
+                      className="flex-1 h-10 rounded-xl bg-primary text-white text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2">
+                      {aiFilling ? (
+                        <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Đang điền…</>
+                      ) : (
+                        <><Sparkles className="w-4 h-4" /> Điền & Đính kèm</>
+                      )}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
