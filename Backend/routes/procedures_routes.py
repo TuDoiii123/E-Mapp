@@ -5,11 +5,44 @@ GET /api/procedures                 Danh sách thủ tục (có filter, phân tr
 GET /api/procedures/<id>            Chi tiết một thủ tục + danh sách giấy tờ
 GET /api/procedures/<id>/requirements  Giấy tờ yêu cầu của thủ tục
 """
+import re
 from flask import Blueprint, jsonify, request
 from sqlalchemy import text
 from models.db import db
 from models.service_requirement import ServiceRequirement
 from logger import get_logger
+
+_RAW_PROC_RE = re.compile(r'^\d+\.\d+$')   # ID dạng "1.000894", "2.002286"
+
+
+def _deduplicate_procedures(proc_list: list[dict]) -> list[dict]:
+    """
+    Nếu trong danh sách vừa có procedure clean (ID dạng slug) vừa có raw
+    (ID dạng số như 1.000894), ưu tiên giữ clean và bỏ raw trùng lặp.
+    Tiêu chí trùng: cùng category + processing_days + fee, hoặc tên gần giống.
+    """
+    clean_ids = {p['id'] for p in proc_list if not _RAW_PROC_RE.match(p['id'])}
+    if not clean_ids:
+        return proc_list   # Toàn bộ là raw → giữ nguyên, không lọc
+
+    result = []
+    for p in proc_list:
+        if not _RAW_PROC_RE.match(p['id']):
+            result.append(p)   # Clean → luôn giữ
+            continue
+        # Raw: kiểm tra xem có clean nào cùng category + gần giống tên không
+        raw_name_lower = p['name'].lower()
+        # Bỏ tiền tố phổ biến để so sánh cốt lõi
+        for prefix in ('thủ tục ', 'thu tuc '):
+            raw_name_lower = raw_name_lower.replace(prefix, '')
+        has_clean_equiv = any(
+            raw_name_lower in c_p['name'].lower() or c_p['name'].lower() in raw_name_lower
+            for c_p in proc_list
+            if not _RAW_PROC_RE.match(c_p['id']) and c_p.get('category') == p.get('category')
+        )
+        if not has_clean_equiv:
+            result.append(p)   # Không có clean tương đương → giữ lại
+    return result
 
 log = get_logger('procedures_routes')
 
@@ -190,21 +223,29 @@ def list_procedures():
             text(f'SELECT COUNT(*) FROM public.procedures {where}'), params
         ).scalar() or 0
 
+        # Lấy thêm để bù sau khi deduplicate (raw có thể bị loại)
+        fetch_limit = limit * 3
         rows = db.session.execute(text(f'''
             SELECT id, name, code, category, fee, fee_note, processing_days,
                    processing_note, legal_basis, implementing_level, agency,
                    is_online, is_active
             FROM public.procedures {where}
-            ORDER BY category, processing_days, name
+            ORDER BY
+                CASE WHEN id ~ '^\d+\.\d+$' THEN 1 ELSE 0 END,  -- clean trước
+                category, processing_days, name
             LIMIT :limit OFFSET :offset
-        '''), {**params, 'limit': limit, 'offset': (page-1)*limit}).fetchall()
+        '''), {**params, 'limit': fetch_limit, 'offset': (page-1)*limit}).fetchall()
+
+        all_procs   = [_row_to_dict(r) for r in rows]
+        deduped     = _deduplicate_procedures(all_procs)
+        paged       = deduped[:limit]
 
         return jsonify({
             'success': True,
-            'data': [_row_to_dict(r) for r in rows],
-            'total': total,
+            'data': paged,
+            'total': len(deduped),
             'source': 'database',
-            'pagination': {'page': page, 'limit': limit, 'total': total},
+            'pagination': {'page': page, 'limit': limit, 'total': len(deduped)},
         })
 
     except Exception as e:
