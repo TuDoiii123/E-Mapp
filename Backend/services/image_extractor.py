@@ -39,9 +39,17 @@ def _clean_json(text: str) -> str:
 
 def _gemini_client():
     from google import genai
-    api_key = os.environ.get('GEMINI_API_KEY')
+    # Thử GEMINI_API_KEY trước, fallback sang GOOGLE_API_KEY / GOOGLE_API_KEY_1
+    api_key = (
+        os.environ.get('GEMINI_API_KEY') or
+        os.environ.get('GOOGLE_API_KEY') or
+        os.environ.get('GOOGLE_API_KEY_1')
+    )
+    # Bỏ qua placeholder
+    if not api_key or api_key.startswith('your_'):
+        api_key = os.environ.get('GOOGLE_API_KEY') or os.environ.get('GOOGLE_API_KEY_1')
     if not api_key:
-        raise EnvironmentError('GEMINI_API_KEY not set')
+        raise EnvironmentError('Chưa cấu hình GEMINI_API_KEY hoặc GOOGLE_API_KEY')
     return genai.Client(api_key=api_key)
 
 

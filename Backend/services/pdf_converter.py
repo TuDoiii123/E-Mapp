@@ -92,27 +92,33 @@ def _convert_libreoffice(input_path: str, output_path: str) -> bool:
 def _convert_win32com(input_path: str, output_path: str) -> bool:
     """Chuyển đổi bằng win32com (Microsoft Word COM trực tiếp).
     Hoạt động với cả .doc (OLE2) và .docx (OOXML) trên Windows.
-    Suppress tất cả dialog/alert để chạy headless."""
+    Suppress tất cả dialog/alert để chạy headless.
+    Gọi CoInitialize/CoUninitialize để an toàn trong background thread."""
     try:
         import win32com.client
+        import pythoncom
         abs_in  = str(Path(input_path).resolve())
         abs_out = str(Path(output_path).resolve())
 
-        word = win32com.client.Dispatch('Word.Application')
-        word.Visible = False
-        word.DisplayAlerts = 0   # wdAlertsNone — không hiện bất kỳ dialog nào
-
+        pythoncom.CoInitialize()
         try:
-            doc = word.Documents.Open(
-                abs_in,
-                ReadOnly=True,
-                ConfirmConversions=False,
-                AddToRecentFiles=False,
-            )
-            doc.SaveAs(abs_out, FileFormat=17)  # 17 = wdFormatPDF
-            doc.Close(False)
+            word = win32com.client.Dispatch('Word.Application')
+            word.Visible = False
+            word.DisplayAlerts = 0   # wdAlertsNone — không hiện bất kỳ dialog nào
+
+            try:
+                doc = word.Documents.Open(
+                    abs_in,
+                    ReadOnly=True,
+                    ConfirmConversions=False,
+                    AddToRecentFiles=False,
+                )
+                doc.SaveAs(abs_out, FileFormat=17)  # 17 = wdFormatPDF
+                doc.Close(False)
+            finally:
+                word.Quit()
         finally:
-            word.Quit()
+            pythoncom.CoUninitialize()
 
         return os.path.exists(abs_out)
     except ImportError:
@@ -123,12 +129,18 @@ def _convert_win32com(input_path: str, output_path: str) -> bool:
 
 
 def _convert_docx2pdf(input_path: str, output_path: str) -> bool:
-    """Chuyển đổi bằng docx2pdf (chỉ hoạt động tốt với .docx, không phải .doc)."""
+    """Chuyển đổi bằng docx2pdf (chỉ hoạt động tốt với .docx, không phải .doc).
+    docx2pdf trên Windows dùng Word COM — cần CoInitialize trong background thread."""
     try:
+        import pythoncom
         from docx2pdf import convert as _d2p_convert
         abs_in  = str(Path(input_path).resolve())
         abs_out = str(Path(output_path).resolve())
-        _d2p_convert(abs_in, abs_out)
+        pythoncom.CoInitialize()
+        try:
+            _d2p_convert(abs_in, abs_out)
+        finally:
+            pythoncom.CoUninitialize()
         return os.path.exists(abs_out)
     except ImportError:
         return False

@@ -29,15 +29,25 @@ def _auth_required():
 
 
 def _safe_template_path(template_file: str) -> str | None:
-    """Trả về đường dẫn an toàn tới template, hoặc None nếu không hợp lệ."""
+    """Trả về đường dẫn an toàn tới template .docx, hoặc None nếu không hợp lệ.
+    Chỉ hỗ trợ .docx (OOXML) — các file .doc (OLE2) không thể xử lý bằng python-docx."""
     fn = os.path.basename(template_file)
     if not fn or fn != template_file:
         return None
     ext = fn.rsplit('.', 1)[-1].lower() if '.' in fn else ''
-    if ext not in ('doc', 'docx'):
+    if ext == 'doc':
+        return None  # OLE2 format không hỗ trợ
+    if ext != 'docx':
         return None
     path = os.path.join(_TEMPLATES_DIR, fn)
     return path if os.path.exists(path) else None
+
+
+def _is_doc_format(template_file: str) -> bool:
+    """Kiểm tra có phải file .doc không (để trả về thông báo lỗi rõ ràng)."""
+    fn = os.path.basename(template_file)
+    ext = fn.rsplit('.', 1)[-1].lower() if '.' in fn else ''
+    return ext == 'doc'
 
 
 # ── POST /api/ai/extract ─────────────────────────────────────────────────────
@@ -130,6 +140,13 @@ def fill_template():
 
     template_path = _safe_template_path(template_file)
     if not template_path:
+        if _is_doc_format(template_file):
+            return jsonify({
+                'success': False,
+                'message': f'File .doc (định dạng OLE2) không hỗ trợ điền tự động. '
+                           f'Vui lòng sử dụng file .docx tương ứng.',
+                'supportedFormat': '.docx'
+            }), 422
         return jsonify({
             'success': False,
             'message': f'Template không tồn tại hoặc không hợp lệ: {template_file}'
@@ -176,6 +193,13 @@ def get_template_fields(template_file: str):
 
     template_path = _safe_template_path(template_file)
     if not template_path:
+        if _is_doc_format(template_file):
+            return jsonify({
+                'success': False,
+                'message': f'File .doc (định dạng OLE2) không hỗ trợ đọc trường tự động. '
+                           f'Vui lòng sử dụng file .docx tương ứng.',
+                'supportedFormat': '.docx'
+            }), 422
         return jsonify({
             'success': False,
             'message': f'Template không tồn tại: {template_file}'
