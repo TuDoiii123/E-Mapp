@@ -18,19 +18,23 @@ log = get_logger('applications_routes')
 
 applications_bp = Blueprint('applications', __name__, url_prefix='/api/applications')
 
-ALLOWED_EXTENSIONS = {'pdf', 'txt', 'jpg', 'jpeg', 'png', 'gif'}
+ALLOWED_EXTENSIONS = {'pdf', 'txt', 'jpg', 'jpeg', 'png', 'gif', 'doc', 'docx'}
 ALLOWED_MIME_TYPES = {
     'application/pdf', 'text/plain',
     'image/jpeg', 'image/png', 'image/gif',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 }
 MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
 
 # Magic bytes cho các định dạng không phải text
 _MAGIC_BYTES: list[tuple[bytes, str]] = [
-    (b'\x25\x50\x44\x46', 'pdf'),   # %PDF
-    (b'\xff\xd8\xff',      'jpeg'),  # JPEG
-    (b'\x89\x50\x4e\x47', 'png'),   # PNG
-    (b'\x47\x49\x46\x38', 'gif'),   # GIF87a / GIF89a
+    (b'\x25\x50\x44\x46', 'pdf'),           # %PDF
+    (b'\xff\xd8\xff',      'jpeg'),          # JPEG
+    (b'\x89\x50\x4e\x47', 'png'),           # PNG
+    (b'\x47\x49\x46\x38', 'gif'),           # GIF87a / GIF89a
+    (b'\x50\x4b\x03\x04', 'docx'),          # ZIP/OOXML (.docx, .xlsx, ...)
+    (b'\xD0\xCF\x11\xE0', 'doc'),           # OLE2 Compound Document (.doc, .xls)
 ]
 
 STATUS_LABELS = {
