@@ -73,13 +73,53 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
   const meta = procedure ? (CATEGORY_META[procedure.category] || { label: procedure.category, icon: '📄', color: '#9f364c' }) : null;
   const agencies = procedure ? (LEVEL_AGENCY[procedure.implementingLevel] || LEVEL_AGENCY.province) : [];
 
-  // Lọc bỏ "header item" trong DB: doc_name kết thúc bằng ':' và không có mô tả
-  // Ví dụ: "Giấy tờ phải nộp:", "Lưu ý:", "Người có yêu cầu... các giấy tờ sau:"
-  const isHeaderItem = (r: Requirement) =>
-    r.docName.trim().endsWith(':') && !r.docDescription?.trim();
+  const allReqs: Requirement[] = procedure?.requirements || [];
 
-  const allRaw: Requirement[] = procedure?.requirements || [];
-  const requirements: Requirement[] = allRaw.filter(r => !isHeaderItem(r));
+  // ── Phân loại clean vs raw ────────────────────────────────────────────────
+  // Raw IDs có dạng số: "1.000894-req-005", "2.002286-req-003"
+  // Clean IDs có dạng tên: "ket_hon-req-003", "cap-doi-cccd-req-001"
+  const isRawId = (r: Requirement) => /^\d+\.\d+-req-\d+$/.test(r.id);
+  const cleanReqs = allReqs.filter(r => !isRawId(r));
+  const rawReqs   = allReqs.filter(r =>  isRawId(r));
+
+  // ── Lọc bỏ rác trong raw data ─────────────────────────────────────────────
+  // Raw data chứa: nhãn tiêu đề, đoạn văn pháp lý, hướng dẫn nộp hồ sơ...
+  // Giữ lại chỉ các item thực sự là giấy tờ cần chuẩn bị.
+  const isJunkItem = (r: Requirement) => {
+    const name  = r.docName.trim();
+    const noDesc = !r.docDescription?.trim();
+
+    // Nhãn tiêu đề (kết thúc ':' hoặc ';', không có mô tả)
+    if ((name.endsWith(':') || name.endsWith(';')) && noDesc) return true;
+
+    // Bullet point hướng dẫn
+    if (name.startsWith('+') && noDesc) return true;
+
+    // Đoạn văn pháp lý dài (> 120 ký tự, không có mô tả cụ thể)
+    if (name.length > 120 && noDesc) return true;
+
+    // Câu hướng dẫn / lưu ý quy trình
+    const instructionPrefixes = [
+      'Trường hợp ',
+      'Cá nhân có quyền',
+      'Nếu bên ',
+      'Đối với giấy tờ nộp',
+      'Đối với giấy tờ xuất',
+      'Người yêu cầu đăng ký hộ tịch',
+      'Người tiếp nhận có trách nhiệm',
+    ];
+    if (noDesc && instructionPrefixes.some(p => name.startsWith(p))) return true;
+
+    return false;
+  };
+
+  // ── Chiến lược lấy requirements ──────────────────────────────────────────
+  // Ưu tiên bộ clean (có tên ID rõ ràng, có mô tả đầy đủ).
+  // Nếu không có clean → dùng raw nhưng lọc bỏ các item rác.
+  const requirements: Requirement[] = cleanReqs.length > 0
+    ? cleanReqs
+    : rawReqs.filter(r => !isJunkItem(r));
+
   const required = requirements.filter(r => r.isRequired);
   const optional = requirements.filter(r => !r.isRequired);
 
