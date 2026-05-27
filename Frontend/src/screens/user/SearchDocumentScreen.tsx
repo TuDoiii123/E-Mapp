@@ -29,6 +29,7 @@ interface AppRecord {
 
 interface SearchDocumentScreenProps {
   onNavigate: (screen: string, params?: any) => void;
+  params?: any;
 }
 
 const STATUS_META: Record<string, { label: string; chip: string; progress: number }> = {
@@ -195,10 +196,10 @@ const FILTER_CHIPS = [
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
-export function SearchDocumentScreen({ onNavigate }: SearchDocumentScreenProps) {
+export function SearchDocumentScreen({ onNavigate, params }: SearchDocumentScreenProps) {
   const [searchValue,  setSearchValue]  = useState('');
   const [activeFilter, setActiveFilter] = useState('');
-  const [selected,     setSelected]     = useState<AppRecord | null>(null);
+  const [selected,     setSelected]     = useState<AppRecord | null>(params?.selectedApp ?? null);
   const [myApps,       setMyApps]       = useState<AppRecord[]>([]);
   const [searchResult, setSearchResult] = useState<AppRecord[] | null>(null);
   const [loading,      setLoading]      = useState(false);

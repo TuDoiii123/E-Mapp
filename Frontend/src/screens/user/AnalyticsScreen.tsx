@@ -2,6 +2,7 @@ import { TrendingUp, Clock, AlertTriangle, CheckCircle, Users, FileText, MapPin,
 import { Card as HCard, Chip, ProgressBar, Button } from '@heroui/react';
 import React, { useState, useEffect } from 'react';
 import * as adminSvc from '../../services/adminService';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Aliases for drop-in shadcn compatibility
 const CardContent = HCard.Content;
@@ -22,19 +23,25 @@ interface AnalyticsScreenProps {
 }
 
 export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
+  const { user } = useAuth();
+  const role = (user as any)?.role || 'citizen';
   const [myApps,       setMyApps]       = useState<any[]>([]);
   const [systemData,   setSystemData]   = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(true);
 
   useEffect(() => {
-    Promise.all([
+    const requests: Promise<any>[] = [
       adminSvc.getMyApplications().catch(() => ({ data: [] })),
-      adminSvc.getStats().catch(() => ({ data: null })),
-    ]).then(([myRes, sysRes]) => {
+    ];
+    // Chỉ admin / staff mới có quyền xem thống kê hệ thống
+    if (role === 'admin' || role === 'staff') {
+      requests.push(adminSvc.getStats().catch(() => ({ data: null })));
+    }
+    Promise.all(requests).then(([myRes, sysRes]) => {
       setMyApps(myRes.data || []);
-      setSystemData(sysRes.data || null);
+      setSystemData(sysRes?.data || null);
     }).finally(() => setLoadingStats(false));
-  }, []);
+  }, [role]);
 
   const completed   = myApps.filter(a => a.currentStatus === 'approved').length;
   const inProgress  = myApps.filter(a => ['submitted','in_review'].includes(a.currentStatus)).length;
@@ -257,8 +264,8 @@ export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
           </div>
         )}
 
-        {/* System Statistics */}
-        <div>
+        {/* System Statistics — chỉ hiển thị cho admin/staff */}
+        {(role === 'admin' || role === 'staff') && <div>
           <h2 className="mb-4">Thống kê hệ thống</h2>
           {loadingStats ? (
             <div className="flex justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-gray-400" /></div>
@@ -290,7 +297,7 @@ export function AnalyticsScreen({ onNavigate }: AnalyticsScreenProps) {
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* Quick Actions */}
         <Card>
