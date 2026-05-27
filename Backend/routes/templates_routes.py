@@ -1,10 +1,11 @@
 """
 Templates routes:
   GET  /api/templates/<filename>         → tải về file Word mẫu gốc
-  GET  /api/templates/<filename>/preview → xem trước dưới dạng PDF (qua LibreOffice)
+  GET  /api/templates/<filename>/preview → xem trước dưới dạng PDF (qua LibreOffice/docx2pdf)
   GET  /api/templates                    → liệt kê tất cả template có sẵn
 """
 import os
+import threading
 from flask import Blueprint, send_from_directory, send_file, jsonify, abort, request
 from logger import get_logger
 
@@ -17,6 +18,90 @@ _TEMPLATES_DIR = os.path.normpath(
 )
 
 _ALLOWED_EXTS = {'doc', 'docx', 'pdf'}
+
+# Set các file đang được convert ngầm (tránh chạy song song)
+_converting: set[str] = set()
+_converting_lock = threading.Lock()
+
+
+def _schedule_bg_convert(fpath: str):
+    """Chạy word_to_pdf trong background thread nếu chưa đang convert."""
+    with _converting_lock:
+        if fpath in _converting:
+            return
+        _converting.add(fpath)
+
+    def _run():
+        try:
+            from services.pdf_converter import word_to_pdf
+            pdf_path = word_to_pdf(fpath)
+            if pdf_path:
+                log.info(f'BG convert done: {os.path.basename(fpath)}')
+            else:
+                log.warning(f'BG convert failed: {os.path.basename(fpath)}')
+        except Exception as e:
+            log.warning(f'BG convert error {os.path.basename(fpath)}: {e}')
+        finally:
+            with _converting_lock:
+                _converting.discard(fpath)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+
+def _warmup_pdf_cache():
+    """Pre-convert các template phổ biến (chạy 1 lần khi server start)."""
+    from services.pdf_converter import is_available
+    if not is_available():
+        return
+
+    # Các template được map trong DB (ưu tiên convert trước)
+    priority = [
+        # .docx (OOXML)
+        'mau-to-khai-dang-ky-ket-hon.docx',
+        'mau-to-khai-dang-ky-thuong-tru.docx',
+        'mau-to-khai-dang-ky-khai-tu.docx',
+        'mau-to-khai-xac-nhan-tinh-trang-hon-nhan.docx',
+        'mau-don-cap-gcnqsdd-so-do.docx',
+        'mau-don-xin-cap-phep-xay-dung.docx',
+        'mau-phieu-ly-lich-tu-phap-so1.docx',
+        'mau-giay-de-nghi-dang-ky-ho-kinh-doanh.docx',
+        'mau-giay-de-nghi-dang-ky-doanh-nghiep.docx',
+        'mau-ban-khai-ca-nhan.docx',
+        # .doc (OLE2) — win32com handles these
+        'mau-to-khai-dang-ky-khai-sinh.doc',
+        'mau-CC01-to-khai-CCCD.doc',
+        'mau-CT01-to-khai-cu-tru.doc',
+        'mau-don-dang-ky-bien-dong-dat-dai.doc',
+        'mau-to-khai-tham-gia-bhxh-bhyt.doc',
+        'mau-giay-kham-suc-khoe-lai-xe.doc',
+    ]
+
+    def _run():
+        from services.pdf_converter import word_to_pdf
+        log.info(f'Warm-up PDF cache bắt đầu ({len(priority)} templates)...')
+        ok = 0
+        for fname in priority:
+            fpath = os.path.join(_TEMPLATES_DIR, fname)
+            if not os.path.exists(fpath):
+                continue
+            try:
+                r = word_to_pdf(fpath)
+                if r:
+                    ok += 1
+            except Exception as e:
+                log.debug(f'Warm-up skip {fname}: {e}')
+        log.info(f'Warm-up PDF cache xong: {ok}/{len(priority)} templates sẵn sàng')
+
+    t = threading.Thread(target=_run, daemon=True, name='pdf-warmup')
+    t.start()
+
+
+# Khởi chạy warm-up sau khi blueprint được register
+@templates_bp.record_once
+def _on_register(state):
+    with state.app.app_context():
+        threading.Thread(target=_warmup_pdf_cache, daemon=True).start()
 
 
 def _safe_filename(filename: str) -> str | None:
@@ -115,10 +200,13 @@ def preview_template(filename: str):
             if pdf_path and os.path.exists(pdf_path):
                 log.debug(f'Serving PDF preview for {fn}')
                 return send_file(pdf_path, mimetype='application/pdf')
+            # Chưa có cache → bắt đầu convert ngầm, trả Word trước
+            # Client sẽ retry; lần sau sẽ có PDF từ cache
+            _schedule_bg_convert(fpath)
         except Exception as e:
             log.warning(f'PDF conversion failed for {fn}: {e}')
 
-        # Fallback: trả về file Word inline
+        # Fallback: trả về file Word inline (browser có thể render hoặc download)
         mime = ('application/msword' if ext == 'doc'
                 else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         log.debug(f'Serving Word fallback for {fn}')
