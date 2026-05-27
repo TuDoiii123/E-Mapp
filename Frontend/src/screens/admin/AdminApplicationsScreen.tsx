@@ -13,7 +13,47 @@ import {
   Download, ImageIcon, FileIcon, History, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import * as adminSvc from '../../services/adminService';
-import { API_BASE_URL } from '../../services/api';
+import { API_BASE_URL, getToken } from '../../services/api';
+
+/**
+ * Fetch a protected file with the JWT Bearer token, return a blob URL.
+ * The blob URL is revoked automatically when the component unmounts.
+ */
+function useAuthedBlobUrl(apiUrl: string | null): { blobUrl: string | null; loading: boolean; error: boolean } {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState(false);
+
+  useEffect(() => {
+    if (!apiUrl) return;
+    let revoke: string | null = null;
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
+
+    const token = getToken();
+    fetch(apiUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(r => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.blob();
+      })
+      .then(blob => {
+        if (cancelled) return;
+        revoke = URL.createObjectURL(blob);
+        setBlobUrl(revoke);
+      })
+      .catch(() => { if (!cancelled) setError(true); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => {
+      cancelled = true;
+      if (revoke) URL.revokeObjectURL(revoke);
+      setBlobUrl(null);
+    };
+  }, [apiUrl]);
+
+  return { blobUrl, loading, error };
+}
 
 interface Props { onNavigate: (screen: string, params?: any) => void }
 
@@ -177,58 +217,100 @@ function FileTypeIcon({ mimeType }: { mimeType?: string }) {
 
 // ── DocPreviewPanel ────────────────────────────────────────────────────────────
 function DocPreviewPanel({ doc, onClose }: { doc: any; onClose(): void }) {
-  const url = fileUrl(doc.filename);
-  const mime = (doc.mimeType || '').toLowerCase();
+  const apiUrl = fileUrl(doc.filename);
+  const mime   = (doc.mimeType || '').toLowerCase();
   const isImage = mime.startsWith('image/');
   const isPdf   = mime === 'application/pdf';
   const isWord  = mime.includes('word') || mime.includes('openxmlformats');
 
+  // Fetch with auth headers → blob URL (fixes 401 for img/iframe/download)
+  const { blobUrl, loading, error } = useAuthedBlobUrl(
+    isImage || isPdf ? apiUrl : null
+  );
+  // For Word + other: provide a download function via blob
+  const { blobUrl: wordBlobUrl } = useAuthedBlobUrl(
+    isWord && !isImage && !isPdf ? apiUrl : null
+  );
+
+  const handleDownload = () => {
+    const src = blobUrl || wordBlobUrl;
+    if (!src) return;
+    const a = document.createElement('a');
+    a.href = src;
+    a.download = doc.originalName || doc.filename;
+    a.click();
+  };
+
   return (
     <div className="fixed inset-0 z-[60] bg-black/80 flex flex-col">
+      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[#1a0003] text-white flex-shrink-0">
         <p className="text-sm font-semibold truncate max-w-xs">{doc.originalName || doc.filename}</p>
         <div className="flex items-center gap-2">
-          <a href={url} target="_blank" rel="noreferrer" download={doc.originalName || doc.filename}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors">
+          <button
+            onClick={handleDownload}
+            disabled={!blobUrl && !wordBlobUrl}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors disabled:opacity-40">
             <Download className="w-3.5 h-3.5" /> Tải xuống
-          </a>
+          </button>
           <button onClick={onClose} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
       </div>
+
+      {/* Body */}
       <div className="flex-1 overflow-auto bg-[#111] flex items-center justify-center">
-        {isImage && (
-          <img src={url} alt={doc.originalName} className="max-w-full max-h-full object-contain" />
-        )}
-        {isPdf && (
-          <iframe src={url} className="w-full h-full border-0" title={doc.originalName} />
-        )}
-        {isWord && (
-          <div className="text-center text-white space-y-4 p-8">
-            <FileText className="w-16 h-16 text-blue-300 mx-auto" />
-            <p className="text-sm text-gray-300">File Word — xem trong trình duyệt qua Google Docs</p>
-            <a
-              href={`https://docs.google.com/viewer?url=${encodeURIComponent(window.location.origin + '/api' + url.split('/api')[1])}&embedded=true`}
-              target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors text-sm font-medium">
-              <Eye className="w-4 h-4" /> Mở trong Google Docs
-            </a>
-            <p className="text-xs text-gray-500">hoặc</p>
-            <a href={url} download={doc.originalName || doc.filename}
-              className="inline-flex items-center gap-2 px-5 py-2.5 border border-gray-600 text-gray-300 rounded-xl hover:bg-white/5 transition-colors text-sm">
-              <Download className="w-4 h-4" /> Tải về máy
-            </a>
+        {/* Loading state */}
+        {loading && (
+          <div className="flex flex-col items-center gap-3 text-white/60">
+            <RefreshCw className="w-8 h-8 animate-spin" />
+            <p className="text-sm">Đang tải file…</p>
           </div>
         )}
-        {!isImage && !isPdf && !isWord && (
+
+        {/* Error state */}
+        {error && (
+          <div className="text-center text-white space-y-3 p-8">
+            <AlertCircle className="w-12 h-12 text-red-400 mx-auto" />
+            <p className="text-sm text-gray-300">Không thể tải file. Vui lòng thử lại.</p>
+          </div>
+        )}
+
+        {/* Image */}
+        {isImage && blobUrl && (
+          <img src={blobUrl} alt={doc.originalName} className="max-w-full max-h-full object-contain" />
+        )}
+
+        {/* PDF */}
+        {isPdf && blobUrl && (
+          <iframe src={blobUrl} className="w-full h-full border-0" title={doc.originalName} />
+        )}
+
+        {/* Word — no inline viewer; prompt download */}
+        {isWord && !loading && (
           <div className="text-center text-white space-y-4 p-8">
-            <FileIcon className="w-16 h-16 text-gray-400 mx-auto" />
-            <p className="text-sm text-gray-300">Không hỗ trợ xem trực tiếp định dạng này.</p>
-            <a href={url} download={doc.originalName || doc.filename}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-white/10 rounded-xl hover:bg-white/20 transition-colors text-sm">
-              <Download className="w-4 h-4" /> Tải xuống
-            </a>
+            <FileText className="w-16 h-16 text-blue-300 mx-auto" />
+            <p className="text-sm text-gray-300 font-medium">{doc.originalName || doc.filename}</p>
+            <p className="text-xs text-gray-500 max-w-xs mx-auto">
+              File Word không thể xem trực tiếp trong trình duyệt. Tải về máy để mở.
+            </p>
+            <button
+              onClick={handleDownload}
+              disabled={!wordBlobUrl}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl
+                hover:bg-blue-700 transition-colors text-sm font-medium disabled:opacity-40">
+              <Download className="w-4 h-4" />
+              {wordBlobUrl ? 'Tải về máy' : 'Đang tải…'}
+            </button>
+          </div>
+        )}
+
+        {/* Unknown type */}
+        {!isImage && !isPdf && !isWord && !loading && (
+          <div className="text-center text-white space-y-3 p-8">
+            <FileIcon className="w-12 h-12 text-gray-400 mx-auto" />
+            <p className="text-sm text-gray-400">Không hỗ trợ xem định dạng này.</p>
           </div>
         )}
       </div>
@@ -372,17 +454,14 @@ function ApplicationDetailModal({ app, onClose, onReview }: {
                               <Eye className="w-3.5 h-3.5 text-[#9f364c]" />
                             </button>
                           )}
-                          {/* download */}
-                          <a
-                            href={fileUrl(doc.filename)}
-                            target="_blank"
-                            rel="noreferrer"
-                            download={doc.originalName || doc.filename}
+                          {/* download — open DocPreviewPanel which handles auth */}
+                          <button
+                            onClick={() => setPreviewDoc(doc)}
                             className="w-8 h-8 rounded-lg border border-[#de9ca4]/30 flex items-center justify-center
                               hover:border-[#8f000d] hover:bg-red-50 transition-colors flex-shrink-0"
-                            title="Tải xuống">
+                            title="Tải xuống / Xem">
                             <Download className="w-3.5 h-3.5 text-[#9f364c]" />
-                          </a>
+                          </button>
                         </div>
                       );
                     })}

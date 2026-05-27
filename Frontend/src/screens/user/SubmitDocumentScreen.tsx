@@ -108,9 +108,37 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
   const [error,          setError]          = useState('');
   const [submitted,      setSubmitted]      = useState(false);
 
-  const fileInputsRef  = useRef<Record<string, HTMLInputElement | null>>({});
-  const aiInputsRef    = useRef<Record<string, HTMLInputElement | null>>({});
-  const MAX_FILE_BYTES = 16 * 1024 * 1024; // 16 MB
+  const fileInputsRef   = useRef<Record<string, HTMLInputElement | null>>({});
+  const aiInputsRef     = useRef<Record<string, HTMLInputElement | null>>({});
+  const blobUrlsRef     = useRef<Record<string, string>>({});   // preview blob URL cache
+  const MAX_FILE_BYTES  = 16 * 1024 * 1024; // 16 MB
+
+  // Manage blob URL lifecycle — create once per upload, revoke when removed/unmounted
+  useEffect(() => {
+    const currentIds = new Set(Object.keys(uploadedDocs));
+    // Create URLs for new uploads (image + pdf only)
+    for (const [reqId, doc] of Object.entries(uploadedDocs)) {
+      if (!blobUrlsRef.current[reqId] && doc.file) {
+        const t = doc.file.type;
+        if (t.startsWith('image/') || t === 'application/pdf') {
+          blobUrlsRef.current[reqId] = URL.createObjectURL(doc.file);
+        }
+      }
+    }
+    // Revoke URLs for removed files
+    for (const reqId of Object.keys(blobUrlsRef.current)) {
+      if (!currentIds.has(reqId)) {
+        URL.revokeObjectURL(blobUrlsRef.current[reqId]);
+        delete blobUrlsRef.current[reqId];
+      }
+    }
+  }, [uploadedDocs]);
+
+  // Revoke all on unmount
+  useEffect(() => {
+    const urls = blobUrlsRef.current;
+    return () => { Object.values(urls).forEach(u => URL.revokeObjectURL(u)); };
+  }, []);
 
   // AI fill state
   const [aiModal,       setAiModal]       = useState<{ req: Requirement } | null>(null);
@@ -619,12 +647,12 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                       <div className="flex items-center gap-2 mt-4 pt-4 border-t border-outline-variant/10">
                         <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant flex-1">Mẫu đơn:</span>
                         <button
-                          onClick={() => setPreviewUrl(`${API_BASE_URL}/templates/${req.templateFile}/preview`)}
+                          onClick={() => setPreviewUrl(`${API_BASE_URL}/templates/preview/${req.templateFile}`)}
                           className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-primary bg-surface-container-low hover:bg-primary hover:text-on-primary rounded-lg transition-colors">
                           <Eye className="w-3.5 h-3.5" /> Xem mẫu
                         </button>
                         <a
-                          href={`${API_BASE_URL}/templates/${req.templateFile}`}
+                          href={`${API_BASE_URL}/templates/download/${req.templateFile}`}
                           download={req.templateFile}
                           target="_blank" rel="noreferrer"
                           className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-on-surface-variant bg-surface-container-low hover:bg-surface-container rounded-lg transition-colors">
@@ -680,7 +708,8 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                 const isImage = file && /\.(jpg|jpeg|png|webp)$/i.test(file.name);
                 const isPdf   = file && /\.pdf$/i.test(file.name);
                 const isWord  = file && /\.(doc|docx)$/i.test(file.name);
-                const previewObjectUrl = (isImage || isPdf) && file ? URL.createObjectURL(file) : null;
+                // Use cached blob URL (created/revoked by the useEffect above)
+                const previewObjectUrl = blobUrlsRef.current[req.id] ?? null;
 
                 return (
                   <div key={req.id}>
@@ -718,7 +747,6 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                               src={previewObjectUrl}
                               alt={req.docName}
                               className="w-full max-h-40 object-cover"
-                              onLoad={() => URL.revokeObjectURL(previewObjectUrl)}
                             />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
                           </div>
