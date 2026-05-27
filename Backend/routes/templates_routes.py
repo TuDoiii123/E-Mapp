@@ -48,8 +48,8 @@ def list_templates():
                 files.append({
                     'filename': fname,
                     'size': os.path.getsize(fpath),
-                    'downloadUrl': f'/api/templates/{fname}',
-                    'previewUrl':  f'/api/templates/{fname}/preview',
+                    'downloadUrl': f'/api/templates/download/{fname}',
+                    'previewUrl':  f'/api/templates/preview/{fname}',
                 })
         return jsonify({'success': True, 'data': {'templates': files, 'count': len(files)}})
     except Exception as e:
@@ -57,16 +57,12 @@ def list_templates():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-@templates_bp.route('/<path:filename>', methods=['GET'])
+@templates_bp.route('/download/<path:filename>', methods=['GET'])
 def serve_template(filename: str):
     """
-    GET /api/templates/<filename>
+    GET /api/templates/download/<filename>
     Tải về file Word mẫu gốc. Không cần auth — mọi người đều được xem mẫu.
     """
-    # Tách /preview suffix nếu có lẫn lộn
-    if filename.endswith('/preview'):
-        filename = filename[:-8]
-
     fn = _safe_filename(filename)
     if not fn:
         abort(400)
@@ -89,10 +85,10 @@ def serve_template(filename: str):
     )
 
 
-@templates_bp.route('/<path:filename>/preview', methods=['GET'])
+@templates_bp.route('/preview/<path:filename>', methods=['GET'])
 def preview_template(filename: str):
     """
-    GET /api/templates/<filename>/preview
+    GET /api/templates/preview/<filename>
     Phục vụ bản PDF để xem trước trong trình duyệt.
     Nếu LibreOffice không có hoặc chuyển đổi thất bại → trả về file Word gốc.
     """
