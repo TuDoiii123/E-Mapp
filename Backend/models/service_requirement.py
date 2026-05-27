@@ -5,9 +5,52 @@ _log = _get_logger("models.service_req")
 ServiceRequirement model — danh sách giấy tờ yêu cầu cho từng dịch vụ.
 Dùng PostgreSQL với fallback về dữ liệu mặc định khi chưa có bản ghi.
 """
+import re
 import uuid
 from sqlalchemy import text
 from models.db import db
+
+# Pattern nhận diện "raw import" ID: "1.000894-req-005", "2.002286-req-003"
+_RAW_ID_RE = re.compile(r'^\d+\.\d+-req-\d+$')
+
+def _is_junk_item(r: dict) -> bool:
+    """Trả True nếu item này là header / đoạn hướng dẫn, không phải giấy tờ thực."""
+    name   = (r.get('docName') or '').strip()
+    no_desc = not (r.get('docDescription') or '').strip()
+    if not name:
+        return True
+    # Nhãn tiêu đề kết thúc ':' hoặc ';'
+    if (name.endswith(':') or name.endswith(';')) and no_desc:
+        return True
+    # Bullet point hướng dẫn
+    if name.startswith('+') and no_desc:
+        return True
+    # Đoạn văn pháp lý dài (> 120 ký tự, không có mô tả riêng)
+    if len(name) > 120 and no_desc:
+        return True
+    # Câu hướng dẫn quy trình
+    instruction_prefixes = (
+        'Trường hợp ', 'Cá nhân có quyền', 'Nếu bên ',
+        'Đối với giấy tờ nộp', 'Đối với giấy tờ xuất',
+        'Người yêu cầu đăng ký hộ tịch', 'Người tiếp nhận có trách nhiệm',
+    )
+    if no_desc and any(name.startswith(p) for p in instruction_prefixes):
+        return True
+    return False
+
+
+def _prefer_clean(rows: list[dict]) -> list[dict]:
+    """
+    Nếu có cả 'clean' lẫn 'raw' requirements cho cùng service_id:
+      → chỉ trả về phần clean (ID không theo dạng số).
+    Nếu chỉ có raw:
+      → lọc bỏ các item rác (header, đoạn hướng dẫn pháp lý).
+    """
+    clean = [r for r in rows if not _RAW_ID_RE.match(r['id'])]
+    raw   = [r for r in rows if     _RAW_ID_RE.match(r['id'])]
+    if clean:
+        return clean          # Ưu tiên bộ clean
+    return [r for r in raw if not _is_junk_item(r)]
 
 # ── Dữ liệu mặc định theo loại thủ tục ───────────────────────────────────────
 _DEFAULTS: dict[str, list[tuple]] = {
@@ -100,7 +143,7 @@ class ServiceRequirement:
             ''')
             rows = db.session.execute(sql, {'sid': service_id}).fetchall()
             if rows:
-                return _rows_to_dicts(rows)
+                return _prefer_clean(_rows_to_dicts(rows))
             # Chưa có → seed và trả về
             return ServiceRequirement._seed_defaults(service_id)
         except Exception as e:
