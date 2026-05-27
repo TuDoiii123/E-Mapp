@@ -1,53 +1,29 @@
 # E-Mapp Backend
 
-Backend API cho ứng dụng **Dịch vụ công số tỉnh Thanh Hóa** — hỗ trợ tìm kiếm dịch vụ công, đặt lịch hẹn, xác thực người dùng và chatbot RAG hỏi đáp thủ tục hành chính.
+Backend API cho **Cổng Dịch vụ Công Số tỉnh Thanh Hóa** — xác thực, tìm kiếm dịch vụ, đặt lịch hẹn, xếp hàng, chatbot RAG và voice AI.
 
 ---
 
-## Kiến trúc tổng quan
+## Cấu trúc thư mục
 
 ```
 Backend/
-├── server.py               # Flask app chính – khởi động server
-├── routes/                 # Các blueprint API
-│   ├── auth_routes.py      # Đăng ký / đăng nhập
-│   ├── services_routes.py  # Tìm kiếm dịch vụ công
-│   ├── applications_routes.py  # Nộp hồ sơ
-│   └── admin_routes.py     # Quản trị
-├── models/                 # Data models (PostgreSQL + file JSON fallback)
-│   ├── db.py               # Kết nối PostgreSQL
-│   ├── user.py             # Model người dùng
-│   └── public_service.py   # Model dịch vụ công
-├── middleware/
-│   └── auth.py             # Xác thực JWT
-├── services/
-│   ├── distance.py         # Tính khoảng cách Haversine
-│   └── vneid.py            # Tích hợp VNeID (demo)
-├── RAG/                    # Hệ thống chatbot AI (LangGraph + Gemini + ChromaDB)
-│   ├── agent_core/         # LangGraph graph và các node
-│   ├── tools/              # RAG tool (ChromaDB search)
-│   ├── utils/              # LLM wrapper (Gemini)
-│   ├── connect_SQL/        # Kết nối SQL Server (lịch sử hội thoại)
-│   ├── create_vecto_db/    # Script tạo vector database
-│   └── models/             # Mô hình embedding AITeamVN/Vietnamese_Embedding
-├── SuggestProcedure/       # Gợi ý thủ tục hành chính (sentence-transformers)
-├── ImageExtract/           # Trích xuất thông tin từ ảnh (Gemini Vision)
-└── scripts/                # Tiện ích: seed data, import CSV, geocode...
+├── server.py               # Điểm khởi động Flask
+├── routes/                 # Blueprints API
+├── models/                 # SQLAlchemy models + file JSON fallback
+├── middleware/auth.py       # Xác thực JWT
+├── services/               # Logic nghiệp vụ
+├── RAG/                    # Chatbot AI (LangGraph + Gemini + ChromaDB)
+├── SuggestProcedure/       # Gợi ý thủ tục (sentence-transformers)
+├── ImageExtract/           # Trích xuất ảnh (Gemini Vision)
+└── scripts/                # Seed data, import CSV, geocode...
 ```
 
 ---
 
-## Yêu cầu
+## Cài đặt & Chạy
 
-- Python 3.10+
-- PostgreSQL (tùy chọn — nếu không có thì dùng file JSON)
-- SQL Server + ODBC Driver 17 (tùy chọn — lưu lịch sử chat RAG)
-
----
-
-## Cài đặt
-
-### 1. Tạo môi trường ảo và cài thư viện
+### 1. Môi trường ảo
 
 ```bash
 cd Backend
@@ -55,83 +31,79 @@ python -m venv .venv
 
 # Windows
 .venv\Scripts\activate
-
 # Linux/Mac
 source .venv/bin/activate
 
 pip install -r requirements.txt
 ```
 
-### 2. Cấu hình file `.env`
-
-Tạo file `.env` tại thư mục `Backend/`:
+### 2. Tạo file `.env`
 
 ```env
-# ── Bắt buộc ──────────────────────────────────────
+# ── Bắt buộc ─────────────────────────────────────────────
 JWT_SECRET=your-super-secret-jwt-key-change-in-production
 JWT_EXPIRES_IN=7d
+PORT=8888
+FLASK_ENV=development
 
-# Google Gemini API (dùng 1 key hoặc 3 key riêng cho từng LLM)
+# Google Gemini API
 GOOGLE_API_KEY=your_gemini_api_key
-
-# Nếu muốn dùng 3 key riêng biệt (tùy chọn):
-# GOOGLE_API_KEY_1=key_for_analyzer
-# GOOGLE_API_KEY_2=key_for_synthesizer
-# GOOGLE_API_KEY_3=key_for_summarizer
-
-# ── Tùy chọn ──────────────────────────────────────
-# PostgreSQL
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=emapp
-DB_USER=postgres
-DB_PASSWORD=your_db_password
-
-# Gemini Voice AI
 GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL_NAME=models/gemini-2.5-flash-lite
 
+# ── Tùy chọn ─────────────────────────────────────────────
+# PostgreSQL (nếu không cấu hình → dùng file JSON)
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=public_services
+DB_USER=postgres
+DB_PASSWORD=postgres
+
 # Google Cloud TTS/STT (nếu dùng voice)
 # GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
+
+# Bật per-request HTTP log
+# LOG_HTTP=1
 ```
 
-### 3. Cấu hình SQL Server (tùy chọn — lưu lịch sử chat)
-
-Chỉnh sửa `RAG/connect_SQL/config.json`:
-
-```json
-{
-  "connection": {
-    "server": "localhost",
-    "database": "emapp_chat",
-    "username": "sa",
-    "password": "your_password"
-  }
-}
-```
-
-Nếu để trống, hệ thống RAG vẫn hoạt động bình thường — chỉ không lưu lịch sử chat.
-
-### 4. Khởi động server
+### 3. Khởi động
 
 ```bash
 python server.py
 ```
 
-Server chạy tại: `http://localhost:8888`
+Server chạy tại `http://localhost:8888`. Kiểm tra: `http://localhost:8888/api/health`
+
+---
+
+## PostgreSQL (Tùy chọn)
+
+Nếu không cấu hình PostgreSQL, backend tự động dùng file JSON trong `data/` — hoàn toàn bình thường.
+
+### Tạo database
+
+```bash
+psql -U postgres
+```
+```sql
+CREATE DATABASE public_services;
+GRANT ALL PRIVILEGES ON DATABASE public_services TO postgres;
+\q
+```
+
+### Khởi tạo schema
+
+```bash
+python scripts/init_db.py
+```
+
+> **Lưu ý:** Nếu thấy `Database initialization skipped` khi khởi động → backend đang dùng file JSON, không phải lỗi.
 
 ---
 
 ## Hệ thống RAG (Chatbot AI)
 
-### Mô hình embedding
-
-Model `AITeamVN/Vietnamese_Embedding` được đặt tại:
-```
-RAG/models/Vietnamese_Embedding/
-```
-
-Nếu chưa có, tải về bằng lệnh:
+### Tải model embedding (nếu chưa có)
 
 ```bash
 cd Backend/RAG
@@ -141,68 +113,52 @@ snapshot_download('AITeamVN/Vietnamese_Embedding', local_dir='models/Vietnamese_
 "
 ```
 
-### Tạo vector database
-
-Vector DB được tạo sẵn tại `RAG/chroma_db/chroma_db_faqs/`.
-
-Để rebuild từ file CSV dữ liệu FAQ:
+### Tạo / rebuild vector database
 
 ```bash
 cd Backend/RAG
-python create_vecto_db/create_faq_db.py
+python create_vecto_db/create_faq_db.py      # FAQ chung
+python create_vecto_db/embed_thanhhoa.py     # Dịch vụ công Thanh Hóa
 ```
 
-Để embed dữ liệu dịch vụ công Thanh Hóa:
+Vector DB lưu tại `RAG/chroma_db/` với 3 collection: `thanhhoa_congan`, `thanhhoa_ubnd`, `thanhhoa_diadiem`.
 
-```bash
-cd Backend/RAG
-python create_vecto_db/embed_thanhhoa.py
-```
+### Lịch sử chat (SQL Server — tùy chọn)
 
-Kết quả lưu tại `RAG/chroma_db/thanhhoa/` với 3 collection:
-- `thanhhoa_congan` — 159 thủ tục hành chính Công an
-- `thanhhoa_ubnd` — Dịch vụ công UBND
-- `thanhhoa_diadiem` — Địa điểm DVC
-
-### Luồng xử lý chatbot
-
-```
-Câu hỏi người dùng
-    ↓
-[user_input_node]   — nhận input
-    ↓
-[role_manager]      — load prompt + lịch sử hội thoại
-    ↓
-[task_analyzer]     — Gemini phân tích + chọn tool
-    ↓
-[tool_executor]     — gọi search_project_documents (ChromaDB)
-    ↓
-[llm_response]      — Gemini tổng hợp câu trả lời
-```
+Chỉnh `RAG/connect_SQL/config.json`. Nếu để trống, RAG vẫn hoạt động, chỉ không lưu lịch sử.
 
 ---
 
-## API Endpoints chính
+## Seed dữ liệu
+
+```bash
+python scripts/seed_data.py                          # Dữ liệu mẫu
+python scripts/create_admin.py                       # Tài khoản admin
+python scripts/import_dichvu_to_public_services.py   # Import DVC từ CSV
+```
+
+> **Đăng ký demo:** OTP mặc định là `123456`.
+
+---
+
+## API Endpoints
 
 ### Xác thực
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
-| POST | `/api/auth/register` | Đăng ký tài khoản |
+| POST | `/api/auth/register` | Đăng ký |
 | POST | `/api/auth/login` | Đăng nhập |
-| GET | `/api/auth/profile` | Lấy thông tin người dùng |
+| GET | `/api/auth/profile` | Thông tin người dùng |
 | PUT | `/api/auth/profile` | Cập nhật hồ sơ |
-
-**Đăng ký (demo):** OTP mặc định là `123456`.
 
 ### Dịch vụ công
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
-| GET | `/api/services/` | Danh sách dịch vụ |
-| GET | `/api/services/search?q=...` | Tìm kiếm |
-| GET | `/api/services/nearby?lat=&lng=&radius=` | Tìm gần vị trí |
-| GET | `/api/services/<id>` | Chi tiết dịch vụ |
+| GET | `/api/services/` | Danh sách |
+| GET | `/api/services/search?q=` | Tìm kiếm |
+| GET | `/api/services/nearby?lat=&lng=&radius=` | Gần vị trí |
 | GET | `/api/services/categories/list` | Danh mục |
 
 ### Đặt lịch hẹn
@@ -210,7 +166,6 @@ Câu hỏi người dùng
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
 | POST | `/api/appointments` | Tạo lịch hẹn |
-| GET | `/api/appointments/by-date?agencyId=&date=` | Lịch theo ngày |
 | GET | `/api/appointments/upcoming` | Lịch sắp tới |
 | GET | `/api/appointments/all` | Tất cả lịch |
 
@@ -218,51 +173,36 @@ Câu hỏi người dùng
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
-| POST | `/api/chat` | Gửi câu hỏi hành chính |
-
-```json
-// Request
-{ "message": "Làm CCCD cần những giấy tờ gì?", "session_id": "abc123" }
-
-// Response
-{ "success": true, "data": { "answer": "...", "session_id": "abc123" } }
-```
+| POST | `/api/rag/chat` | Hỏi đáp (sync) |
+| POST | `/api/rag/chat/stream` | Hỏi đáp (SSE stream) |
+| GET | `/api/rag/sessions` | Lịch sử phiên |
+| POST | `/api/suggest-procedure` | Gợi ý thủ tục |
 
 ### Voice AI
 
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
-| POST | `/api/voice/stt` | Speech-to-Text (Google Cloud) |
+| POST | `/api/voice/stt` | Speech-to-Text |
 | POST | `/api/voice/tts` | Text-to-Speech |
 | POST | `/api/voice/dialog` | Hội thoại đặt lịch |
-| POST | `/api/voice/appointments/auto-create` | Tự động đặt lịch từ voice |
-
-### Gợi ý thủ tục
-
-| Method | Endpoint | Mô tả |
-|--------|----------|-------|
-| GET | `/api/suggest?q=...&top_k=4` | Gợi ý thủ tục hành chính |
+| POST | `/api/voice/appointments/auto-create` | Tự động đặt lịch từ giọng nói |
 
 ---
 
-## Seed dữ liệu
+## Xử lý lỗi thường gặp
 
-```bash
-# Seed dữ liệu dịch vụ công mẫu
-python scripts/seed_data.py
-
-# Tạo tài khoản admin
-python scripts/create_admin.py
-
-# Import dữ liệu DVC từ CSV
-python scripts/import_dichvu_to_public_services.py
-```
+| Lỗi | Nguyên nhân | Giải pháp |
+|-----|-------------|-----------|
+| `password authentication failed` | Sai credentials DB | Kiểm tra `DB_USER`/`DB_PASSWORD` trong `.env` |
+| `database "public_services" does not exist` | Chưa tạo DB | Chạy `psql -U postgres -c "CREATE DATABASE public_services;"` |
+| `EADDRINUSE` / `Address already in use` | Port 8888 bị chiếm | Đổi `PORT` trong `.env` hoặc tắt tiến trình đang dùng port đó |
+| `Failed to fetch` ở Frontend | Backend chưa chạy hoặc sai URL | Kiểm tra `http://localhost:8888/api/health` và `VITE_API_URL` trong Frontend |
+| `JWT_SECRET chưa được đặt` | Dùng secret mặc định | Đặt `JWT_SECRET` thực sự trong `.env` trước khi deploy |
 
 ---
 
 ## Lưu ý
 
-- Dữ liệu người dùng được lưu vào **PostgreSQL** (nếu cấu hình) hoặc file `data/users.json` (fallback).
-- File upload được lưu local tại `uploads/` — chưa tích hợp cloud storage.
-- VNeID verification hiện là **demo mock** — chưa kết nối API thật.
-- Voice STT/TTS yêu cầu **Google Cloud credentials** — nếu không có thì dùng mock mode (`VOICE_STT_DEV_MOCK=1`).
+- File upload lưu local tại `uploads/` — chưa tích hợp cloud storage.
+- VNeID verification hiện là **mock demo** — chưa kết nối API thật.
+- Voice STT/TTS yêu cầu Google Cloud credentials; nếu không có thì dùng mock: `VOICE_STT_DEV_MOCK=1`.

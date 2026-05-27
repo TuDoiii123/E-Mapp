@@ -19,12 +19,23 @@ from typing import Any, Dict, List, Optional
 from flask import Blueprint, Response, jsonify, request
 
 from logger import get_logger
-from ai_voice_backend import VoiceBackend
-
+from services.appointments import create_appointment, suggest_slots
 log = get_logger('voice_routes')
 
-voice_bp  = Blueprint('voice', __name__, url_prefix='/api/voice')
-_backend  = VoiceBackend()
+voice_bp = Blueprint('voice', __name__, url_prefix='/api/voice')
+
+# Lazy-load VoiceBackend: không khởi tạo khi import blueprint
+_backend = None
+_backend_lock = __import__('threading').Lock()
+
+def _get_backend():
+    global _backend
+    if _backend is None:
+        with _backend_lock:
+            if _backend is None:
+                from ai_voice_backend import VoiceBackend  # lazy
+                _backend = VoiceBackend()
+    return _backend
 
 # ── Legacy Gemini (giữ lại để backward-compat với code cũ) ────────────────────
 _gemini_model = None
@@ -222,7 +233,7 @@ def api_audio_dialog():
     audio_bytes = audio_file.read()
     mime_type   = audio_file.content_type or 'audio/webm'
 
-    result = _backend.process_audio(
+    result = _get_backend().process_audio(
         session_id=session_id,
         audio_bytes=audio_bytes,
         mime_type=mime_type,
@@ -237,7 +248,7 @@ def api_dialog_start():
     """Bắt đầu phiên hội thoại mới."""
     payload    = request.get_json(silent=True) or {}
     session_id = (payload.get('session_id') or payload.get('sessionId') or 'default')
-    resp       = _backend.dialog_start(session_id)
+    resp       = _get_backend().dialog_start(session_id)
     return jsonify({
         'success': True,
         'data': {'reply': resp.reply, 'step': resp.step, 'state': resp.state},
@@ -249,7 +260,7 @@ def api_dialog_reset():
     """Xóa trạng thái phiên hội thoại."""
     payload    = request.get_json(silent=True) or {}
     session_id = payload.get('session_id') or payload.get('sessionId') or 'default'
-    _backend.dialog_reset(session_id)
+    _get_backend().dialog_reset(session_id)
     return jsonify({'success': True})
 
 

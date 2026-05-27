@@ -1,27 +1,27 @@
 import { useState, useEffect } from 'react';
 import { MessageCircle } from 'lucide-react';
-import { LoginScreen } from './components/LoginScreen';
-import { HomeScreen } from './components/HomeScreen';
-import { MapScreen } from './components/MapScreen';
-import { SearchDocumentScreen } from './components/SearchDocumentScreen';
-import { SubmitDocumentScreen } from './components/SubmitDocumentScreen';
-import { NotificationScreen } from './components/NotificationScreen';
-import { EvaluationScreen } from './components/EvaluationScreen';
-import { AnalyticsScreen } from './components/AnalyticsScreen';
-import { ChatbotScreen } from './components/ChatbotScreen';
-import { SettingsScreen } from './components/SettingsScreen';
-import { ForgotPasswordScreen } from './components/ForgotPasswordScreen';
-import { RegisterScreen } from './components/RegisterScreen';
-import { AccountDetailScreen } from './components/AccountDetailScreen';
-import { DocumentCatalogScreen } from './components/DocumentCatalogScreen';
-import { DocumentDetailScreen } from './components/DocumentDetailScreen';
+import { LoginScreen } from './screens/user/LoginScreen';
+import { HomeScreen } from './screens/user/HomeScreen';
+import { MapScreen } from './screens/user/MapScreen';
+import { SearchDocumentScreen } from './screens/user/SearchDocumentScreen';
+import { SubmitDocumentScreen } from './screens/user/SubmitDocumentScreen';
+import { NotificationScreen } from './screens/user/NotificationScreen';
+import { EvaluationScreen } from './screens/user/EvaluationScreen';
+import { AnalyticsScreen } from './screens/user/AnalyticsScreen';
+import { ChatbotScreen } from './screens/user/ChatbotScreen';
+import { SettingsScreen } from './screens/user/SettingsScreen';
+import { ForgotPasswordScreen } from './screens/user/ForgotPasswordScreen';
+import { RegisterScreen } from './screens/user/RegisterScreen';
+import { AccountDetailScreen } from './screens/user/AccountDetailScreen';
+import { DocumentCatalogScreen } from './screens/user/DocumentCatalogScreen';
+import { DocumentDetailScreen } from './screens/user/DocumentDetailScreen';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { AppointmentCalendarScreen } from './components/AppointmentCalendarScreen';
-import { AppointmentScreen } from './components/AppointmentScreen';
-import { QueueScreen } from './components/QueueScreen';
-import { QueueDisplayScreen } from './components/QueueDisplayScreen';
-import { QueueStaffScreen } from './components/QueueStaffScreen';
-import { AdminShell } from './components/AdminShell';
+import { AppointmentCalendarScreen } from './screens/user/AppointmentCalendarScreen';
+import { AppointmentScreen } from './screens/user/AppointmentScreen';
+import { QueueScreen } from './screens/user/QueueScreen';
+import { QueueDisplayScreen } from './screens/user/QueueDisplayScreen';
+import { QueueStaffScreen } from './screens/user/QueueStaffScreen';
+import { AdminShell } from './screens/admin/AdminShell';
 
 /* Screens where the chatbot FAB should NOT appear */
 const NO_FAB_SCREENS = [

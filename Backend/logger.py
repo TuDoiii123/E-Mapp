@@ -65,7 +65,7 @@ def get_logger(name: str) -> logging.Logger:
         logger.addHandler(handler)
         logger.propagate = False
 
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     return logger
 
 
