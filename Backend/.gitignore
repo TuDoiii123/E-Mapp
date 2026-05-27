@@ -4,6 +4,10 @@ data/
 !RAG/data/
 !RAG/data/*.xlsx
 !RAG/data/*.py
+!data/templates/
+!data/templates/*.doc
+!data/templates/*.docx
+!data/templates/README.md
 *.log
 .DS_Store
 

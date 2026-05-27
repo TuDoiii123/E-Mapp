@@ -72,7 +72,7 @@ def _detect_key(service_id: str) -> str:
 
 
 def _rows_to_dicts(rows) -> list[dict]:
-    keys = ['id', 'serviceId', 'docName', 'docDescription', 'isRequired', 'docType', 'orderIndex']
+    keys = ['id', 'serviceId', 'docName', 'docDescription', 'isRequired', 'docType', 'orderIndex', 'templateFile']
     return [dict(zip(keys, r)) for r in rows]
 
 
@@ -90,7 +90,8 @@ class ServiceRequirement:
         try:
             sql = text('''
                 SELECT id, service_id, doc_name, doc_description,
-                       is_required, doc_type, order_index
+                       is_required, doc_type, order_index,
+                       COALESCE(template_file, '') AS template_file
                 FROM public.service_requirements
                 WHERE service_id = :sid
                 ORDER BY order_index
@@ -111,16 +112,18 @@ class ServiceRequirement:
         req_id = data.get('id') or str(uuid.uuid4())
         sql = text('''
             INSERT INTO public.service_requirements
-                (id, service_id, doc_name, doc_description, is_required, doc_type, order_index)
-            VALUES (:id, :sid, :name, :desc, :req, :dtype, :order)
+                (id, service_id, doc_name, doc_description, is_required, doc_type, order_index, template_file)
+            VALUES (:id, :sid, :name, :desc, :req, :dtype, :order, :tmpl)
             ON CONFLICT (id) DO UPDATE SET
                 doc_name        = EXCLUDED.doc_name,
                 doc_description = EXCLUDED.doc_description,
                 is_required     = EXCLUDED.is_required,
                 doc_type        = EXCLUDED.doc_type,
-                order_index     = EXCLUDED.order_index
+                order_index     = EXCLUDED.order_index,
+                template_file   = EXCLUDED.template_file
             RETURNING id, service_id, doc_name, doc_description,
-                      is_required, doc_type, order_index
+                      is_required, doc_type, order_index,
+                      COALESCE(template_file, '') AS template_file
         ''')
         row = db.session.execute(sql, {
             'id':    req_id,
@@ -130,6 +133,7 @@ class ServiceRequirement:
             'req':   data.get('isRequired', True),
             'dtype': data.get('docType', 'original'),
             'order': data.get('orderIndex', 0),
+            'tmpl':  data.get('templateFile') or None,
         }).fetchone()
         db.session.commit()
         return _rows_to_dicts([row])[0]
@@ -155,6 +159,7 @@ class ServiceRequirement:
             'isRequired':     d[2],
             'docType':        d[3],
             'orderIndex':     d[4],
+            'templateFile':   d[5] if len(d) > 5 else None,
         } for i, d in enumerate(docs)]
 
     @staticmethod
@@ -163,8 +168,8 @@ class ServiceRequirement:
         try:
             sql = text('''
                 INSERT INTO public.service_requirements
-                    (id, service_id, doc_name, doc_description, is_required, doc_type, order_index)
-                VALUES (:id, :sid, :name, :desc, :req, :dtype, :order)
+                    (id, service_id, doc_name, doc_description, is_required, doc_type, order_index, template_file)
+                VALUES (:id, :sid, :name, :desc, :req, :dtype, :order, :tmpl)
                 ON CONFLICT (id) DO NOTHING
             ''')
             for r in requirements:
@@ -173,6 +178,7 @@ class ServiceRequirement:
                     'name':  r['docName'], 'desc': r['docDescription'],
                     'req':   r['isRequired'], 'dtype': r['docType'],
                     'order': r['orderIndex'],
+                    'tmpl':  r.get('templateFile') or None,
                 })
             db.session.commit()
         except Exception as e:
