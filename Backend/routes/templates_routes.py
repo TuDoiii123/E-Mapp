@@ -155,7 +155,7 @@ def serve_template(filename: str):
     fpath = os.path.join(_TEMPLATES_DIR, fn)
     if not os.path.exists(fpath):
         log.warning(f'Template không tồn tại: {fn}')
-        abort(404)
+        return jsonify({'success': False, 'message': f'Template không tìm thấy: {fn}'}), 404
 
     ext = fn.rsplit('.', 1)[-1].lower()
     mime_map = {
@@ -184,7 +184,7 @@ def preview_template(filename: str):
     fpath = os.path.join(_TEMPLATES_DIR, fn)
     if not os.path.exists(fpath):
         log.warning(f'Template không tồn tại: {fn}')
-        abort(404)
+        return jsonify({'success': False, 'message': f'Template không tìm thấy: {fn}'}), 404
 
     ext = fn.rsplit('.', 1)[-1].lower()
 
