@@ -716,7 +716,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                   </p>
                 </div>
               </>
-            )
+            )}
           </>
         )}
 
