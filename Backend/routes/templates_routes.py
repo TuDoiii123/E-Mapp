@@ -68,7 +68,6 @@ def _warmup_pdf_cache():
         'mau-don-cap-gcnqsdd-so-do.docx',
         'mau-don-xin-cap-phep-xay-dung.docx',
         'mau-don-tach-thua-hop-thua-dat.docx',
-        'mau-to-khai-le-phi-truoc-ba.docx',
         # .docx — Tư pháp / LLTP
         'mau-phieu-ly-lich-tu-phap-so1.docx',
         # .docx — Doanh nghiệp
@@ -93,6 +92,11 @@ def _warmup_pdf_cache():
         'mau-to-khai-nhan-cha-me-con.doc',
         'mau-to-khai-thay-doi-cai-chinh-ho-tich.doc',
         'mau-phieu-ly-lich-tu-phap-so2.doc',
+        # .doc — đổi tên từ .docx (OLE2 nội dung gốc)
+        'mau-to-khai-le-phi-truoc-ba.doc',
+        'mau-to-khai-cap-ho-chieu.doc',
+        'mau-bien-ban-vi-pham-hanh-chinh.doc',
+        'mau-to-khai-thue-thu-nhap-ca-nhan.doc',
     ]
 
     def _run():
