@@ -78,8 +78,22 @@ def _warmup_pdf_cache():
         # .docx — Giao thông
         'mau-don-de-nghi-cap-doi-gplx.docx',
         'mau-khai-dang-ky-xe-co-gioi.docx',
-        # .docx — BHYT
+        # .docx — BHYT / BHXH
         'mau-to-khai-cap-the-bao-hiem-y-te.docx',
+        'mau-TK1-TS-to-khai-tham-gia-bhxh-bhyt.docx',
+        'mau-D02-LT-danh-sach-lao-dong-bhxh.docx',
+        # .docx — Cư trú
+        'mau-CT02-to-khai-tam-tru.docx',
+        # .docx — Xây dựng
+        'mau-thong-bao-hoan-cong-cong-trinh.docx',
+        # .docx — Tư pháp
+        'mau-don-yeu-cau-chung-thuc-ban-sao.docx',
+        # .docx — Doanh nghiệp
+        'mau-thong-bao-tam-ngung-kinh-doanh.docx',
+        # .docx — Giao thông
+        'mau-to-khai-dang-ky-xe-may-lan-dau.docx',
+        # .docx — Hộ tịch
+        'mau-to-khai-dang-ky-nuoi-con-nuoi.docx',
         # .docx — Khác
         'mau-ban-khai-ca-nhan.docx',
         # .doc (OLE2) — win32com handles these
