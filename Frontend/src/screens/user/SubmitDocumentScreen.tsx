@@ -152,11 +152,51 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
 
   const svc              = services.find(s => s.id === selectedService);
 
+  // ── Lọc rác trước khi phân loại ──────────────────────────────────────────
+  // Loại bỏ nhãn tiêu đề / câu điều kiện / hướng dẫn không phải giấy tờ thực
+  const isJunkReq = (r: Requirement) => {
+    const name   = r.docName.trim();
+    const noDesc = !(r.docDescription || '').trim();
+    if (!name) return true;
+    // Bảo vệ: tên bắt đầu bằng từ khoá giấy tờ → không bao giờ là rác
+    const docPrefixes = [
+      'Tờ khai ', 'Đơn đề nghị', 'Đơn xin ', 'Đơn yêu cầu',
+      'Giấy chứng ', 'Giấy khai ', 'Phiếu ', 'Bản khai ',
+    ];
+    if (docPrefixes.some(p => name.startsWith(p))) return false;
+    // Nhãn tiêu đề kết thúc ':' hoặc ';' → luôn là rác
+    if (name.endsWith(':') || name.endsWith(';')) return true;
+    if (name.startsWith('+')) return true;
+    // Luôn là rác bất kể có mô tả hay không
+    const alwaysJunk = [
+      'Trường hợp ', 'Nếu bên ', 'Người có yêu cầu ',
+      'Công dân Việt Nam đã ', 'Cá nhân có quyền', 'Lưu ý',
+      'Giấy tờ phải nộp', 'Giấy tờ phải xuất trình',
+      'Người tiếp nhận có trách nhiệm',
+    ];
+    if (alwaysJunk.some(p => name.startsWith(p))) return true;
+    // Tên dài có điều kiện
+    const nl = name.toLowerCase();
+    if (name.length > 100 && (
+      nl.includes('(nếu người có yêu cầu') ||
+      nl.includes('(do người yêu cầu') ||
+      nl.includes('theo hình thức trực tuyến')
+    )) return true;
+    // Đoạn văn dài không mô tả
+    if (noDesc) {
+      if (name.length > 120) return true;
+      if (['Đối với giấy tờ nộp', 'Đối với giấy tờ xuất', 'Người yêu cầu đăng ký hộ tịch']
+          .some(p => name.startsWith(p))) return true;
+    }
+    return false;
+  };
+
   // ── Phân loại 3 nhóm giấy tờ ──────────────────────────────────────────────
+  const cleanedReqs   = requirements.filter(r => !isJunkReq(r));
   const isXuatTrinh   = (r: Requirement) => (r.docDescription || '').startsWith('Xuất trình');
-  const submitReqs    = requirements.filter(r => r.isRequired && !isXuatTrinh(r));
-  const xuatTrinhReqs = requirements.filter(r => isXuatTrinh(r));
-  const optionalReqs  = requirements.filter(r => !r.isRequired && !isXuatTrinh(r));
+  const submitReqs    = cleanedReqs.filter(r => r.isRequired && !isXuatTrinh(r));
+  const xuatTrinhReqs = cleanedReqs.filter(r => isXuatTrinh(r));
+  const optionalReqs  = cleanedReqs.filter(r => !r.isRequired && !isXuatTrinh(r));
   const extraReqs     = [...xuatTrinhReqs, ...optionalReqs]; // upload tùy chọn ở bước 3
 
   const uploadedCount    = Object.keys(uploadedDocs).length;
@@ -678,13 +718,15 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                     <p className="text-xs font-black uppercase tracking-widest text-amber-700 mb-3">ℹ️ Lưu ý & Giấy tờ bổ sung</p>
                     {xuatTrinhReqs.length > 0 && (
                       <div className="mb-3">
-                        <p className="text-[10px] font-bold text-amber-600 uppercase mb-2">👁 Xuất trình tại quầy</p>
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full mb-2.5">
+                          👁 Xuất trình tại quầy
+                        </span>
                         <ul className="space-y-1.5">
                           {xuatTrinhReqs.map(r => (
                             <li key={r.id} className="flex items-start gap-2 text-xs text-amber-800">
-                              <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                              <span className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
                               <span><span className="font-semibold">{r.docName}</span>
-                                {r.docDescription && <span className="text-amber-700"> — {r.docDescription.replace('Xuất trình bản gốc. ', '')}</span>}
+                                {r.docDescription && <span className="text-amber-700"> — {r.docDescription.replace(/^Xuất trình bản gốc\.?\s*/i, '')}</span>}
                               </span>
                             </li>
                           ))}
@@ -693,7 +735,9 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                     )}
                     {optionalReqs.length > 0 && (
                       <div>
-                        <p className="text-[10px] font-bold text-amber-600 uppercase mb-2">📎 Tùy trường hợp</p>
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full mb-2.5">
+                          🎯 Tùy trường hợp
+                        </span>
                         <ul className="space-y-1.5">
                           {optionalReqs.map(r => (
                             <li key={r.id} className="flex items-start gap-2 text-xs text-amber-800">

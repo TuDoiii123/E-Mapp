@@ -82,42 +82,63 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
   const cleanReqs = allReqs.filter(r => !isRawId(r));
   const rawReqs   = allReqs.filter(r =>  isRawId(r));
 
-  // ── Lọc bỏ rác trong raw data ─────────────────────────────────────────────
-  // Raw data chứa: nhãn tiêu đề, đoạn văn pháp lý, hướng dẫn nộp hồ sơ...
-  // Giữ lại chỉ các item thực sự là giấy tờ cần chuẩn bị.
+  // ── Lọc bỏ rác (áp dụng cho cả clean lẫn raw) ───────────────────────────
+  // "Rác" = nhãn tiêu đề, câu điều kiện, hướng dẫn quy trình — không phải giấy tờ
   const isJunkItem = (r: Requirement) => {
-    const name  = r.docName.trim();
+    const name   = r.docName.trim();
     const noDesc = !r.docDescription?.trim();
+    if (!name) return true;
 
-    // Nhãn tiêu đề (kết thúc ':' hoặc ';', không có mô tả)
-    if ((name.endsWith(':') || name.endsWith(';')) && noDesc) return true;
+    // Bảo vệ: tên bắt đầu bằng từ khoá giấy tờ → không bao giờ là rác
+    const docPrefixes = [
+      'Tờ khai ', 'Đơn đề nghị', 'Đơn xin ', 'Đơn yêu cầu',
+      'Giấy chứng ', 'Giấy khai ', 'Phiếu ', 'Bản khai ',
+    ];
+    if (docPrefixes.some(p => name.startsWith(p))) return false;
+
+    // Nhãn tiêu đề kết thúc ':' hoặc ';' → luôn là rác
+    if (name.endsWith(':') || name.endsWith(';')) return true;
 
     // Bullet point hướng dẫn
-    if (name.startsWith('+') && noDesc) return true;
+    if (name.startsWith('+')) return true;
 
-    // Đoạn văn pháp lý dài (> 120 ký tự, không có mô tả cụ thể)
-    if (name.length > 120 && noDesc) return true;
-
-    // Câu hướng dẫn / lưu ý quy trình
-    const instructionPrefixes = [
+    // Luôn là rác bất kể có mô tả hay không
+    const alwaysJunk = [
       'Trường hợp ',
-      'Cá nhân có quyền',
       'Nếu bên ',
-      'Đối với giấy tờ nộp',
-      'Đối với giấy tờ xuất',
-      'Người yêu cầu đăng ký hộ tịch',
+      'Người có yêu cầu ',
+      'Công dân Việt Nam đã ',
+      'Cá nhân có quyền',
+      'Lưu ý',
+      'Giấy tờ phải nộp',
+      'Giấy tờ phải xuất trình',
       'Người tiếp nhận có trách nhiệm',
     ];
-    if (noDesc && instructionPrefixes.some(p => name.startsWith(p))) return true;
+    if (alwaysJunk.some(p => name.startsWith(p))) return true;
+
+    // Tên dài chứa điều kiện nộp trực tuyến
+    const nl = name.toLowerCase();
+    if (name.length > 100 && (
+      nl.includes('(nếu người có yêu cầu') ||
+      nl.includes('(do người yêu cầu') ||
+      nl.includes('theo hình thức trực tuyến')
+    )) return true;
+
+    // Đoạn văn pháp lý dài không có mô tả
+    if (noDesc) {
+      if (name.length > 120) return true;
+      if (['Đối với giấy tờ nộp', 'Đối với giấy tờ xuất', 'Người yêu cầu đăng ký hộ tịch']
+          .some(p => name.startsWith(p))) return true;
+    }
 
     return false;
   };
 
   // ── Chiến lược lấy requirements ──────────────────────────────────────────
-  // Ưu tiên bộ clean (có tên ID rõ ràng, có mô tả đầy đủ).
-  // Nếu không có clean → dùng raw nhưng lọc bỏ các item rác.
-  const requirements: Requirement[] = cleanReqs.length > 0
-    ? cleanReqs
+  // Ưu tiên bộ clean; nếu sau lọc rác clean còn < 1 item → fallback sang raw.
+  const filteredClean = cleanReqs.filter(r => !isJunkItem(r));
+  const requirements: Requirement[] = filteredClean.length >= 1
+    ? filteredClean
     : rawReqs.filter(r => !isJunkItem(r));
 
   // ── Phân loại 3 nhóm rõ ràng ────────────────────────────────────────────────
@@ -294,17 +315,17 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
                 {/* Giấy tờ xuất trình */}
                 {xuatTrinhReqs.length > 0 && (
                   <div className="mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-2">
-                      👁 Giấy tờ cần xuất trình tại quầy ({xuatTrinhReqs.length})
-                    </p>
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-full mb-3">
+                      👁 Xuất trình tại quầy
+                    </span>
                     <div className="space-y-2">
                       {xuatTrinhReqs.map((req) => (
                         <div key={req.id} className="flex items-start gap-2 text-sm text-amber-800">
-                          <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+                          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
                           <div>
                             <span className="font-semibold">{req.docName}</span>
                             {req.docDescription && (
-                              <span className="text-xs text-amber-700 ml-1">({req.docDescription.replace('Xuất trình bản gốc. ', '')})</span>
+                              <span className="text-xs text-amber-700 ml-1">— {req.docDescription.replace(/^Xuất trình bản gốc\.?\s*/i, '')}</span>
                             )}
                           </div>
                         </div>
@@ -316,13 +337,13 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
                 {/* Giấy tờ tùy chọn / điều kiện */}
                 {optionalReqs.length > 0 && (
                   <div className="mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-2">
-                      📎 Tùy trường hợp ({optionalReqs.length})
-                    </p>
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-full mb-3">
+                      🎯 Tùy trường hợp
+                    </span>
                     <div className="space-y-2">
                       {optionalReqs.map((req) => (
                         <div key={req.id} className="flex items-start gap-2 text-sm text-amber-800">
-                          <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
                           <div>
                             <span className="font-semibold">{req.docName}</span>
                             {req.docDescription && (
@@ -338,9 +359,9 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
                 {/* Điều kiện từ dữ liệu thủ tục */}
                 {procedure.conditions && procedure.conditions.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-2">
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-orange-800 bg-orange-50 border border-orange-200 px-2.5 py-0.5 rounded-full mb-3">
                       ⚠️ Điều kiện thực hiện
-                    </p>
+                    </span>
                     <ul className="space-y-1">
                       {procedure.conditions.map((cond, i) => (
                         <li key={i} className="flex items-start gap-2 text-xs text-amber-800">
