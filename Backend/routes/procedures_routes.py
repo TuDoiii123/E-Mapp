@@ -90,6 +90,12 @@ _CATEGORY_LABEL: dict = {
 
 def _row_to_dict(row) -> dict:
     fee = row.fee or 0
+    # steps: chuyển text nhiều dòng → list (bỏ dòng rỗng)
+    raw_steps = getattr(row, 'steps', None) or ''
+    steps_list = [s.strip() for s in raw_steps.splitlines() if s.strip()] if raw_steps else []
+    # conditions: tương tự
+    raw_cond = getattr(row, 'conditions', None) or ''
+    cond_list = [c.strip() for c in raw_cond.splitlines() if c.strip()] if raw_cond else []
     return {
         'id':               row.id,
         'name':             row.name,
@@ -109,6 +115,8 @@ def _row_to_dict(row) -> dict:
         'agency':           row.agency or '',
         'isOnline':         bool(row.is_online),
         'isActive':         bool(row.is_active),
+        'steps':            steps_list,
+        'conditions':       cond_list,
     }
 
 
@@ -228,7 +236,7 @@ def list_procedures():
         rows = db.session.execute(text(f'''
             SELECT id, name, code, category, fee, fee_note, processing_days,
                    processing_note, legal_basis, implementing_level, agency,
-                   is_online, is_active
+                   is_online, is_active, steps, conditions
             FROM public.procedures {where}
             ORDER BY
                 CASE WHEN id ~ '^\d+\.\d+$' THEN 1 ELSE 0 END,  -- clean trước
