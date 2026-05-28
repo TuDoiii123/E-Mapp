@@ -25,6 +25,8 @@ export interface Procedure {
   requirements?: Requirement[];
   requirementCount?: number;
   requiredCount?: number;
+  steps?: string[];
+  conditions?: string[];
 }
 
 export interface Requirement {

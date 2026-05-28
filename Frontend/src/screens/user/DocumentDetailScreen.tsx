@@ -309,6 +309,44 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
               </div>
             )}
 
+            {/* ── Trình tự thực hiện ── */}
+            {procedure.steps && procedure.steps.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-[#f0d0d4]">
+                <h3 className="font-black text-[#4d2128] text-sm mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-[#b7131a] text-white flex items-center justify-center text-[10px] font-black">→</span>
+                  Trình tự thực hiện
+                </h3>
+                <ol className="space-y-3">
+                  {procedure.steps.map((step, i) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <span className="w-5 h-5 rounded-full bg-[#ffeced] text-[#b7131a] flex items-center justify-center text-[10px] font-black flex-shrink-0 mt-0.5">
+                        {i + 1}
+                      </span>
+                      <p className="text-xs text-[#4d2128] leading-relaxed">{step}</p>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            {/* ── Điều kiện / Yêu cầu ── */}
+            {procedure.conditions && procedure.conditions.length > 0 && (
+              <div className="bg-white rounded-2xl p-5 border border-[#f0d0d4]">
+                <h3 className="font-black text-[#4d2128] text-sm mb-4 flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-[#b7131a] text-white flex items-center justify-center text-[10px] font-black">!</span>
+                  Điều kiện thực hiện
+                </h3>
+                <ul className="space-y-2">
+                  {procedure.conditions.map((cond, i) => (
+                    <li key={i} className="flex items-start gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#b7131a] flex-shrink-0 mt-1.5" />
+                      <p className="text-xs text-[#4d2128] leading-relaxed">{cond}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {/* ── Ghi chú thời gian & lệ phí ── */}
             {(procedure.processingNote || procedure.feeNote) && (
               <div className="bg-amber-50 rounded-2xl p-5 border border-amber-100">
