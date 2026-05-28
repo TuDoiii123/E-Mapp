@@ -57,16 +57,31 @@ def _warmup_pdf_cache():
 
     # Các template được map trong DB (ưu tiên convert trước)
     priority = [
-        # .docx (OOXML)
+        # .docx (OOXML) — Hộ tịch
         'mau-to-khai-dang-ky-ket-hon.docx',
         'mau-to-khai-dang-ky-thuong-tru.docx',
         'mau-to-khai-dang-ky-khai-tu.docx',
         'mau-to-khai-xac-nhan-tinh-trang-hon-nhan.docx',
+        'mau-to-khai-cap-ban-sao-trich-luc-ho-tich.docx',
+        'mau-to-khai-dang-ky-lai-khai-sinh.docx',
+        # .docx — Đất đai / Xây dựng
         'mau-don-cap-gcnqsdd-so-do.docx',
         'mau-don-xin-cap-phep-xay-dung.docx',
+        'mau-don-tach-thua-hop-thua-dat.docx',
+        'mau-to-khai-le-phi-truoc-ba.docx',
+        # .docx — Tư pháp / LLTP
         'mau-phieu-ly-lich-tu-phap-so1.docx',
+        # .docx — Doanh nghiệp
         'mau-giay-de-nghi-dang-ky-ho-kinh-doanh.docx',
         'mau-giay-de-nghi-dang-ky-doanh-nghiep.docx',
+        'mau-giai-the-doanh-nghiep.docx',
+        'mau-thong-bao-thay-doi-noi-dung-dkdn.docx',
+        # .docx — Giao thông
+        'mau-don-de-nghi-cap-doi-gplx.docx',
+        'mau-khai-dang-ky-xe-co-gioi.docx',
+        # .docx — BHYT
+        'mau-to-khai-cap-the-bao-hiem-y-te.docx',
+        # .docx — Khác
         'mau-ban-khai-ca-nhan.docx',
         # .doc (OLE2) — win32com handles these
         'mau-to-khai-dang-ky-khai-sinh.doc',
@@ -75,6 +90,9 @@ def _warmup_pdf_cache():
         'mau-don-dang-ky-bien-dong-dat-dai.doc',
         'mau-to-khai-tham-gia-bhxh-bhyt.doc',
         'mau-giay-kham-suc-khoe-lai-xe.doc',
+        'mau-to-khai-nhan-cha-me-con.doc',
+        'mau-to-khai-thay-doi-cai-chinh-ho-tich.doc',
+        'mau-phieu-ly-lich-tu-phap-so2.doc',
     ]
 
     def _run():
