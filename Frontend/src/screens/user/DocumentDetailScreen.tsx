@@ -120,8 +120,11 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
     ? cleanReqs
     : rawReqs.filter(r => !isJunkItem(r));
 
-  const required = requirements.filter(r => r.isRequired);
-  const optional = requirements.filter(r => !r.isRequired);
+  // ── Phân loại 3 nhóm rõ ràng ────────────────────────────────────────────────
+  const isXuatTrinh  = (r: Requirement) => (r.docDescription || '').startsWith('Xuất trình');
+  const submitReqs   = requirements.filter(r => r.isRequired && !isXuatTrinh(r));
+  const xuatTrinhReqs = requirements.filter(r => isXuatTrinh(r));
+  const optionalReqs = requirements.filter(r => !r.isRequired && !isXuatTrinh(r));
 
   return (
     <div className="bg-[#fff4f4] text-[#4d2128] min-h-screen flex flex-col" style={{ fontFamily: "'Manrope', sans-serif" }}>
@@ -237,73 +240,115 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
               </div>
             )}
 
-            {/* ── Thành phần hồ sơ ── */}
-            {requirements.length > 0 && (
+            {/* ── Giấy tờ cần nộp ── */}
+            {submitReqs.length > 0 && (
               <div className="bg-white rounded-2xl p-5 border border-[#de9ca4]/15">
                 <h3 className="font-black text-[#4d2128] text-sm mb-4 flex items-center gap-2">
                   <FileText className="w-4 h-4 text-[#b7131a]" />
-                  Chuẩn bị tài liệu ({requirements.length} loại giấy tờ)
+                  Giấy tờ cần chuẩn bị
+                  <span className="ml-auto text-[10px] font-black bg-[#b7131a] text-white px-2 py-0.5 rounded-full">
+                    {submitReqs.length} loại
+                  </span>
+                </h3>
+                <div className="space-y-2">
+                  {submitReqs.map((req, i) => {
+                    const typeInfo = DOC_TYPE_LABEL[req.docType] || DOC_TYPE_LABEL.original;
+                    return (
+                      <div key={req.id} className="flex items-start gap-3 p-3 bg-red-50/50 rounded-xl border border-red-100">
+                        <div className="w-6 h-6 rounded-full bg-[#b7131a] text-white flex items-center justify-center text-[10px] font-black flex-shrink-0 mt-0.5">
+                          {i + 1}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-[#4d2128] leading-snug">{req.docName}</p>
+                          {req.docDescription && (
+                            <p className="text-xs text-[#824c54] mt-0.5 leading-relaxed">{req.docDescription}</p>
+                          )}
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                              style={{ backgroundColor: typeInfo.color + '18', color: typeInfo.color }}>
+                              {typeInfo.icon} {typeInfo.label}
+                            </span>
+                            {req.templateFile && (
+                              <a href={`/api/templates/download/${req.templateFile}`} target="_blank" rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">
+                                📄 Tải mẫu đơn
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ── Thẻ lưu ý: xuất trình + điều kiện ── */}
+            {(xuatTrinhReqs.length > 0 || optionalReqs.length > 0 ||
+              (procedure.conditions && procedure.conditions.length > 0)) && (
+              <div className="bg-amber-50 rounded-2xl p-5 border border-amber-200">
+                <h3 className="font-black text-amber-800 text-sm mb-4 flex items-center gap-2">
+                  ℹ️ Lưu ý & Giấy tờ bổ sung
                 </h3>
 
-                {/* Bắt buộc */}
-                {required.length > 0 && (
+                {/* Giấy tờ xuất trình */}
+                {xuatTrinhReqs.length > 0 && (
                   <div className="mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-[#b7131a] mb-2">
-                      Bắt buộc ({required.length})
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-2">
+                      👁 Giấy tờ cần xuất trình tại quầy ({xuatTrinhReqs.length})
                     </p>
                     <div className="space-y-2">
-                      {required.map((req, i) => {
-                        const typeInfo = DOC_TYPE_LABEL[req.docType] || DOC_TYPE_LABEL.original;
-                        return (
-                          <div key={req.id} className="flex items-start gap-3 p-3 bg-red-50/50 rounded-xl border border-red-100">
-                            <div className="w-6 h-6 rounded-full bg-[#b7131a] text-white flex items-center justify-center text-[10px] font-black flex-shrink-0 mt-0.5">
-                              {i + 1}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-[#4d2128] leading-snug">{req.docName}</p>
-                              {req.docDescription && (
-                                <p className="text-xs text-[#824c54] mt-0.5 leading-relaxed">{req.docDescription}</p>
-                              )}
-                              <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
-                                style={{ backgroundColor: typeInfo.color + '18', color: typeInfo.color }}>
-                                {typeInfo.icon} {typeInfo.label}
-                              </span>
-                            </div>
+                      {xuatTrinhReqs.map((req) => (
+                        <div key={req.id} className="flex items-start gap-2 text-sm text-amber-800">
+                          <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+                          <div>
+                            <span className="font-semibold">{req.docName}</span>
+                            {req.docDescription && (
+                              <span className="text-xs text-amber-700 ml-1">({req.docDescription.replace('Xuất trình bản gốc. ', '')})</span>
+                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
 
-                {/* Không bắt buộc */}
-                {optional.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-[#9f364c] mb-2">
-                      Không bắt buộc ({optional.length})
+                {/* Giấy tờ tùy chọn / điều kiện */}
+                {optionalReqs.length > 0 && (
+                  <div className="mb-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-2">
+                      📎 Tùy trường hợp ({optionalReqs.length})
                     </p>
                     <div className="space-y-2">
-                      {optional.map((req, i) => {
-                        const typeInfo = DOC_TYPE_LABEL[req.docType] || DOC_TYPE_LABEL.copy;
-                        return (
-                          <div key={req.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
-                            <div className="w-6 h-6 rounded-full bg-gray-300 text-white flex items-center justify-center text-[10px] font-black flex-shrink-0 mt-0.5">
-                              {required.length + i + 1}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-[#4d2128] leading-snug">{req.docName}</p>
-                              {req.docDescription && (
-                                <p className="text-xs text-[#824c54] mt-0.5 leading-relaxed">{req.docDescription}</p>
-                              )}
-                              <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
-                                style={{ backgroundColor: typeInfo.color + '18', color: typeInfo.color }}>
-                                {typeInfo.icon} {typeInfo.label}
-                              </span>
-                            </div>
+                      {optionalReqs.map((req) => (
+                        <div key={req.id} className="flex items-start gap-2 text-sm text-amber-800">
+                          <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                          <div>
+                            <span className="font-semibold">{req.docName}</span>
+                            {req.docDescription && (
+                              <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">{req.docDescription}</p>
+                            )}
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Điều kiện từ dữ liệu thủ tục */}
+                {procedure.conditions && procedure.conditions.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 mb-2">
+                      ⚠️ Điều kiện thực hiện
+                    </p>
+                    <ul className="space-y-1">
+                      {procedure.conditions.map((cond, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-amber-800">
+                          <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-600 flex-shrink-0" />
+                          <span className="leading-relaxed">{cond}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
@@ -326,24 +371,6 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
                     </li>
                   ))}
                 </ol>
-              </div>
-            )}
-
-            {/* ── Điều kiện / Yêu cầu ── */}
-            {procedure.conditions && procedure.conditions.length > 0 && (
-              <div className="bg-white rounded-2xl p-5 border border-[#f0d0d4]">
-                <h3 className="font-black text-[#4d2128] text-sm mb-4 flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-[#b7131a] text-white flex items-center justify-center text-[10px] font-black">!</span>
-                  Điều kiện thực hiện
-                </h3>
-                <ul className="space-y-2">
-                  {procedure.conditions.map((cond, i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#b7131a] flex-shrink-0 mt-1.5" />
-                      <p className="text-xs text-[#4d2128] leading-relaxed">{cond}</p>
-                    </li>
-                  ))}
-                </ul>
               </div>
             )}
 
