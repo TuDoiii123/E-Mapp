@@ -151,9 +151,17 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
   const [previewUrl,    setPreviewUrl]    = useState<string | null>(null);
 
   const svc              = services.find(s => s.id === selectedService);
+
+  // ── Phân loại 3 nhóm giấy tờ ──────────────────────────────────────────────
+  const isXuatTrinh   = (r: Requirement) => (r.docDescription || '').startsWith('Xuất trình');
+  const submitReqs    = requirements.filter(r => r.isRequired && !isXuatTrinh(r));
+  const xuatTrinhReqs = requirements.filter(r => isXuatTrinh(r));
+  const optionalReqs  = requirements.filter(r => !r.isRequired && !isXuatTrinh(r));
+  const extraReqs     = [...xuatTrinhReqs, ...optionalReqs]; // upload tùy chọn ở bước 3
+
   const uploadedCount    = Object.keys(uploadedDocs).length;
-  const requiredCount    = requirements.filter(r => r.isRequired).length;
-  const requiredUploaded = requirements.filter(r => r.isRequired).every(r => uploadedDocs[r.id]);
+  const requiredCount    = submitReqs.length;
+  const requiredUploaded = submitReqs.every(r => uploadedDocs[r.id]);
 
   // ── Step navigation ────────────────────────────────────────────────────────
 
@@ -621,56 +629,94 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
               <div className="flex justify-center py-12">
                 <RefreshCw className="w-6 h-6 animate-spin text-primary" />
               </div>
-            ) : requirements.length === 0 ? (
+            ) : submitReqs.length === 0 && extraReqs.length === 0 ? (
               <p className="text-center text-on-surface-variant py-8">Không có dữ liệu giấy tờ cho thủ tục này.</p>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {requirements.map((req, i) => (
-                  <div key={req.id}
-                    className="group bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/20 hover:border-primary/30 hover:shadow-xl transition-all duration-300 flex flex-col">
-                    <div className="flex items-start gap-4 mb-4">
-                      <div className="w-10 h-10 rounded-xl bg-surface-container-low group-hover:bg-primary group-hover:text-on-primary flex items-center justify-center font-black text-sm text-primary transition-colors shrink-0">
-                        {String(i + 1).padStart(2, '0')}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-bold text-on-surface text-base leading-tight">{req.docName}</h4>
-                        {!req.isRequired && (
-                          <span className="text-[10px] text-on-surface-variant bg-surface-container px-2 py-0.5 rounded-full">Không bắt buộc</span>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-on-surface-variant text-sm leading-relaxed flex-1">
-                      {req.docDescription || `Loại: ${req.docType}`}
+              <>
+                {/* ── Giấy tờ cần nộp ── */}
+                {submitReqs.length > 0 && (
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-widest text-primary mb-3">
+                      📋 Giấy tờ cần chuẩn bị &amp; nộp ({submitReqs.length} loại)
                     </p>
-                    {/* Template preview/download buttons */}
-                    {req.templateFile && (
-                      <div className="flex items-center gap-2 mt-4 pt-4 border-t border-outline-variant/10">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant flex-1">Mẫu đơn:</span>
-                        <button
-                          onClick={() => setPreviewUrl(`${API_BASE_URL}/templates/preview/${req.templateFile}`)}
-                          className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-primary bg-surface-container-low hover:bg-primary hover:text-on-primary rounded-lg transition-colors">
-                          <Eye className="w-3.5 h-3.5" /> Xem mẫu
-                        </button>
-                        <a
-                          href={`${API_BASE_URL}/templates/download/${req.templateFile}`}
-                          download={req.templateFile}
-                          target="_blank" rel="noreferrer"
-                          className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-on-surface-variant bg-surface-container-low hover:bg-surface-container rounded-lg transition-colors">
-                          <Download className="w-3.5 h-3.5" /> Tải mẫu
-                        </a>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {submitReqs.map((req, i) => (
+                        <div key={req.id}
+                          className="group bg-surface-container-lowest p-5 rounded-xl border border-outline-variant/20 hover:border-primary/30 hover:shadow-xl transition-all duration-300 flex flex-col">
+                          <div className="flex items-start gap-3 mb-3">
+                            <div className="w-9 h-9 rounded-xl bg-primary/10 group-hover:bg-primary group-hover:text-on-primary flex items-center justify-center font-black text-sm text-primary transition-colors shrink-0">
+                              {String(i + 1).padStart(2, '0')}
+                            </div>
+                            <h4 className="font-bold text-on-surface text-sm leading-tight flex-1">{req.docName}</h4>
+                          </div>
+                          <p className="text-on-surface-variant text-xs leading-relaxed flex-1">
+                            {req.docDescription || `Loại: ${req.docType}`}
+                          </p>
+                          {req.templateFile && (
+                            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-outline-variant/10">
+                              <button
+                                onClick={() => setPreviewUrl(`${API_BASE_URL}/templates/preview/${req.templateFile}`)}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-primary bg-surface-container-low hover:bg-primary hover:text-on-primary rounded-lg transition-colors">
+                                <Eye className="w-3 h-3" /> Xem mẫu
+                              </button>
+                              <a href={`${API_BASE_URL}/templates/download/${req.templateFile}`}
+                                download={req.templateFile} target="_blank" rel="noreferrer"
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-on-surface-variant bg-surface-container-low hover:bg-surface-container rounded-lg transition-colors">
+                                <Download className="w-3 h-3" /> Tải mẫu
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Thẻ lưu ý ── */}
+                {extraReqs.length > 0 && (
+                  <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+                    <p className="text-xs font-black uppercase tracking-widest text-amber-700 mb-3">ℹ️ Lưu ý & Giấy tờ bổ sung</p>
+                    {xuatTrinhReqs.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-[10px] font-bold text-amber-600 uppercase mb-2">👁 Xuất trình tại quầy</p>
+                        <ul className="space-y-1.5">
+                          {xuatTrinhReqs.map(r => (
+                            <li key={r.id} className="flex items-start gap-2 text-xs text-amber-800">
+                              <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                              <span><span className="font-semibold">{r.docName}</span>
+                                {r.docDescription && <span className="text-amber-700"> — {r.docDescription.replace('Xuất trình bản gốc. ', '')}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {optionalReqs.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-bold text-amber-600 uppercase mb-2">📎 Tùy trường hợp</p>
+                        <ul className="space-y-1.5">
+                          {optionalReqs.map(r => (
+                            <li key={r.id} className="flex items-start gap-2 text-xs text-amber-800">
+                              <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                              <span><span className="font-semibold">{r.docName}</span>
+                                {r.docDescription && <span className="text-amber-700"> — {r.docDescription}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
+                )}
 
-            <div className="flex items-start gap-4 p-5 bg-surface-container-low rounded-xl border border-outline-variant/20">
-              <span className="material-symbols-outlined text-primary text-[22px] shrink-0 mt-0.5">info</span>
-              <p className="text-sm text-on-surface-variant leading-relaxed">
-                Vui lòng chuẩn bị <span className="font-bold text-on-surface">bản quét (scan) hoặc ảnh chụp rõ nét</span> của các tài liệu trên. Hệ thống hỗ trợ định dạng <span className="font-bold text-primary">.pdf, .jpg, .png</span>.
-              </p>
-            </div>
+                <div className="flex items-start gap-3 p-4 bg-surface-container-low rounded-xl border border-outline-variant/20">
+                  <span className="material-symbols-outlined text-primary text-[20px] shrink-0 mt-0.5">info</span>
+                  <p className="text-xs text-on-surface-variant leading-relaxed">
+                    Chuẩn bị <span className="font-bold text-on-surface">bản quét hoặc ảnh chụp rõ nét</span> các giấy tờ trên. Hỗ trợ <span className="font-bold text-primary">.pdf, .jpg, .png</span>.
+                  </p>
+                </div>
+              </>
+            )
           </>
         )}
 
@@ -698,8 +744,14 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
               </div>
             </div>
 
+            {/* ── Upload bắt buộc ── */}
+            {submitReqs.length > 0 && (
+              <p className="text-xs font-black uppercase tracking-widest text-primary">
+                📋 Giấy tờ bắt buộc ({submitReqs.length})
+              </p>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {requirements.map((req, i) => {
+              {submitReqs.map((req, i) => {
                 const uploaded = uploadedDocs[req.id];
                 const isUploading = uploading[req.id];
                 const file = uploaded?.file;
@@ -842,6 +894,97 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                 );
               })}
             </div>
+
+            {/* ── Upload tùy chọn: xuất trình + bổ sung ── */}
+            {extraReqs.length > 0 && (
+              <>
+                <p className="text-xs font-black uppercase tracking-widest text-amber-700 mt-2">
+                  ℹ️ Giấy tờ xuất trình &amp; bổ sung (tùy chọn)
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {extraReqs.map((req, i) => {
+                    const uploaded = uploadedDocs[req.id];
+                    const isUploading = uploading[req.id];
+                    const file = uploaded?.file;
+                    const fileSizeKB = file ? Math.round(file.size / 1024) : 0;
+                    const fileSizeLabel = fileSizeKB >= 1024 ? `${(fileSizeKB / 1024).toFixed(1)} MB` : `${fileSizeKB} KB`;
+                    const isImage = file && /\.(jpg|jpeg|png|webp)$/i.test(file.name);
+                    const isPdf   = file && /\.pdf$/i.test(file.name);
+                    const previewObjectUrl = blobUrlsRef.current[req.id] ?? null;
+                    const label = isXuatTrinh(req) ? '👁 Xuất trình' : '📎 Bổ sung';
+
+                    return (
+                      <div key={req.id}>
+                        <input type="file" accept="image/*,application/pdf,.doc,.docx"
+                          aria-label={`Tải lên: ${req.docName}`} className="hidden"
+                          ref={el => { fileInputsRef.current[req.id] = el; }}
+                          onChange={e => onFileChange(req, e)} />
+
+                        {isUploading ? (
+                          <div className="bg-amber-50 p-5 rounded-xl border border-amber-200 flex items-center gap-3">
+                            <RefreshCw className="w-5 h-5 animate-spin text-amber-500" />
+                            <p className="text-xs text-amber-700">Đang tải lên…</p>
+                          </div>
+                        ) : uploaded ? (
+                          <div className="bg-amber-50 rounded-xl border border-amber-200 overflow-hidden">
+                            {isImage && previewObjectUrl && (
+                              <img src={previewObjectUrl} alt={req.docName} className="w-full max-h-28 object-cover" />
+                            )}
+                            {isPdf && previewObjectUrl && (
+                              <div className="bg-amber-100 flex items-center justify-center py-2 gap-2 text-xs text-amber-700 border-b border-amber-200">
+                                <FileText className="w-3.5 h-3.5" />
+                                <a href={previewObjectUrl} target="_blank" rel="noreferrer" className="font-medium hover:underline flex items-center gap-1">
+                                  Xem PDF <ExternalLink className="w-3 h-3" />
+                                </a>
+                              </div>
+                            )}
+                            <div className="p-4 flex items-start gap-3">
+                              <CheckCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-amber-800 leading-tight">
+                                  <span className="text-[10px] bg-amber-200 text-amber-700 px-1.5 py-0.5 rounded-full mr-1">{label}</span>
+                                  {req.docName}
+                                </p>
+                                <p className="text-[10px] text-amber-600 mt-0.5">{file?.name} ({fileSizeLabel})</p>
+                              </div>
+                              <div className="flex gap-1 shrink-0">
+                                <button onClick={() => handleFilePick(req.id)} className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-lg">
+                                  <Upload className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={() => removeFile(req.id)} className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-lg">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div onClick={() => handleFilePick(req.id)}
+                            className="bg-amber-50 p-4 rounded-xl border-2 border-dashed border-amber-200 hover:border-amber-400 transition-colors cursor-pointer">
+                            <div className="flex items-start gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 text-amber-600">
+                                <span className="material-symbols-outlined text-[16px]">upload_file</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-amber-800 leading-tight">
+                                  <span className="text-[10px] bg-amber-200 text-amber-700 px-1.5 py-0.5 rounded-full mr-1">{label}</span>
+                                  {req.docName}
+                                </p>
+                                {req.docDescription && (
+                                  <p className="text-[10px] text-amber-600 mt-0.5 leading-relaxed">
+                                    {req.docDescription.replace('Xuất trình bản gốc. ', '')}
+                                  </p>
+                                )}
+                                <p className="text-[10px] text-amber-500 mt-1">Tùy chọn — PDF, JPG, PNG</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
             {/* Contact info */}
             <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 p-6">
