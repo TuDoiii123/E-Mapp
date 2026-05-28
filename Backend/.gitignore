@@ -6,6 +6,7 @@ data/*
 data/templates/*
 !data/templates/*.doc
 !data/templates/*.docx
+!data/templates/*.pdf
 !data/templates/README.md
 !data/pdf_cache/
 # RAG data
