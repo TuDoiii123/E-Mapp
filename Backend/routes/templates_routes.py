@@ -77,7 +77,7 @@ def _warmup_pdf_cache():
         'mau-thong-bao-thay-doi-noi-dung-dkdn.docx',
         # .docx — Giao thông
         'mau-don-de-nghi-cap-doi-gplx.docx',
-        'mau-khai-dang-ky-xe-co-gioi.docx',
+        'mau-to-khai-dang-ky-xe-may-lan-dau.docx',
         # .docx — BHYT / BHXH
         'mau-to-khai-cap-the-bao-hiem-y-te.docx',
         'mau-TK1-TS-to-khai-tham-gia-bhxh-bhyt.docx',
@@ -94,6 +94,8 @@ def _warmup_pdf_cache():
         'mau-to-khai-dang-ky-xe-may-lan-dau.docx',
         # .docx — Hộ tịch
         'mau-to-khai-dang-ky-nuoi-con-nuoi.docx',
+        # .docx — Chung
+        'mau-giay-uy-quyen.docx',
         # .docx — Khác
         'mau-ban-khai-ca-nhan.docx',
         # .doc (OLE2) — win32com handles these
