@@ -37,6 +37,7 @@ export interface Requirement {
   isRequired: boolean;
   docType: 'original' | 'copy' | 'certified_copy';
   orderIndex: number;
+  templateFile?: string;
 }
 
 export interface ProcedureListResponse {
