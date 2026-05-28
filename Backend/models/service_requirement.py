@@ -14,42 +14,79 @@ from models.db import db
 _RAW_ID_RE = re.compile(r'^\d+\.\d+-req-\d+$')
 
 def _is_junk_item(r: dict) -> bool:
-    """Trả True nếu item này là header / đoạn hướng dẫn, không phải giấy tờ thực."""
-    name   = (r.get('docName') or '').strip()
+    """
+    Trả True nếu item này là header / đoạn hướng dẫn / điều kiện, không phải giấy tờ thực.
+    Áp dụng cả cho clean lẫn raw records.
+    """
+    name    = (r.get('docName') or '').strip()
     no_desc = not (r.get('docDescription') or '').strip()
     if not name:
         return True
-    # Nhãn tiêu đề kết thúc ':' hoặc ';'
-    if (name.endswith(':') or name.endswith(';')) and no_desc:
-        return True
-    # Bullet point hướng dẫn
-    if name.startswith('+') and no_desc:
-        return True
-    # Đoạn văn pháp lý dài (> 120 ký tự, không có mô tả riêng)
-    if len(name) > 120 and no_desc:
-        return True
-    # Câu hướng dẫn quy trình
-    instruction_prefixes = (
-        'Trường hợp ', 'Cá nhân có quyền', 'Nếu bên ',
-        'Đối với giấy tờ nộp', 'Đối với giấy tờ xuất',
-        'Người yêu cầu đăng ký hộ tịch', 'Người tiếp nhận có trách nhiệm',
+
+    # ── Tên bắt đầu bằng từ khoá giấy tờ → KHÔNG bao giờ là rác ─────────────
+    _DOC_PREFIXES = (
+        'Tờ khai ', 'Đơn đề nghị', 'Đơn xin ', 'Đơn yêu cầu',
+        'Giấy chứng ', 'Giấy khai ', 'Phiếu ', 'Bản khai ',
     )
-    if no_desc and any(name.startswith(p) for p in instruction_prefixes):
+    if any(name.startswith(p) for p in _DOC_PREFIXES):
+        return False
+
+    # ── Nhãn tiêu đề kết thúc ':' hoặc ';' ────────────────────────────────────
+    if name.endswith(':') or name.endswith(';'):
         return True
+
+    # ── Bullet point hướng dẫn ─────────────────────────────────────────────────
+    if name.startswith('+'):
+        return True
+
+    # ── Câu điều kiện / hướng dẫn — luôn là rác dù có description hay không ───
+    always_junk_prefixes = (
+        'Trường hợp ',           # "Trường hợp người yêu cầu đã ly hôn..."
+        'Nếu bên ',              # "Nếu bên kết hôn là người nước ngoài..."
+        'Người có yêu cầu ',     # "Người có yêu cầu cấp Giấy xác nhận..."
+        'Công dân Việt Nam đã ', # "Công dân Việt Nam đã ly hôn..."
+        'Cá nhân có quyền',      # "Cá nhân có quyền lựa chọn..."
+        'Lưu ý',                 # "Lưu ý:" / "Lưu ý :"
+        'Giấy tờ phải nộp',      # section header
+        'Giấy tờ phải xuất trình', # section header
+        'Người tiếp nhận có trách nhiệm',
+    )
+    if any(name.startswith(p) for p in always_junk_prefixes):
+        return True
+
+    # ── Tên quá dài có chứa điều kiện nộp trực tuyến ─────────────────────────
+    name_lower = name.lower()
+    if len(name) > 100 and ('(nếu người có yêu cầu' in name_lower
+                             or '(do người yêu cầu' in name_lower
+                             or 'theo hình thức trực tuyến' in name_lower):
+        return True
+
+    # ── Đoạn văn dài không có mô tả (chỉ áp dụng khi không có desc) ──────────
+    if no_desc:
+        if len(name) > 120:
+            return True
+        if any(name.startswith(p) for p in (
+            'Đối với giấy tờ nộp', 'Đối với giấy tờ xuất',
+            'Người yêu cầu đăng ký hộ tịch',
+        )):
+            return True
+
     return False
 
 
 def _prefer_clean(rows: list[dict]) -> list[dict]:
     """
-    Nếu có cả 'clean' lẫn 'raw' requirements cho cùng service_id:
-      → chỉ trả về phần clean (ID không theo dạng số).
-    Nếu chỉ có raw:
-      → lọc bỏ các item rác (header, đoạn hướng dẫn pháp lý).
+    Ưu tiên 'clean' records (ID không theo pattern raw) nhưng áp dụng junk-filter
+    cho cả hai bộ. Nếu sau khi lọc clean còn ít hơn 2 items → fallback sang raw.
     """
     clean = [r for r in rows if not _RAW_ID_RE.match(r['id'])]
     raw   = [r for r in rows if     _RAW_ID_RE.match(r['id'])]
+
     if clean:
-        return clean          # Ưu tiên bộ clean
+        filtered_clean = [r for r in clean if not _is_junk_item(r)]
+        if len(filtered_clean) >= 1:
+            return filtered_clean
+        # Bộ clean toàn rác → fallback sang raw
     return [r for r in raw if not _is_junk_item(r)]
 
 # ── Dữ liệu mặc định theo loại thủ tục ───────────────────────────────────────
