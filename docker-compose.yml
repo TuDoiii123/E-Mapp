@@ -1,0 +1,45 @@
+services:
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/emapp-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  backend:
+    image: ${DOCKERHUB_USERNAME}/emapp-backend:latest
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL_NAME: ${GEMINI_MODEL_NAME}
+      GEMINI_MODEL_RAG: ${GEMINI_MODEL_RAG}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 --label-enable
+    environment:
+      WATCHTOWER_CLEANUP: "true"
