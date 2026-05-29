@@ -281,19 +281,22 @@ class User:
                 # build set clauses
                 set_parts = []
                 params = {'id': user_id}
+                CAMEL_TO_SNAKE = {
+                    'fullName':        'full_name',
+                    'cccdNumber':      'cccd_number',
+                    'dateOfBirth':     'date_of_birth',
+                    'isVNeIDVerified': 'is_vneid_verified',
+                    'vneidId':         'vneid_id',
+                    'avatarUrl':       'avatar_url',
+                }
+                ALLOWED_COLS = {
+                    'full_name', 'cccd_number', 'email', 'phone', 'role',
+                    'date_of_birth', 'is_vneid_verified', 'vneid_id', 'avatar_url',
+                }
                 for k, v in updates.items():
-                    col = k
-                    # map camelCase to snake_case
-                    if k == 'fullName':
-                        col = 'full_name'
-                    elif k == 'dateOfBirth':
-                        col = 'date_of_birth'
-                    elif k == 'isVNeIDVerified':
-                        col = 'is_vneid_verified'
-                    elif k == 'vneidId':
-                        col = 'vneid_id'
-                    elif k == 'avatarUrl':
-                        col = 'avatar_url'
+                    col = CAMEL_TO_SNAKE.get(k, k)
+                    if col not in ALLOWED_COLS:
+                        continue
                     params[col] = v
                     set_parts.append(f"{col} = :{col}")
 

@@ -17,6 +17,10 @@ _TEMPLATES_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), '..', 'data', 'templates')
 )
 
+_CACHE_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), '..', 'data', 'pdf_cache')
+)
+
 _ALLOWED_EXTS = {'doc', 'docx', 'pdf'}
 
 # Set các file đang được convert ngầm (tránh chạy song song)
@@ -232,19 +236,27 @@ def preview_template(filename: str):
 
     # Thử chuyển đổi Word → PDF
     if ext in ('doc', 'docx'):
+        stem = fn.rsplit('.', 1)[0]
+
+        # 1. Kiểm tra cache trực tiếp theo pattern <stem>_*.pdf (không cần gọi word_to_pdf)
+        import glob as _glob
+        cached = sorted(_glob.glob(os.path.join(_CACHE_DIR, f'{stem}_*.pdf')))
+        if cached:
+            log.debug(f'Cache hit (direct): {os.path.basename(cached[-1])}')
+            return send_file(cached[-1], mimetype='application/pdf')
+
+        # 2. Thử convert qua word_to_pdf
         try:
             from services.pdf_converter import word_to_pdf
             pdf_path = word_to_pdf(fpath)
             if pdf_path and os.path.exists(pdf_path):
                 log.debug(f'Serving PDF preview for {fn}')
                 return send_file(pdf_path, mimetype='application/pdf')
-            # Chưa có cache → bắt đầu convert ngầm, trả Word trước
-            # Client sẽ retry; lần sau sẽ có PDF từ cache
             _schedule_bg_convert(fpath)
         except Exception as e:
             log.warning(f'PDF conversion failed for {fn}: {e}')
 
-        # Fallback: trả về file Word inline (browser có thể render hoặc download)
+        # 3. Fallback: trả về file Word inline
         mime = ('application/msword' if ext == 'doc'
                 else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         log.debug(f'Serving Word fallback for {fn}')

@@ -1,14 +1,16 @@
 services:
   frontend:
-    image: ${DOCKERHUB_USERNAME}/emapp-frontend:latest
+    build:
+      context: ./Frontend
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3000:80"
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   backend:
-    image: ${DOCKERHUB_USERNAME}/emapp-backend:latest
+    build:
+      context: ./Backend
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "8888:8888"
