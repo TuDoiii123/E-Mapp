@@ -72,7 +72,7 @@ export const getApplications = (params: Record<string, string> = {}) => {
   return apiFull(`/applications/admin/list${q ? '?' + q : ''}`);
 };
 export const getApplicationDetail = (id: string) =>
-  apiFull(`/applications/${id}`);
+  apiFull(`/applications/${id}/online`);
 export const getMyApplications = (params: Record<string, string> = {}) => {
   const q = new URLSearchParams(params).toString();
   return apiFull(`/applications/my${q ? '?' + q : ''}`);
