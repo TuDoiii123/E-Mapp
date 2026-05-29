@@ -18,7 +18,7 @@ def get_nearby_services():
         radius = request.args.get('radius', 10)
         category = request.args.get('category')
         level = request.args.get('level')
-        limit = request.args.get('limit', 20)
+        limit = request.args.get('limit', 200)
         
         if not lat or not lng:
             return jsonify({

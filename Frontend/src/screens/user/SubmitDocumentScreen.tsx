@@ -149,6 +149,25 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
 
   // Template preview modal
   const [previewUrl,    setPreviewUrl]    = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const previewBlobRef = useRef<string | null>(null);
+
+  const openPreview = useCallback(async (filename: string) => {
+    setPreviewLoading(true);
+    setPreviewUrl('loading');
+    try {
+      const resp = await fetch(`${API_BASE_URL}/templates/preview/${filename}`);
+      const blob = await resp.blob();
+      if (previewBlobRef.current) URL.revokeObjectURL(previewBlobRef.current);
+      const blobUrl = URL.createObjectURL(blob);
+      previewBlobRef.current = blobUrl;
+      setPreviewUrl(blobUrl);
+    } catch {
+      setPreviewUrl(`${API_BASE_URL}/templates/preview/${filename}`);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, []);
 
   const svc              = services.find(s => s.id === selectedService);
 
@@ -193,7 +212,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
 
   // ── Phân loại 3 nhóm giấy tờ ──────────────────────────────────────────────
   const cleanedReqs   = requirements.filter(r => !isJunkReq(r));
-  const isXuatTrinh   = (r: Requirement) => (r.docDescription || '').startsWith('Xuất trình');
+  const isXuatTrinh   = (r: Requirement) => (r.docDescription || '').toLowerCase().startsWith('xuất trình');
   const submitReqs    = cleanedReqs.filter(r => r.isRequired && !isXuatTrinh(r));
   const xuatTrinhReqs = cleanedReqs.filter(r => isXuatTrinh(r));
   const optionalReqs  = cleanedReqs.filter(r => !r.isRequired && !isXuatTrinh(r));
@@ -695,7 +714,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                           {req.templateFile && (
                             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-outline-variant/10">
                               <button
-                                onClick={() => setPreviewUrl(`${API_BASE_URL}/templates/preview/${req.templateFile}`)}
+                                onClick={() => openPreview(req.templateFile!)}
                                 className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-primary bg-surface-container-low hover:bg-primary hover:text-on-primary rounded-lg transition-colors">
                                 <Eye className="w-3 h-3" /> Xem mẫu
                               </button>
@@ -1259,21 +1278,35 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
           <div className="flex items-center justify-between px-4 py-3 bg-[#1a0003] text-white">
             <p className="text-sm font-bold">Xem trước mẫu đơn</p>
             <div className="flex items-center gap-3">
-              <a href={previewUrl} target="_blank" rel="noreferrer"
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors">
-                <ExternalLink className="w-3.5 h-3.5" /> Mở tab mới
-              </a>
-              <button onClick={() => setPreviewUrl(null)}
+              {previewUrl !== 'loading' && (
+                <a href={previewUrl} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors">
+                  <ExternalLink className="w-3.5 h-3.5" /> Mở tab mới
+                </a>
+              )}
+              <button onClick={() => {
+                if (previewBlobRef.current) { URL.revokeObjectURL(previewBlobRef.current); previewBlobRef.current = null; }
+                setPreviewUrl(null);
+              }}
                 className="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
           </div>
-          <iframe
-            src={previewUrl}
-            className="flex-1 w-full border-0"
-            title="Template preview"
-          />
+          {previewLoading || previewUrl === 'loading' ? (
+            <div className="flex-1 flex items-center justify-center bg-gray-900">
+              <div className="flex flex-col items-center gap-3 text-white">
+                <RefreshCw className="w-8 h-8 animate-spin" />
+                <p className="text-sm">Đang tải mẫu đơn...</p>
+              </div>
+            </div>
+          ) : (
+            <iframe
+              src={previewUrl}
+              className="flex-1 w-full border-0"
+              title="Template preview"
+            />
+          )}
         </div>
       )}
 

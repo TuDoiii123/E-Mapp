@@ -12,15 +12,18 @@ import { mapAPI, DirectionsResult, RouteStep, SmartRecommendation } from '../../
 
 interface MapScreenProps { onNavigate: (screen: string, params?: any) => void; }
 
-const DEFAULT_LAT  = 21.0285;
+const DEFAULT_LAT  = 21.0285;  // Hà Nội — Hồ Hoàn Kiếm
 const DEFAULT_LNG  = 105.8542;
-const DEFAULT_ZOOM = 13;
+const DEFAULT_ZOOM = 12;
 
 const CATEGORY_CHIPS = [
-  { key: 'all', label: 'Tất cả' },
-  { key: 'ubnd', label: 'UBND' },
-  { key: 'police', label: 'Công an' },
-  { key: 'health', label: 'Y tế' },
+  { key: 'all',       label: 'Tất cả' },
+  { key: 'ubnd',      label: 'UBND' },
+  { key: 'police',    label: 'Công an' },
+  { key: 'health',    label: 'Y tế' },
+  { key: 'bhxh',      label: 'BHXH' },
+  { key: 'tax',       label: 'Thuế' },
+  { key: 'so-nganh',  label: 'Sở ngành' },
 ];
 
 const SMART_SERVICES = [
@@ -99,13 +102,14 @@ const fmtDist = (d?: number | null) =>
 // ── Component ─────────────────────────────────────────────────────────────────
 export function MapScreen({ onNavigate }: MapScreenProps) {
   // Map refs
-  const mapRef         = useRef<HTMLDivElement>(null);
-  const mapInstance    = useRef<L.Map | null>(null);
-  const markersMap     = useRef<Map<string, L.Marker>>(new Map());
-  const userMarkerRef  = useRef<L.Marker | null>(null);
-  const routeLayerRef  = useRef<L.FeatureGroup | null>(null);
-  const stepMarkersRef = useRef<L.Marker[]>([]);
-  const acTimer        = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapRef          = useRef<HTMLDivElement>(null);
+  const mapInstance     = useRef<L.Map | null>(null);
+  const markersMap      = useRef<Map<string, L.Marker>>(new Map());
+  const userMarkerRef   = useRef<L.Marker | null>(null);
+  const routeLayerRef   = useRef<L.FeatureGroup | null>(null);
+  const radiusCircleRef = useRef<L.Circle | null>(null);
+  const stepMarkersRef  = useRef<L.Marker[]>([]);
+  const acTimer         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   // Data
@@ -175,6 +179,30 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     }
     mapInstance.current.setView(ll, mapInstance.current.getZoom());
   }, [userLocation]);
+
+  // ── Radius circle — vẽ vòng tròn bán kính quanh vị trí người dùng ────────────
+  useEffect(() => {
+    if (!mapInstance.current || !mapReady) return;
+    const center = userLocation
+      ? [userLocation.lat, userLocation.lng] as L.LatLngExpression
+      : [DEFAULT_LAT, DEFAULT_LNG] as L.LatLngExpression;
+
+    if (radiusCircleRef.current) {
+      radiusCircleRef.current.setLatLng(center);
+      radiusCircleRef.current.setRadius(radius * 1000);
+    } else {
+      radiusCircleRef.current = L.circle(center, {
+        radius: radius * 1000,
+        color: '#3B82F6',
+        weight: 1.5,
+        opacity: 0.6,
+        fillColor: '#3B82F6',
+        fillOpacity: 0.06,
+        dashArray: '6 4',
+        interactive: false,
+      }).addTo(mapInstance.current);
+    }
+  }, [radius, userLocation, mapReady]);
 
   // ── Filtered offices (drive search filtering) ─────────────────────────────────
   const filteredOffices = searchQuery.trim()
@@ -330,6 +358,9 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
         userLocation?.lng ?? DEFAULT_LNG,
         radius,
         selectedCategory === 'all' ? undefined : selectedCategory,
+        undefined,
+        // limit tăng theo bán kính: 50km = toàn TP → lấy hết
+        radius >= 30 ? 500 : radius >= 15 ? 200 : 100,
       );
       if (res.success) setOffices(res.data.services);
     } finally { setLoading(false); }
@@ -788,13 +819,37 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
 
                 {/* Filters */}
                 <div className="px-4 pb-3 space-y-3 flex-shrink-0 border-b border-gray-100">
-                  {/* Radius */}
-                  <div className="flex items-center gap-3">
-                    <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider w-16 flex-shrink-0">Bán kính</span>
-                    <input type="range" min={1} max={20} value={radius}
+                  {/* Radius — preset buttons + slider */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Bán kính tìm kiếm</span>
+                      <span className="text-sm font-black text-primary">
+                        {radius >= 50 ? 'Toàn TP' : `${radius} km`}
+                      </span>
+                    </div>
+                    {/* Quick preset buttons */}
+                    <div className="flex gap-1.5 mb-2">
+                      {[
+                        { v: 2,  label: '2km' },
+                        { v: 5,  label: '5km' },
+                        { v: 10, label: '10km' },
+                        { v: 20, label: '20km' },
+                        { v: 50, label: 'Toàn TP' },
+                      ].map(({ v, label }) => (
+                        <button key={v} onClick={() => setRadius(v)}
+                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all border ${
+                            radius === v
+                              ? 'bg-primary text-white border-primary shadow-sm'
+                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-primary hover:text-primary'
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Fine-tune slider */}
+                    <input type="range" min={1} max={50} value={radius}
                       onChange={e => setRadius(Number(e.target.value))}
-                      className="flex-1 accent-primary h-1.5" />
-                    <span className="text-sm font-bold text-primary w-12 text-right">{radius} km</span>
+                      className="w-full accent-primary h-1.5" />
                   </div>
 
                   {/* Category chips */}

@@ -142,7 +142,7 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
     : rawReqs.filter(r => !isJunkItem(r));
 
   // ── Phân loại 3 nhóm rõ ràng ────────────────────────────────────────────────
-  const isXuatTrinh  = (r: Requirement) => (r.docDescription || '').startsWith('Xuất trình');
+  const isXuatTrinh  = (r: Requirement) => (r.docDescription || '').toLowerCase().startsWith('xuất trình');
   const submitReqs   = requirements.filter(r => r.isRequired && !isXuatTrinh(r));
   const xuatTrinhReqs = requirements.filter(r => isXuatTrinh(r));
   const optionalReqs = requirements.filter(r => !r.isRequired && !isXuatTrinh(r));
@@ -218,7 +218,7 @@ export function DocumentDetailScreen({ onNavigate, serviceId, params }: Document
                 { icon: <Clock className="w-4 h-4" />, label: 'Thời gian xử lý', value: procedure.timeFormatted, color: '#3b82f6' },
                 { icon: <Banknote className="w-4 h-4" />, label: 'Lệ phí', value: procedure.feeFormatted, color: procedure.feeColor ? '#059669' : '#b7131a' },
                 { icon: <Building2 className="w-4 h-4" />, label: 'Cấp thực hiện', value: procedure.implementingLevel === 'ward' ? 'Cấp xã/phường' : procedure.implementingLevel === 'district' ? 'Cấp huyện' : 'Cấp tỉnh', color: '#8b5cf6' },
-                { icon: <FileText className="w-4 h-4" />, label: 'Số giấy tờ', value: `${requirements.length} loại (${required.length} bắt buộc)`, color: '#f59e0b' },
+                { icon: <FileText className="w-4 h-4" />, label: 'Số giấy tờ', value: `${requirements.length} loại (${submitReqs.length} bắt buộc)`, color: '#f59e0b' },
               ].map(({ icon, label, value, color }) => (
                 <div key={label} className="bg-white rounded-xl p-4 border border-[#de9ca4]/15 flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
