@@ -64,8 +64,8 @@ export interface ServiceDetailResponse {
 }
 
 export const servicesAPI = {
-  getNearby: (lat: number, lng: number, radius = 10, category?: string, level?: string) => {
-    const params = new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius) });
+  getNearby: (lat: number, lng: number, radius = 10, category?: string, level?: string, limit = 200) => {
+    const params = new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius), limit: String(limit) });
     if (category) params.append('category', category);
     if (level) params.append('level', level);
     return apiRequest<NearbyServicesResponse>(`/services/nearby?${params}`);
