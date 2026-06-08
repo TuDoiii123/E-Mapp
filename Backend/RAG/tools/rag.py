@@ -87,7 +87,7 @@ def _download_missing_files(path: Path) -> None:
 def load_model():
     if not _model_is_ready(_MODEL_PATH):
         _download_missing_files(_MODEL_PATH)
-    model = SentenceTransformer(str(_MODEL_PATH))
+    model = SentenceTransformer(str(_MODEL_PATH), model_kwargs={"torch_dtype": "float16"})
     return model
 
 
@@ -111,7 +111,8 @@ def get_embedding(text: str) -> list:
     return model.encode(text, normalize_embeddings=True).tolist()
 
 
-def _query_collection(collection, query_embed: list, n: int = 5) -> list[dict]:
+def _query_collection(collection, query_embed: list, n_results: int = 5, query: str = "") -> list[dict]:
+    n = n_results
     """Query một collection, trả về list {cosine, metadata}."""
     try:
         results = collection.query(
@@ -131,7 +132,7 @@ def _query_collection(collection, query_embed: list, n: int = 5) -> list[dict]:
     if embeddings and len(embeddings) == len(metadatas):
         try:
             log_retrieval_metrics(
-                query="(multi-collection)",
+                query=query,
                 query_vec=query_embed,
                 doc_embeddings=embeddings,
                 doc_metadatas=metadatas,
@@ -163,7 +164,7 @@ def search_project_documents(query: str):
         col = _get_collection(str(chroma_path), col_name)
         if col is None:
             continue
-        hits = _query_collection(col, query_embed, n_results=5)
+        hits = _query_collection(col, query_embed, n_results=5, query=query)
         for h in hits:
             h["source"] = col_name
         all_hits.extend(hits)

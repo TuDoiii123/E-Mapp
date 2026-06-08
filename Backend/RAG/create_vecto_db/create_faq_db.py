@@ -104,7 +104,7 @@ def create_faq_embeddings(model: SentenceTransformer, texts: list[str]) -> list[
         logging.info(f"Tạo embedding cho {len(texts)} câu hỏi...")
         t1 = time.time()
         # normalize_embeddings=True: unit vector → cosine search chính xác hơn
-        embeddings = model.encode(texts, show_progress_bar=True, normalize_embeddings=True)
+        embeddings = model.encode(texts, show_progress_bar=True, normalize_embeddings=True, batch_size=32)
         t2 = time.time()
         logging.info(f"Tạo embeddings xong trong {t2 - t1:.2f}s")
         return embeddings.tolist()
@@ -191,9 +191,7 @@ if __name__ == "__main__":
 
     model = load_embedding_model(MODEL_PATH)
 
-    # Embed "câu hỏi + câu trả lời" để tăng semantic coverage
-    combined = (df["title"] + " " + df["answer_text"].fillna("")).tolist()
-    embeds = create_faq_embeddings(model, combined)
+    embeds = create_faq_embeddings(model, df["title"].tolist())
 
     if embeds:
         store_in_chromadb(DB_PATH, COLLECTION, df, embeds, batch_size=4000)
