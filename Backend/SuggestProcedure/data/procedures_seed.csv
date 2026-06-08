@@ -1,0 +1,101 @@
+﻿ID,NAME
+1,Cấp căn cước công dân lần đầu
+2,Đổi căn cước công dân
+3,Cấp lại căn cước công dân
+4,Đăng ký khai sinh cho trẻ em
+5,Đăng ký khai sinh quá hạn
+6,Đăng ký khai tử
+7,Đăng ký kết hôn
+8,Đăng ký lại kết hôn
+9,Đăng ký ly hôn
+10,"Đăng ký nhận cha, mẹ, con"
+11,Cấp hộ chiếu phổ thông lần đầu
+12,Cấp lại hộ chiếu phổ thông
+13,Gia hạn hộ chiếu
+14,Đăng ký thường trú
+15,Xóa đăng ký thường trú
+16,Đăng ký tạm trú
+17,Cấp giấy xác nhận thường trú
+18,Cấp sổ hộ khẩu
+19,Tách sổ hộ khẩu
+20,Đăng ký xe máy lần đầu
+21,Đăng ký xe ô tô lần đầu
+22,Sang tên xe máy
+23,Sang tên xe ô tô
+24,Cấp biển số xe
+25,Cấp giấy phép lái xe hạng B1 lần đầu
+26,Cấp giấy phép lái xe hạng B2 lần đầu
+27,Đổi giấy phép lái xe
+28,Cấp lại giấy phép lái xe do mất
+29,Cấp giấy chứng nhận quyền sử dụng đất (sổ đỏ)
+30,Cấp lại giấy chứng nhận quyền sử dụng đất
+31,Chuyển nhượng quyền sử dụng đất
+32,Tặng cho quyền sử dụng đất
+33,Thừa kế quyền sử dụng đất
+34,Thế chấp quyền sử dụng đất
+35,Đính chính giấy chứng nhận quyền sử dụng đất
+36,Cấp phép xây dựng nhà ở riêng lẻ
+37,Cấp phép xây dựng công trình
+38,Điều chỉnh giấy phép xây dựng
+39,Thủ tục đăng ký kinh doanh hộ cá thể
+40,Cấp giấy chứng nhận đăng ký hộ kinh doanh
+41,Thay đổi nội dung đăng ký hộ kinh doanh
+42,Chấm dứt hoạt động hộ kinh doanh
+43,Thành lập doanh nghiệp tư nhân
+44,Thành lập công ty TNHH một thành viên
+45,Thành lập công ty TNHH hai thành viên trở lên
+46,Thành lập công ty cổ phần
+47,Cấp giấy chứng nhận đăng ký doanh nghiệp
+48,Đăng ký bổ sung ngành nghề kinh doanh
+49,Xác nhận tình trạng hôn nhân
+50,Cấp giấy xác nhận cư trú
+51,Xác nhận lý lịch tư pháp
+52,Cấp phiếu lý lịch tư pháp số 1
+53,Cấp phiếu lý lịch tư pháp số 2
+54,Công chứng hợp đồng chuyển nhượng bất động sản
+55,Công chứng hợp đồng tặng cho tài sản
+56,Công chứng di chúc
+57,Công chứng văn bản thỏa thuận phân chia di sản
+58,Cấp giấy phép lao động cho người nước ngoài
+59,Gia hạn giấy phép lao động
+60,Đăng ký bảo hiểm xã hội lần đầu
+61,Tham gia bảo hiểm y tế hộ gia đình
+62,Cấp thẻ bảo hiểm y tế
+63,Đổi thẻ bảo hiểm y tế
+64,Giải quyết chế độ thai sản
+65,Giải quyết chế độ ốm đau
+66,Giải quyết chế độ tai nạn lao động
+67,Giải quyết chế độ hưu trí
+68,Giải quyết chế độ tử tuất
+69,Trợ cấp thất nghiệp
+70,Đăng ký dạy nghề và học nghề
+71,Cấp giấy phép hành nghề y tư nhân
+72,Cấp giấy phép hoạt động cơ sở khám bệnh
+73,Cấp chứng chỉ hành nghề dược
+74,Đăng ký thuốc
+75,Cấp giấy phép kinh doanh dịch vụ karaoke
+76,Cấp giấy phép kinh doanh lưu trú du lịch
+77,Cấp giấy phép kinh doanh khách sạn
+78,Cấp giấy phép kinh doanh nhà hàng
+79,Cấp phép kinh doanh xăng dầu
+80,Đăng ký nhãn hiệu hàng hóa
+81,Cấp giấy chứng nhận vệ sinh an toàn thực phẩm
+82,Kiểm tra vệ sinh an toàn thực phẩm
+83,Cấp phép vận tải hành khách bằng taxi
+84,Cấp phép vận tải hàng hóa
+85,Cấp giấy chứng nhận tập huấn lái xe taxi
+86,Cấp phép khai thác khoáng sản
+87,Cấp phép xả thải vào nguồn nước
+88,Phê duyệt báo cáo đánh giá tác động môi trường
+89,Cấp giấy phép khai thác tài nguyên nước
+90,Cấp giấy chứng nhận quyền sở hữu nhà ở
+91,Đăng ký biến động đất đai
+92,Đăng ký nhà ở xã hội
+93,Trợ cấp xã hội hàng tháng
+94,Cấp thẻ người khuyết tật
+95,Hỗ trợ hộ nghèo về nhà ở
+96,Cấp bằng tốt nghiệp THPT
+97,Xác nhận bằng tốt nghiệp
+98,Chứng thực bản sao từ bản chính
+99,Chứng thực chữ ký
+100,Hợp pháp hóa lãnh sự
