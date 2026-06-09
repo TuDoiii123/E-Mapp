@@ -271,18 +271,36 @@ def seed_agency_counters(db_session, text):
     return inserted
 
 
+# Một vài cơ quan được gán tải mẫu trung bình/đông để bản đồ có cả điểm
+# xanh (vắng), vàng (trung bình) và đỏ (đông) thay vì toàn bộ đều xanh.
+# (agency_id, total_waiting, total_serving, load_level)
+SAMPLE_LOAD_OVERRIDES = {
+    'tthcc-thanhhoa':     (18, 6, 'high'),    # đông — đỏ
+    'congan-thanhhoa':    (20, 8, 'high'),    # đông — đỏ
+    'cuc-thue-thanhhoa':  (9,  4, 'medium'),  # trung bình — vàng
+    'so-tu-phap':         (8,  3, 'medium'),  # trung bình — vàng
+    'ubnd-tp-thanhhoa':   (7,  3, 'medium'),  # trung bình — vàng
+}
+
+
 def seed_agency_queue_realtime(db_session, text):
-    """Seed agency_queue_realtime với trạng thái ban đầu (0 chờ, tải thấp)."""
+    """Seed agency_queue_realtime với tải mẫu — đa số vắng (xanh), một vài
+    cơ quan trung bình (vàng) hoặc đông (đỏ) để bản đồ có đủ 3 màu."""
     agency_ids = [row[0] for row in AGENCY_COUNTERS]
     inserted = 0
     for agency_id in agency_ids:
+        waiting, serving, level = SAMPLE_LOAD_OVERRIDES.get(agency_id, (0, 0, 'low'))
         try:
             db_session.execute(text('''
                 INSERT INTO public.agency_queue_realtime
                     (agency_id, total_waiting, total_serving, load_level, updated_at)
-                VALUES (:agency_id, 0, 0, 'low', now())
-                ON CONFLICT (agency_id) DO NOTHING
-            '''), {'agency_id': agency_id})
+                VALUES (:agency_id, :waiting, :serving, :level, now())
+                ON CONFLICT (agency_id) DO UPDATE SET
+                    total_waiting = EXCLUDED.total_waiting,
+                    total_serving = EXCLUDED.total_serving,
+                    load_level    = EXCLUDED.load_level,
+                    updated_at    = now()
+            '''), {'agency_id': agency_id, 'waiting': waiting, 'serving': serving, 'level': level})
             inserted += 1
         except Exception:
             db_session.rollback()

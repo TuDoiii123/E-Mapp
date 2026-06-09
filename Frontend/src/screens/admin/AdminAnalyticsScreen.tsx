@@ -21,30 +21,29 @@ interface Props { onNavigate: (s: string, p?: any) => void }
 const PRIMARY = '#8f000d';
 const GOLD    = '#fcd400';
 
-// ── Weekly bar chart (div-based, no library) ──────────────────────────────────
-const DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+// ── Time-series bar chart (real data from /api/admin/stats) ───────────────────
+interface TsPoint { date: string; applications: number; appointments: number }
+const WD = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 
-/**
- * Derive simulated weekly distribution from totalApplications.
- * Weights mirror typical Mon-Sun patterns (peak mid-week, low weekend).
- * TODO: replace with GET /api/admin/stats/weekly when endpoint exists.
- */
-function weeklyBars(total: number) {
-  const weights = [0.18, 0.20, 0.16, 0.22, 0.14, 0.06, 0.04];
-  return DAYS.map((day, i) => ({ day, count: Math.round(total * weights[i]) }));
+/** Gắn nhãn cho mỗi điểm dữ liệu: thứ trong tuần (≤7 ngày) hoặc dd/MM (dài hơn). */
+function labelFor(dateStr: string, compact: boolean): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return dateStr;
+  return compact ? WD[d.getDay()] : `${d.getDate()}/${d.getMonth() + 1}`;
 }
 
-function WeeklyBarChart({ total }: { total: number }) {
-  const [view, setView] = useState<'week' | 'month'>('week');
-  const bars = weeklyBars(view === 'week' ? total : total * 4);
-  const maxVal = Math.max(...bars.map(b => b.count), 1);
+function TimeSeriesChart({ data }: { data: TsPoint[] }) {
+  const [view, setView] = useState<'week' | 'all'>('week');
+  const points = view === 'week' ? data.slice(-7) : data;
+  const compact = points.length <= 7;
+  const maxVal = Math.max(...points.map(p => p.applications + p.appointments), 1);
 
   return (
     <div className="bg-white p-5 rounded-2xl shadow-sm">
-      <div className="flex justify-between items-center mb-5">
+      <div className="flex justify-between items-center mb-2">
         <h2 className="text-base font-bold text-gray-900">Lưu lượng hồ sơ theo thời gian</h2>
         <div className="flex gap-1">
-          {(['week', 'month'] as const).map(v => (
+          {(['week', 'all'] as const).map(v => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -54,32 +53,51 @@ function WeeklyBarChart({ total }: { total: number }) {
                   : 'text-[#9f364c]/50 hover:text-[#9f364c]'}`}
               style={view === v ? { borderBottomColor: PRIMARY } : undefined}
             >
-              {v === 'week' ? 'TUẦN' : 'THÁNG'}
+              {v === 'week' ? '7 NGÀY' : 'TẤT CẢ'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex items-end justify-between gap-2" style={{ height: 180 }}>
-        {bars.map(({ day, count }) => {
-          const pct = maxVal > 0 ? count / maxVal : 0;
-          const barH = Math.max(6, Math.round(pct * 140));
-          const bgH  = 140;
-          return (
-            <div key={day} className="flex flex-col items-center gap-2 flex-1">
-              <div className="w-full relative flex flex-col justify-end overflow-hidden group"
-                style={{ height: bgH, backgroundColor: `${PRIMARY}15`, borderRadius: 8 }}>
-                <div
-                  className="w-full transition-all duration-700 group-hover:opacity-80"
-                  style={{ height: barH, backgroundColor: PRIMARY, borderRadius: '8px 8px 0 0' }}
-                  title={`${day}: ${count.toLocaleString()} hồ sơ`}
-                />
-              </div>
-              <span className="text-[10px] font-bold text-gray-500">{day}</span>
-            </div>
-          );
-        })}
+      {/* Legend */}
+      <div className="flex items-center gap-4 mb-4 text-[11px] text-gray-500">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: PRIMARY }} /> Hồ sơ
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: GOLD }} /> Lịch hẹn
+        </span>
       </div>
+
+      {points.length === 0 ? (
+        <div className="h-[180px] flex items-center justify-center text-sm text-gray-400">
+          Chưa có dữ liệu trong khoảng thời gian này
+        </div>
+      ) : (
+        <div className="flex items-end justify-between gap-1.5" style={{ height: 180 }}>
+          {points.map((p) => {
+            const bgH = 140;
+            const appH  = Math.round((p.applications / maxVal) * bgH);
+            const apptH = Math.round((p.appointments / maxVal) * bgH);
+            return (
+              <div key={p.date} className="flex flex-col items-center gap-2 flex-1 min-w-0">
+                <div className="w-full relative flex flex-col justify-end overflow-hidden group"
+                  style={{ height: bgH, backgroundColor: `${PRIMARY}10`, borderRadius: 8 }}>
+                  <div className="w-full transition-all duration-700 group-hover:opacity-80"
+                    style={{ height: apptH, backgroundColor: GOLD }}
+                    title={`${labelFor(p.date, false)} — ${p.appointments} lịch hẹn`} />
+                  <div className="w-full transition-all duration-700 group-hover:opacity-80"
+                    style={{ height: appH, backgroundColor: PRIMARY, borderRadius: '8px 8px 0 0' }}
+                    title={`${labelFor(p.date, false)} — ${p.applications} hồ sơ`} />
+                </div>
+                <span className="text-[10px] font-bold text-gray-500 truncate w-full text-center">
+                  {labelFor(p.date, compact)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -169,14 +187,6 @@ function KpiCard({
   );
 }
 
-// ── Category progress bars ────────────────────────────────────────────────────
-const CATEGORIES = [
-  { label: 'Hộ tịch & Tư pháp',     pct: 45 },
-  { label: 'Đất đai & Xây dựng',     pct: 28 },
-  { label: 'Doanh nghiệp & Đầu tư',  pct: 17 },
-  { label: 'Khác',                    pct: 10 },
-];
-
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function AdminAnalyticsScreen({ onNavigate }: Props) {
   const [stats,     setStats]     = useState<any>(null);
@@ -199,16 +209,25 @@ export function AdminAnalyticsScreen({ onNavigate }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Derived numbers ────────────────────────────────────────────────────────
+  // ── Derived numbers (dữ liệu thật từ backend) ──────────────────────────────
   const totalUsers = stats?.totalUsers     ?? 0;
   const totalApps  = stats?.totalApplications ?? 0;
   const pending    = stats?.pendingApplications ?? 0;
-  const approved   = Math.max(0, totalApps - pending);
-  const rejected   = Math.round(totalApps * 0.05);   // estimate 5% if no direct stat
-  const pendingAdj = Math.max(0, pending - rejected);
+  const approved   = stats?.approvedApplications ?? Math.max(0, totalApps - pending);
+  const rejected   = stats?.rejectedApplications ?? 0;
+  const pendingAdj = pending;
 
-  const onTimeRate = totalApps > 0
-    ? `${(((totalApps - pending) / totalApps) * 100).toFixed(1)}%`
+  const timeseries: TsPoint[] = stats?.timeseries ?? [];
+  const categories: { label: string; pct: number }[] =
+    (stats?.categoryBreakdown ?? []).map((c: any) => ({ label: c.label, pct: c.pct }));
+
+  const avgDays   = stats?.avgProcessingDays;
+  const avgValue  = (avgDays !== null && avgDays !== undefined) ? String(avgDays) : '–';
+
+  // Tỷ lệ xử lý đúng hạn = (đã duyệt) / (đã duyệt + từ chối) trong số hồ sơ đã xử lý xong
+  const resolved   = approved + rejected;
+  const onTimeRate = resolved > 0
+    ? `${((approved / resolved) * 100).toFixed(1)}%`
     : '–';
 
   return (
@@ -271,29 +290,26 @@ export function AdminAnalyticsScreen({ onNavigate }: Props) {
               <KpiCard
                 label="Tổng người dùng"
                 value={totalUsers.toLocaleString('vi-VN')}
-                delta="+12.5%"
+                deltaLabel="Tài khoản đã đăng ký"
                 accentColor={PRIMARY}
-                up
               />
               <KpiCard
                 label="Tổng hồ sơ tiếp nhận"
                 value={totalApps.toLocaleString('vi-VN')}
-                delta="+8.2%"
+                deltaLabel={`${pending.toLocaleString('vi-VN')} đang xử lý`}
                 accentColor="#705d00"
-                up
               />
               <KpiCard
                 label="Tỷ lệ xử lý đúng hạn"
                 value={onTimeRate}
-                deltaLabel="Ổn định"
+                deltaLabel={resolved > 0 ? `${approved}/${resolved} hồ sơ đã duyệt` : 'Chưa có dữ liệu'}
                 accentColor={PRIMARY}
               />
               <KpiCard
-                label="Thời gian trung bình"
-                value="1.5"
-                delta="-0.3đ"
+                label="Thời gian xử lý TB"
+                value={avgValue === '–' ? '–' : `${avgValue}đ`}
+                deltaLabel={avgValue === '–' ? 'Chưa đủ dữ liệu' : 'ngày / hồ sơ'}
                 accentColor="#705d00"
-                up={false}
               />
             </div>
 
@@ -301,7 +317,7 @@ export function AdminAnalyticsScreen({ onNavigate }: Props) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               {/* Bar chart — 2 / 3 */}
               <div className="md:col-span-2">
-                <WeeklyBarChart total={totalApps} />
+                <TimeSeriesChart data={timeseries} />
               </div>
 
               {/* Donut — 1 / 3 */}
@@ -318,7 +334,7 @@ export function AdminAnalyticsScreen({ onNavigate }: Props) {
                 <div>
                   <h3 className="text-lg font-bold text-gray-900">Báo cáo phân tích chuyên sâu</h3>
                   <p className="text-sm text-gray-400 mt-0.5">
-                    Dữ liệu tổng hợp từ 63 tỉnh thành trên toàn quốc
+                    Tổng hợp từ {totalApps.toLocaleString('vi-VN')} hồ sơ trên toàn hệ thống
                   </p>
                 </div>
                 <button
@@ -332,18 +348,31 @@ export function AdminAnalyticsScreen({ onNavigate }: Props) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left — image + quote */}
                 <div className="space-y-5">
-                  {/* Map placeholder */}
-                  <div className="relative overflow-hidden rounded-2xl h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                    <div className="text-center">
-                      <BarChart2 className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                      <p className="text-xs text-gray-400">Bản đồ phân tích địa lý</p>
-                    </div>
-                    <div className="absolute inset-0 opacity-5"
-                      style={{ backgroundColor: PRIMARY }} />
+                  {/* Top 5 thủ tục được nộp nhiều nhất */}
+                  <div className="rounded-2xl bg-gradient-to-br from-[#fff4f4] to-[#ffe9ea] p-4">
+                    <p className="text-[10px] uppercase font-semibold text-[#9f364c]/70 tracking-widest mb-3">
+                      Top thủ tục được nộp nhiều nhất
+                    </p>
+                    {(stats?.topProcedures ?? []).length === 0 ? (
+                      <p className="text-xs text-gray-400">Chưa có hồ sơ.</p>
+                    ) : (
+                      <ol className="space-y-2">
+                        {(stats?.topProcedures ?? []).map((p: any, i: number) => (
+                          <li key={p.id} className="flex items-center gap-3">
+                            <span className="flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-bold
+                              flex items-center justify-center text-white"
+                              style={{ backgroundColor: PRIMARY }}>{i + 1}</span>
+                            <span className="text-xs text-gray-700 flex-1 truncate" title={p.name}>{p.name}</span>
+                            <span className="text-xs font-bold" style={{ color: PRIMARY }}>{p.count}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    )}
                   </div>
                   <p className="text-sm text-gray-500 leading-relaxed italic border-l-2 border-yellow-400 pl-4">
-                    "Hệ thống ghi nhận sự tăng trưởng mạnh mẽ trong việc sử dụng chữ ký số cá nhân
-                    tại các khu vực đô thị loại 1, chiếm 42% tổng lượng hồ sơ trực tuyến."
+                    {avgValue === '–'
+                      ? 'Hệ thống đang tổng hợp dữ liệu xử lý hồ sơ để đưa ra phân tích thời gian.'
+                      : `Thời gian xử lý trung bình mỗi hồ sơ là ${avgValue} ngày, với tỷ lệ duyệt đúng hạn đạt ${onTimeRate}.`}
                   </p>
                 </div>
 
@@ -353,7 +382,9 @@ export function AdminAnalyticsScreen({ onNavigate }: Props) {
                     Top lĩnh vực tiếp nhận
                   </h4>
                   <div className="space-y-4">
-                    {CATEGORIES.map(({ label, pct }) => (
+                    {categories.length === 0 ? (
+                      <p className="text-xs text-gray-400 py-4">Chưa có hồ sơ để thống kê theo lĩnh vực.</p>
+                    ) : categories.map(({ label, pct }) => (
                       <div key={label} className="space-y-1">
                         <div className="flex justify-between text-xs font-bold text-gray-700 mb-1">
                           <span>{label}</span>

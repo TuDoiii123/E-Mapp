@@ -1,12 +1,58 @@
-name: Build and Push Docker Images
+name: CI/CD
 
 on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
+
+# Hủy run cũ khi có push mới trên cùng nhánh/PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # ── CI: Quality gate — chạy trên cả push và pull_request ────────────────────
+  validate:
+    name: Validate build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Frontend: cài deps + build thật (bắt lỗi compile) ──────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: ./Frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: ./Frontend
+        run: npm run build
+
+      # ── Backend: kiểm tra cú pháp toàn bộ source (không cài torch/transformers) ──
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Syntax-check backend
+        working-directory: ./Backend
+        run: python -m compileall -q .
+
+  # ── CD: Build & push image — chỉ khi push lên master (bỏ qua PR) ────────────
   build-and-push:
+    name: Build and push Docker images
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
 
     steps:
@@ -22,12 +68,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Tag ngắn theo commit SHA để có thể rollback về phiên bản cũ
+      - name: Short SHA
+        id: vars
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Backend
         uses: docker/build-push-action@v5
         with:
           context: ./Backend
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/emapp-backend:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/emapp-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/emapp-backend:${{ steps.vars.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -36,7 +89,9 @@ jobs:
         with:
           context: ./Frontend
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/emapp-frontend:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/emapp-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/emapp-frontend:${{ steps.vars.outputs.sha }}
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
             VITE_GOOGLE_MAPS_API_KEY=${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}

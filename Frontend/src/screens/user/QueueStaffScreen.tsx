@@ -292,7 +292,7 @@ export function QueueStaffScreen({
         <Button
           className="w-full h-14 text-base font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl shadow-lg"
           onClick={callNext}
-          disabled={calling || !isOpen}>
+          isDisabled={calling || !isOpen}>
           {calling ? (
             <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
           ) : (

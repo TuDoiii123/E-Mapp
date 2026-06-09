@@ -21,6 +21,7 @@ export interface Appointment {
   fullName?: string;
   phone?: string;
   info?: string;
+  queueNumber?: number;
 }
 
 export interface ApiResponse<T> {

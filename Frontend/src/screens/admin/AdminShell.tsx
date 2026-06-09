@@ -7,6 +7,7 @@ import {
   FolderOpen, Users, MapPin, FileText, Bot, Settings,
   ShieldCheck, Bell, TrendingUp, Clock, RefreshCw,
   ChevronLeft, ChevronRight, BarChart3, AlertCircle,
+  Calendar, Star, Ticket,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import * as adminSvc from '../../services/adminService';
@@ -16,6 +17,10 @@ import { AdminLocationsScreen }      from './AdminLocationsScreen';
 import { AdminProceduresScreen }     from './AdminProceduresScreen';
 import { AdminChatbotScreen }        from './AdminChatbotScreen';
 import { AdminSystemScreen }         from './AdminSystemScreen';
+import { AdminAnalyticsScreen }      from './AdminAnalyticsScreen';
+import { AdminAppointmentsScreen }   from './AdminAppointmentsScreen';
+import { AdminEvaluationsScreen }    from './AdminEvaluationsScreen';
+import { AdminQueueManagementScreen } from './AdminQueueManagementScreen';
 
 interface Props { onNavigate: (screen: string, params?: any) => void }
 
@@ -26,7 +31,11 @@ type AdminPage =
   | 'locations'
   | 'procedures'
   | 'chatbot'
-  | 'system';
+  | 'system'
+  | 'analytics'
+  | 'appointments'
+  | 'evaluations'
+  | 'queue';
 
 const PAGE_META: Record<Exclude<AdminPage, 'home'>, { label: string }> = {
   applications: { label: 'Hồ sơ' },
@@ -35,6 +44,10 @@ const PAGE_META: Record<Exclude<AdminPage, 'home'>, { label: string }> = {
   procedures:   { label: 'Thủ tục' },
   chatbot:      { label: 'Chatbot AI' },
   system:       { label: 'Hệ thống' },
+  analytics:    { label: 'Thống kê & Báo cáo' },
+  appointments: { label: 'Lịch hẹn' },
+  evaluations:  { label: 'Đánh giá dịch vụ' },
+  queue:        { label: 'Hàng chờ' },
 };
 
 const P = '#8f000d';
@@ -117,6 +130,38 @@ function AdminHomeView({
       Icon: Settings,
       iconBg: 'bg-slate-50',
       iconColor: 'text-slate-600',
+    },
+    {
+      page: 'analytics' as AdminPage,
+      title: 'Thống kê',
+      desc: 'Biểu đồ & phân tích',
+      Icon: BarChart3,
+      iconBg: 'bg-rose-50',
+      iconColor: 'text-rose-600',
+    },
+    {
+      page: 'appointments' as AdminPage,
+      title: 'Lịch hẹn',
+      desc: 'Quản lý đặt lịch',
+      Icon: Calendar,
+      iconBg: 'bg-teal-50',
+      iconColor: 'text-teal-600',
+    },
+    {
+      page: 'evaluations' as AdminPage,
+      title: 'Đánh giá',
+      desc: 'Phản hồi dịch vụ',
+      Icon: Star,
+      iconBg: 'bg-amber-50',
+      iconColor: 'text-amber-600',
+    },
+    {
+      page: 'queue' as AdminPage,
+      title: 'Hàng chờ',
+      desc: 'Điều hành quầy',
+      Icon: Ticket,
+      iconBg: 'bg-cyan-50',
+      iconColor: 'text-cyan-600',
     },
   ];
 
@@ -344,6 +389,10 @@ export function AdminShell({ onNavigate }: Props) {
         {page === 'procedures'   && <AdminProceduresScreen   onNavigate={onNavigate} />}
         {page === 'chatbot'      && <AdminChatbotScreen      onNavigate={onNavigate} />}
         {page === 'system'       && <AdminSystemScreen       onNavigate={onNavigate} />}
+        {page === 'analytics'    && <AdminAnalyticsScreen    onNavigate={onNavigate} />}
+        {page === 'appointments' && <AdminAppointmentsScreen onNavigate={onNavigate} />}
+        {page === 'evaluations'  && <AdminEvaluationsScreen  onNavigate={onNavigate} />}
+        {page === 'queue'        && <AdminQueueManagementScreen onNavigate={onNavigate} />}
       </div>
     </div>
   );
