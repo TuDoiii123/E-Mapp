@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Button, Input, Label,
   Card as HCard, Avatar as HAvatar,
@@ -63,6 +63,49 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
   /* ── avatar state ───────────────────────────────── */
   const [avatarUploading, setAvatarUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  /* ── recent activity (hồ sơ gần đây) ────────────── */
+  type Activity = { id: string; title: string; status: string; at: string };
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [actLoading, setActLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await apiRequest<any>('/applications/my');
+        const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+        const items: Activity[] = list.slice(0, 5).map((a: any) => ({
+          id:     String(a.id),
+          title:  a.procedureName || a.serviceId || 'Hồ sơ dịch vụ công',
+          status: a.status || a.currentStatus || 'submitted',
+          at:     a.updatedAt || a.createdAt || a.submitted_at || '',
+        }));
+        if (alive) setActivities(items);
+      } catch {
+        if (alive) setActivities([]);
+      } finally {
+        if (alive) setActLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const STATUS_META: Record<string, { label: string; cls: string }> = {
+    draft:     { label: 'Bản nháp',     cls: 'bg-gray-100 text-gray-600' },
+    submitted: { label: 'Đã nộp',       cls: 'bg-blue-100 text-blue-700' },
+    in_review: { label: 'Đang xem xét', cls: 'bg-amber-100 text-amber-700' },
+    processing:{ label: 'Đang xử lý',   cls: 'bg-amber-100 text-amber-700' },
+    more_info: { label: 'Cần bổ sung',  cls: 'bg-orange-100 text-orange-700' },
+    need_info: { label: 'Cần bổ sung',  cls: 'bg-orange-100 text-orange-700' },
+    approved:  { label: 'Đã duyệt',     cls: 'bg-green-100 text-green-700' },
+    rejected:  { label: 'Từ chối',      cls: 'bg-red-100 text-red-700' },
+  };
+  const fmtDate = (s: string) => {
+    if (!s) return '';
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('vi-VN');
+  };
 
   /* ── helpers ────────────────────────────────────── */
   const showToast = (type: Toast['type'], msg: string) => {
@@ -276,13 +319,13 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
               Thông tin cá nhân
               {isEditing && (
                 <div className="flex space-x-2">
-                  <Button size="sm" variant="outline" onClick={handleCancel} disabled={isSaving}>
+                  <Button size="sm" variant="outline" onClick={handleCancel} isDisabled={isSaving}>
                     <X className="w-4 h-4" />
                   </Button>
                   <Button
                     size="sm"
                     onClick={handleSave}
-                    disabled={isSaving}
+                    isDisabled={isSaving}
                     className="bg-red-600 hover:bg-red-700 min-w-[72px]"
                   >
                     {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4 mr-1" />Lưu</>}
@@ -443,7 +486,7 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
                 <Button
                   onClick={handlePasswordChange}
                   className="w-full bg-red-600 hover:bg-red-700"
-                  disabled={pwSaving || !passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword}
+                  isDisabled={pwSaving || !passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword}
                 >
                   {pwSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                   Cập nhật mật khẩu
@@ -453,21 +496,36 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
           </CardContent>
         </Card>
 
-        {/* Recent Activity — placeholder */}
+        {/* Recent Activity — hồ sơ gần đây (dữ liệu thật) */}
         <Card>
           <CardHeader>
             <CardTitle>Hoạt động gần đây</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-sm">Đăng nhập</p>
-                  <p className="text-xs text-gray-500">{new Date().toLocaleDateString('vi-VN')}</p>
-                </div>
-                <Badge variant="secondary">Thành công</Badge>
+            {actLoading ? (
+              <div className="flex items-center gap-2 p-3 text-sm text-gray-500">
+                <Loader2 className="w-4 h-4 animate-spin" /> Đang tải...
               </div>
-            </div>
+            ) : activities.length === 0 ? (
+              <div className="p-3 text-sm text-gray-500">
+                Chưa có hồ sơ nào. Hãy nộp hồ sơ trực tuyến để theo dõi tiến độ tại đây.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activities.map((a) => {
+                  const meta = STATUS_META[a.status] || { label: a.status, cls: 'bg-gray-100 text-gray-600' };
+                  return (
+                    <div key={a.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="min-w-0 flex-1 pr-3">
+                        <p className="font-medium text-sm truncate" title={a.title}>{a.title}</p>
+                        <p className="text-xs text-gray-500">{fmtDate(a.at)}</p>
+                      </div>
+                      <Badge className={`flex-shrink-0 ${meta.cls}`}>{meta.label}</Badge>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

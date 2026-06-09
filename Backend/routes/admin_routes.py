@@ -561,13 +561,35 @@ def delete_procedure(proc_id: str):
 # 5. THỐNG KÊ TỔNG QUAN (PostgreSQL cho users/applications/tickets)
 # ════════════════════════════════════════════════════════════════════════════════
 
+# Nhãn tiếng Việt cho các nhóm thủ tục (procedures.category)
+_CATEGORY_LABELS = {
+    'civil':        'Hộ tịch & Tư pháp',
+    'justice':      'Tư pháp & Công chứng',
+    'land':         'Đất đai & Nhà ở',
+    'construction': 'Xây dựng',
+    'business':     'Doanh nghiệp & Đầu tư',
+    'transport':    'Giao thông vận tải',
+    'insurance':    'Bảo hiểm & Lao động',
+    'other':        'Khác',
+}
+
+# Các trạng thái coi là "đang xử lý" (pending)
+_PENDING_STATUSES = ('submitted', 'in_review', 'processing', 'more_info', 'need_info')
+
+
 @admin_bp.route('/stats', methods=['GET'])
 def admin_stats():
     err = _require_admin()
     if err:
         return err
     try:
-        # Users, applications, tickets từ PostgreSQL
+        # ── Tham số filter (mặc định 14 ngày gần nhất) ──────────────────────
+        try:
+            days = max(1, min(int(request.args.get('days', 14)), 90))
+        except (TypeError, ValueError):
+            days = 14
+
+        # ── Đếm tổng quan ───────────────────────────────────────────────────
         total_users = db.session.execute(
             text('SELECT COUNT(*) FROM public.users')
         ).scalar() or 0
@@ -576,9 +598,15 @@ def admin_stats():
             text('SELECT COUNT(*) FROM public.applications')
         ).scalar() or 0
 
-        pending_apps = db.session.execute(
-            text("SELECT COUNT(*) FROM public.applications WHERE status IN ('submitted', 'in_review')")
-        ).scalar() or 0
+        # ── Phân loại hồ sơ theo trạng thái (1 truy vấn) ────────────────────
+        status_rows = db.session.execute(
+            text('SELECT status, COUNT(*) FROM public.applications GROUP BY status')
+        ).fetchall()
+        status_breakdown = {(r[0] or 'unknown'): int(r[1]) for r in status_rows}
+
+        approved_apps = status_breakdown.get('approved', 0)
+        rejected_apps = status_breakdown.get('rejected', 0)
+        pending_apps  = sum(status_breakdown.get(s, 0) for s in _PENDING_STATUSES)
 
         tickets_today = db.session.execute(
             text("SELECT COUNT(*) FROM public.queue_tickets WHERE date = CURRENT_DATE")
@@ -588,6 +616,77 @@ def admin_stats():
             text("SELECT COUNT(*) FROM public.queue_tickets WHERE date = CURRENT_DATE AND status = 'waiting'")
         ).scalar() or 0
 
+        # ── Thời gian xử lý trung bình (ngày) ───────────────────────────────
+        # Khoảng cách giữa lần 'submitted' đầu tiên và lần kết thúc
+        # (approved/rejected) đầu tiên của mỗi hồ sơ — dựa trên lịch sử trạng thái.
+        avg_processing_days = db.session.execute(text('''
+            WITH spans AS (
+                SELECT application_id,
+                       MIN(created_at) FILTER (WHERE status = 'submitted')               AS started,
+                       MIN(created_at) FILTER (WHERE status IN ('approved','rejected'))  AS finished
+                FROM public.application_status_history
+                GROUP BY application_id
+            )
+            SELECT AVG(EXTRACT(EPOCH FROM (finished - started)) / 86400.0)
+            FROM spans
+            WHERE started IS NOT NULL AND finished IS NOT NULL AND finished >= started
+        ''')).scalar()
+        avg_processing_days = round(float(avg_processing_days), 1) if avg_processing_days is not None else None
+
+        # ── Chuỗi thời gian: hồ sơ + lịch hẹn theo ngày ─────────────────────
+        ts_rows = db.session.execute(text('''
+            SELECT d::date AS day,
+                   COALESCE(a.cnt, 0) AS apps,
+                   COALESCE(ap.cnt, 0) AS appts
+            FROM generate_series(CURRENT_DATE - (:days - 1) * INTERVAL '1 day',
+                                 CURRENT_DATE, INTERVAL '1 day') AS d
+            LEFT JOIN (
+                SELECT created_at::date AS day, COUNT(*) AS cnt
+                FROM public.applications
+                WHERE created_at >= CURRENT_DATE - (:days - 1) * INTERVAL '1 day'
+                GROUP BY 1
+            ) a ON a.day = d::date
+            LEFT JOIN (
+                SELECT date AS day, COUNT(*) AS cnt
+                FROM public.appointments
+                WHERE date >= CURRENT_DATE - (:days - 1) * INTERVAL '1 day'
+                GROUP BY 1
+            ) ap ON ap.day = d::date
+            ORDER BY day
+        '''), {'days': days}).fetchall()
+        timeseries = [{
+            'date':         r[0].isoformat() if r[0] else None,
+            'applications': int(r[1]),
+            'appointments': int(r[2]),
+        } for r in ts_rows]
+
+        # ── Top 5 thủ tục được nộp nhiều nhất ───────────────────────────────
+        top_rows = db.session.execute(text('''
+            SELECT p.id, p.name, COUNT(a.id) AS cnt
+            FROM public.applications a
+            JOIN public.procedures p ON a.service_id = p.id
+            GROUP BY p.id, p.name
+            ORDER BY cnt DESC
+            LIMIT 5
+        ''')).fetchall()
+        top_procedures = [{'id': r[0], 'name': r[1], 'count': int(r[2])} for r in top_rows]
+
+        # ── Cơ cấu hồ sơ theo lĩnh vực (procedures.category) ────────────────
+        cat_rows = db.session.execute(text('''
+            SELECT COALESCE(p.category, 'other') AS cat, COUNT(a.id) AS cnt
+            FROM public.applications a
+            JOIN public.procedures p ON a.service_id = p.id
+            GROUP BY COALESCE(p.category, 'other')
+            ORDER BY cnt DESC
+        ''')).fetchall()
+        cat_total = sum(int(r[1]) for r in cat_rows) or 0
+        category_breakdown = [{
+            'key':   r[0],
+            'label': _CATEGORY_LABELS.get(r[0], r[0]),
+            'count': int(r[1]),
+            'pct':   round(int(r[1]) / cat_total * 100, 1) if cat_total else 0,
+        } for r in cat_rows]
+
         # Locations vẫn đọc từ file; Procedures đọc từ PostgreSQL
         locs = FileStorage.read_json('locations.json')
 
@@ -596,13 +695,20 @@ def admin_stats():
         ).scalar() or 0
 
         return jsonify({'success': True, 'data': {
-            'totalUsers':          int(total_users),
-            'totalLocations':      len(locs),
-            'totalProcedures':     int(total_procedures),
-            'totalApplications':   int(total_apps),
-            'pendingApplications': int(pending_apps),
-            'ticketsToday':        int(tickets_today),
-            'waitingToday':        int(waiting_today),
+            'totalUsers':           int(total_users),
+            'totalLocations':       len(locs),
+            'totalProcedures':      int(total_procedures),
+            'totalApplications':    int(total_apps),
+            'pendingApplications':  int(pending_apps),
+            'approvedApplications': int(approved_apps),
+            'rejectedApplications': int(rejected_apps),
+            'statusBreakdown':      status_breakdown,
+            'avgProcessingDays':    avg_processing_days,
+            'ticketsToday':         int(tickets_today),
+            'waitingToday':         int(waiting_today),
+            'timeseries':           timeseries,
+            'topProcedures':        top_procedures,
+            'categoryBreakdown':    category_breakdown,
         }})
     except Exception as e:
         log.error(f'admin_stats error: {e}', exc_info=True)
