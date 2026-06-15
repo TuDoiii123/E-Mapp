@@ -79,9 +79,12 @@ class NLUResult:
 class Intent:
     BOOK_APPOINTMENT = 'BOOK_APPOINTMENT'
     QUERY_SERVICE    = 'QUERY_SERVICE'
+    QUERY_PROCEDURE  = 'QUERY_PROCEDURE'
     CONFIRM          = 'CONFIRM'
     DENY             = 'DENY'
     CANCEL           = 'CANCEL'
+    GREETING         = 'GREETING'
+    SMALL_TALK       = 'SMALL_TALK'
     UNKNOWN          = 'UNKNOWN'
 
 
@@ -222,8 +225,9 @@ class NLUEngine:
     def _parse_gemini_response(self, raw: Dict) -> NLUResult:
         intent_str = (raw.get('intent') or Intent.UNKNOWN).upper()
         valid_intents = {
-            Intent.BOOK_APPOINTMENT, Intent.QUERY_SERVICE,
-            Intent.CONFIRM, Intent.DENY, Intent.CANCEL, Intent.UNKNOWN,
+            Intent.BOOK_APPOINTMENT, Intent.QUERY_SERVICE, Intent.QUERY_PROCEDURE,
+            Intent.CONFIRM, Intent.DENY, Intent.CANCEL,
+            Intent.GREETING, Intent.SMALL_TALK, Intent.UNKNOWN,
         }
         intent = intent_str if intent_str in valid_intents else Intent.UNKNOWN
 
