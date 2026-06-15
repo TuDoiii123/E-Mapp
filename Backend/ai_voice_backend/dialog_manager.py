@@ -1,20 +1,20 @@
 """
-Dialog Manager — State machine hội thoại đặt lịch hành chính multi-turn.
+Dialog Manager — FSM hội thoại đặt lịch hành chính multi-turn.
 
-Luồng:
-  GREETING
-      ↓
-  COLLECT_INTENT   → nhận biết thủ tục người dùng muốn làm
-      ↓
-  COLLECT_LOCATION → hỏi địa điểm (cơ quan/quận)
-      ↓
-  COLLECT_DATE     → hỏi ngày hẹn
-      ↓
-  SUGGEST_SLOTS    → gợi ý các khung giờ còn trống
-      ↓
-  CONFIRM          → xác nhận lại toàn bộ thông tin
-      ↓
-  DONE             → đặt lịch thành công, trả mã xác nhận
+FSM là deterministic và là nguồn chân lý duy nhất cho các thông tin đặt lịch
+(slots, tạo lịch hẹn, mã xác nhận). Thay vì trả thẳng câu trả lời cố định,
+FSM phát ra các `DialogAction` (loại hành động + dữ liệu) — `ResponseGenerator`
+(NLG, dùng Gemini, có fallback theo template + guardrail hậu kiểm) sẽ chuyển
+các action này thành câu trả lời tiếng Việt tự nhiên.
+
+Các bước (Step) tham khảo:
+  GREETING → COLLECT_INTENT → COLLECT_LOCATION → COLLECT_DATE
+           → SUGGEST_SLOTS → CONFIRM → DONE
+
+Bước hiện tại không còn được lưu cứng mà được `_recompute_step` suy ra lại từ
+state (slots đã có) ở mỗi turn. `process()` còn định tuyến các lượt off-script:
+câu hỏi về thủ tục → tra cứu RAG (`rag_bridge`), chào hỏi/small talk → trả lời
+small talk, và phát hiện đổi ý để tái tính lại bước phù hợp qua `_recompute_step`.
 
 Tại mỗi bước, Gemini có thể trích xuất nhiều entities cùng lúc
 (vd: "Tôi muốn làm CCCD ngày mai 9h tại UBND Hoàn Kiếm" → skip thẳng đến CONFIRM).
@@ -59,51 +59,6 @@ class DialogResponse:
     slots:       List[str]   = field(default_factory=list)
     state:       Optional[Dict] = None
     error:       Optional[str]  = None
-
-
-# ── Prompts per step ──────────────────────────────────────────────────────────
-
-_PROMPTS = {
-    Step.COLLECT_INTENT:   'Bạn muốn làm thủ tục gì? Ví dụ: làm căn cước công dân, đăng ký khai sinh.',
-    Step.COLLECT_LOCATION: 'Bạn muốn đến cơ quan nào? Ví dụ: UBND quận Hoàn Kiếm, UBND huyện Thạch Thành.',
-    Step.COLLECT_DATE:     'Bạn muốn đặt lịch ngày nào? (Ví dụ: ngày 25/07/2025 hoặc thứ 2 tuần sau)',
-    Step.SUGGEST_SLOTS:    'Tôi đang kiểm tra các khung giờ còn trống cho bạn...',
-    Step.CONFIRM:          'Bạn có muốn xác nhận đặt lịch không?',
-}
-
-_SERVICE_MAP = {
-    # CCCD
-    'căn cước': 'Làm căn cước công dân',
-    'cccd':     'Làm căn cước công dân',
-    'chứng minh nhân dân': 'Làm căn cước công dân',
-    'định danh': 'Làm căn cước công dân',
-    # Khai sinh
-    'khai sinh': 'Đăng ký khai sinh',
-    'sinh con':  'Đăng ký khai sinh',
-    'trẻ sơ sinh': 'Đăng ký khai sinh',
-    # Kết hôn
-    'kết hôn':  'Đăng ký kết hôn',
-    'hôn nhân': 'Đăng ký kết hôn',
-    'đám cưới': 'Đăng ký kết hôn',
-    # Hộ khẩu / Cư trú
-    'hộ khẩu':   'Đăng ký hộ khẩu',
-    'thường trú': 'Đăng ký thường trú',
-    'tạm trú':    'Đăng ký tạm trú',
-    'nhập khẩu':  'Đăng ký hộ khẩu',
-    # Hộ chiếu
-    'hộ chiếu': 'Làm hộ chiếu',
-    'passport': 'Làm hộ chiếu',
-    # GPLX
-    'giấy phép lái xe': 'Cấp giấy phép lái xe',
-    'bằng lái':  'Cấp giấy phép lái xe',
-    'bằng lái xe': 'Cấp giấy phép lái xe',
-    'gplx':      'Cấp giấy phép lái xe',
-    # Đất đai
-    'sổ đỏ':     'Cấp giấy chứng nhận quyền sử dụng đất',
-    'sổ hồng':   'Cấp giấy chứng nhận quyền sử dụng đất',
-    'đất đai':   'Cấp giấy chứng nhận quyền sử dụng đất',
-    'quyền sử dụng đất': 'Cấp giấy chứng nhận quyền sử dụng đất',
-}
 
 
 _SESSION_TTL_SECONDS = int(os.getenv('VOICE_SESSION_TTL', '3600'))  # 1 giờ mặc định
