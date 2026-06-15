@@ -26,6 +26,10 @@ STT_DEFAULT_MOCK = os.getenv('VOICE_STT_MOCK_TEXT', 'đặt lịch làm căn cư
 # ── Dialog ──────────────────────────────────────────────────────────────────
 DIALOG_TTS_ENABLED = os.getenv('VOICE_DIALOG_TTS', '0') == '1'
 
+# ── NLG (sinh câu trả lời tự nhiên) ─────────────────────────────────────────
+# Bật: dùng Gemini diễn đạt câu trả lời tự nhiên. Tắt: dùng template cố định.
+VOICE_NLG_ENABLED = os.getenv('VOICE_NLG_ENABLED', '1') == '1'
+
 # ── Session store ───────────────────────────────────────────────────────────
 SESSION_DIR      = os.path.join(os.path.dirname(__file__), '..', 'data')
 SESSION_FILE     = os.path.join(SESSION_DIR, 'voice_sessions.json')
