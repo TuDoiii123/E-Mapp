@@ -106,7 +106,45 @@ class ResponseGenerator:
                     'hãy cho mình biết thủ tục bạn cần.')
         return 'Xin lỗi, đã có lỗi xảy ra. Bạn thử lại giúp mình nhé.'
 
-    # ── Gemini (đặt stub ở task sau) ─────────────────────────────────────────
+    # ── Gemini ────────────────────────────────────────────────────────────
+    _SYSTEM = (
+        'Bạn là trợ lý đặt lịch hành chính công, nói chuyện qua GIỌNG NÓI với người dân.\n'
+        'Nhiệm vụ: viết MỘT câu trả lời tiếng Việt tự nhiên, thân thiện, NGẮN GỌN '
+        '(tối đa 2 câu), dựa trên Ý ĐỊNH và DỮ LIỆU bên dưới.\n'
+        'QUY TẮC BẮT BUỘC:\n'
+        '- Chỉ dùng số/mã/giờ/ngày có trong DỮ LIỆU. TUYỆT ĐỐI không bịa thêm.\n'
+        '- Nếu hợp lý, thừa nhận ngắn gọn điều người dùng vừa nói.\n'
+        '- Không markdown, không gạch đầu dòng, không emoji. Chỉ trả về câu nói.\n'
+    )
+
+    def _build_prompt(self, action: DialogAction, user_text: str,
+                      history: List[Dict]) -> str:
+        import json
+        hist = '\n'.join(f'  [{h["role"]}]: {h["content"]}' for h in history[-4:]) \
+            or '(chưa có)'
+        facts = json.dumps(action.facts, ensure_ascii=False)
+        return (
+            f'{self._SYSTEM}\n'
+            f'Ý ĐỊNH: {action.type}\n'
+            f'DỮ LIỆU: {facts}\n'
+            f'Lịch sử gần đây:\n{hist}\n'
+            f'Người dùng vừa nói: "{user_text}"\n\n'
+            f'Câu trả lời:'
+        )
+
     def _call_gemini(self, action: DialogAction, user_text: str,
                      history: List[Dict]) -> str:
-        return ''  # tạm thời: chưa gọi LLM (task sau sẽ cài)
+        from .config import GEMINI_API_KEY, GEMINI_MODEL
+        if not GEMINI_API_KEY:
+            return ''
+        try:
+            import google.generativeai as genai  # type: ignore
+            if self._model is None:
+                genai.configure(api_key=GEMINI_API_KEY)
+                self._model = genai.GenerativeModel(GEMINI_MODEL)
+            resp = self._model.generate_content(
+                self._build_prompt(action, user_text, history))
+            return (getattr(resp, 'text', None) or '').strip()
+        except Exception as e:  # noqa: BLE001
+            log.debug(f'[NLG][Gemini] {e}')
+            return ''

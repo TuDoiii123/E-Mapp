@@ -73,3 +73,27 @@ def test_guardrail_noop_when_facts_present():
     a = DialogAction(ActionType.BOOKING_SUCCESS, {'code': 'AP-1', 'queue': '3'})
     reply = 'Xong rồi, mã AP-1, số thứ tự 3 nhé.'
     assert g._guardrail(a, reply) == reply
+
+
+def test_uses_gemini_reply_when_enabled(monkeypatch):
+    g = _RG(enabled=True)
+    monkeypatch.setattr(g, '_call_gemini',
+                        lambda action, user_text, history: 'Dạ, bạn muốn ngày nào ạ?')
+    out = g.generate(DialogAction(ActionType.ASK_DATE), 'ờ', [])
+    assert out == 'Dạ, bạn muốn ngày nào ạ?'
+
+
+def test_falls_back_when_gemini_returns_empty(monkeypatch):
+    g = _RG(enabled=True)
+    monkeypatch.setattr(g, '_call_gemini', lambda action, user_text, history: '')
+    out = g.generate(DialogAction(ActionType.ASK_DATE), 'ờ', [])
+    assert 'ngày' in out.lower()
+
+
+def test_build_prompt_includes_facts_and_user_text():
+    g = _RG(enabled=True)
+    a = DialogAction(ActionType.OFFER_SLOTS,
+                     {'date': '01/07/2026', 'slots': ['08:00']})
+    prompt = g._build_prompt(a, 'ngày mai nhé', [])
+    assert '08:00' in prompt and 'ngày mai nhé' in prompt
+    assert 'OFFER_SLOTS' in prompt
