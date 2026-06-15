@@ -31,6 +31,7 @@ from logger import get_logger
 from .nlu import NLUEngine, NLUResult, Entities, Intent
 from .session_store import get_store
 from .dialog_action import ActionType, DialogAction
+from .rag_bridge import search as rag_search
 
 log = get_logger('voice.dialog')
 
@@ -150,10 +151,22 @@ class DialogManager:
         nlu     = self._nlu.analyze(user_text, history)
         log.info(f'[Dialog][{session_id}] step={state["step"]} intent={nlu.intent}')
 
-        # Cập nhật entities vào state
-        saved = Entities.from_dict(state.get('entities', {}))
-        merged = saved.merge(nlu.entities)
+        # Cập nhật entities vào state — phát hiện đổi ý (đổi ngày/địa điểm/dịch vụ)
+        saved  = Entities.from_dict(state.get('entities', {}))
+        new_e  = nlu.entities
+        changed_fields = ('appointment_date', 'location', 'service_type')
+        changed = any(getattr(new_e, fld) and getattr(new_e, fld) != getattr(saved, fld)
+                      for fld in changed_fields)
+        merged = saved.merge(new_e)
         state['entities'] = merged.to_dict()
+        if changed:
+            state['suggested_slots'] = []
+            state['confirmed'] = False
+            if not new_e.appointment_time:
+                state['entities']['appointment_time'] = None
+        # Luôn đồng bộ step với entity hiện có (off-script không đẩy bước nhưng vẫn cần đúng step)
+        state['step'] = self._recompute_step(
+            Entities.from_dict(state['entities']), state)
 
         # Thêm vào lịch sử hội thoại
         history.append({'role': 'user', 'content': user_text})
@@ -165,22 +178,22 @@ class DialogManager:
             return DialogResponse(reply='Đã hủy phiên đặt lịch. Khi cần bạn có thể bắt đầu lại.',
                                   step=Step.GREETING, state=state)
 
+        # Off-script: hỏi thủ tục/dịch vụ hoặc tán gẫu, không đẩy bước booking
+        if nlu.intent in (Intent.QUERY_PROCEDURE, Intent.QUERY_SERVICE):
+            snippets = rag_search(user_text)
+            action = DialogAction(ActionType.ANSWER_PROCEDURE,
+                                  {'snippets': snippets,
+                                   'steer': self._steer_prompt(state)})
+            return self._finish(session_id, state, action, user_text, history)
+
+        if nlu.intent in (Intent.GREETING, Intent.SMALL_TALK):
+            action = DialogAction(ActionType.SMALL_TALK,
+                                  {'steer': self._steer_prompt(state)})
+            return self._finish(session_id, state, action, user_text, history)
+
         # Điều hướng theo step hiện tại
         action = self._dispatch(session_id, state, nlu, user_text)
-        from .response_generator import ResponseGenerator
-        if not hasattr(self, '_nlg'):
-            self._nlg = ResponseGenerator()
-        reply = self._nlg.generate(action, user_text, state.get('history', []))
-
-        # Lưu state
-        history.append({'role': 'bot', 'content': reply})
-        state['history'] = history[-10:]
-        self._store.set(session_id, state)
-        return DialogResponse(
-            reply=reply, step=state['step'],
-            done=(state['step'] == Step.DONE),
-            appointment=state.get('appointment'),
-            slots=state.get('suggested_slots', []), state=state)
+        return self._finish(session_id, state, action, user_text, history)
 
     def start(self, session_id: str) -> DialogResponse:
         """Bắt đầu phiên mới."""
@@ -213,6 +226,32 @@ class DialogManager:
         if not entities.appointment_time:
             return Step.SUGGEST_SLOTS
         return Step.CONFIRM
+
+    def _steer_prompt(self, state: Dict) -> str:
+        entities = Entities.from_dict(state['entities'])
+        step = self._recompute_step(entities, state)
+        return {
+            Step.COLLECT_INTENT:   'Bạn muốn làm thủ tục gì?',
+            Step.COLLECT_LOCATION: 'Bạn muốn đến cơ quan nào?',
+            Step.COLLECT_DATE:     'Bạn muốn đặt lịch ngày nào?',
+            Step.SUGGEST_SLOTS:    'Mình kiểm tra khung giờ giúp bạn nhé?',
+            Step.CONFIRM:          'Bạn xác nhận đặt lịch chứ?',
+        }.get(step, 'Mình giúp bạn đặt lịch nhé?')
+
+    def _finish(self, session_id: str, state: Dict, action: DialogAction,
+                user_text: str, history: List[Dict]) -> DialogResponse:
+        if not hasattr(self, '_nlg'):
+            from .response_generator import ResponseGenerator
+            self._nlg = ResponseGenerator()
+        reply = self._nlg.generate(action, user_text, history)
+        history.append({'role': 'bot', 'content': reply})
+        state['history'] = history[-10:]
+        self._store.set(session_id, state)
+        return DialogResponse(
+            reply=reply, step=state['step'],
+            done=(state['step'] == Step.DONE),
+            appointment=state.get('appointment'),
+            slots=state.get('suggested_slots', []), state=state)
 
     def _dispatch(self, session_id: str, state: Dict, nlu: NLUResult,
                   user_text: str) -> DialogAction:

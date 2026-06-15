@@ -62,3 +62,51 @@ def test_dispatch_ask_date_returns_action():
     nlu = NLUResult(intent=Intent.BOOK_APPOINTMENT, entities=Entities())
     action = dm._dispatch('s1', state, nlu, 'tôi muốn làm căn cước ở Hoàn Kiếm')
     assert action.type == ActionType.ASK_DATE
+
+
+from ai_voice_backend import dialog_manager as DM
+
+
+def _force_nlu(dm, intent, entities):
+    dm._nlu.analyze = lambda text, history=None: NLUResult(intent=intent, entities=entities)
+
+
+def test_procedure_question_keeps_step_and_uses_rag(monkeypatch):
+    from ai_voice_backend.response_generator import ResponseGenerator
+    monkeypatch.setattr(DM, 'rag_search', lambda q: ['Cần CMND cũ và sổ hộ khẩu.'],
+                        raising=False)
+    dm = DialogManager()
+    dm._nlg = ResponseGenerator(enabled=False)   # template, không gọi Gemini
+    sid = 'p1'
+    dm.reset(sid)
+    # đã có service → bước hiện tại phải là hỏi địa điểm
+    st = dm._init_state(); st['entities'] = Entities(service_type='Làm căn cước').to_dict()
+    dm._store.set(sid, st)
+    _force_nlu(dm, Intent.QUERY_PROCEDURE, Entities())
+    resp = dm.process(sid, 'làm căn cước cần giấy gì')
+    # vẫn ở COLLECT_LOCATION (không bị đẩy bước), reply có nội dung RAG
+    assert dm._store.get(sid)['step'] == Step.COLLECT_LOCATION
+    assert 'CMND' in resp.reply
+
+
+def test_change_of_mind_resets_and_refetches(monkeypatch):
+    from ai_voice_backend.response_generator import ResponseGenerator
+    dm = DialogManager()
+    dm._nlg = ResponseGenerator(enabled=False)
+    monkeypatch.setattr(dm, '_get_slots', lambda loc, date: ['08:00:00'])  # slot mới
+    sid = 'c1'; dm.reset(sid)
+    st = dm._init_state()
+    st['entities'] = Entities(service_type='Làm căn cước', location='UBND',
+                              appointment_date='2026-07-01',
+                              appointment_time='09:00:00').to_dict()
+    st['suggested_slots'] = ['09:00:00']; st['confirmed'] = True
+    st['step'] = Step.CONFIRM
+    dm._store.set(sid, st)
+    # người dùng đổi sang ngày khác → phải reset confirm + lấy slot mới
+    _force_nlu(dm, Intent.BOOK_APPOINTMENT, Entities(appointment_date='2026-07-05'))
+    dm.process(sid, 'à cho mình đổi sang ngày mùng 5')
+    after = dm._store.get(sid)
+    assert after['confirmed'] is False
+    assert after['entities']['appointment_date'] == '2026-07-05'
+    assert after['suggested_slots'] == ['08:00:00']   # slot cũ '09:00:00' đã bị thay
+    assert after['step'] == Step.SUGGEST_SLOTS
