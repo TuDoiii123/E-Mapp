@@ -93,13 +93,11 @@ class DialogManager:
             if re.search(r'(đặt lịch|thủ tục|căn cước|khai sinh|hộ chiếu|hồ sơ)', user_text, re.I):
                 state = self._init_state()
             else:
-                return DialogResponse(
-                    reply='Lịch hẹn đã được đặt xong trước đó. '
-                          'Nếu muốn đặt lịch mới, hãy cho tôi biết thủ tục bạn cần.',
-                    step=Step.DONE,
-                    done=True,
-                    state=state,
-                )
+                history = state.get('history', [])
+                history.append({'role': 'user', 'content': user_text})
+                return self._finish(session_id, state,
+                                    DialogAction(ActionType.ALREADY_DONE),
+                                    user_text, history)
 
         # Phân tích NLU
         history = state.get('history', [])
@@ -127,11 +125,13 @@ class DialogManager:
         history.append({'role': 'user', 'content': user_text})
         state['history'] = history[-10:]  # giữ 10 lượt gần nhất
 
-        # Xử lý intent CANCEL / DENY
+        # Xử lý intent CANCEL — câu hủy đi qua NLG, không persist (đã xóa phiên)
         if nlu.intent == Intent.CANCEL:
+            reply = self._get_nlg().generate(
+                DialogAction(ActionType.CANCELLED), user_text, history)
             self._store.clear(session_id)
-            return DialogResponse(reply='Đã hủy phiên đặt lịch. Khi cần bạn có thể bắt đầu lại.',
-                                  step=Step.GREETING, state=state)
+            state['step'] = Step.GREETING   # đồng bộ step trả về với state
+            return DialogResponse(reply=reply, step=Step.GREETING, state=state)
 
         # Off-script: hỏi thủ tục/dịch vụ hoặc tán gẫu, không đẩy bước booking
         if nlu.intent in (Intent.QUERY_PROCEDURE, Intent.QUERY_SERVICE):
@@ -151,18 +151,10 @@ class DialogManager:
         return self._finish(session_id, state, action, user_text, history)
 
     def start(self, session_id: str) -> DialogResponse:
-        """Bắt đầu phiên mới."""
+        """Bắt đầu phiên mới — câu chào đi qua NLG (tự nhiên hơn)."""
         state = self._init_state()
-        self._store.set(session_id, state)
-        return DialogResponse(
-            reply=(
-                'Xin chào! Tôi là trợ lý đặt lịch hành chính. '
-                'Bạn muốn làm thủ tục gì? '
-                'Ví dụ: "Tôi muốn làm căn cước công dân" hoặc "Đăng ký khai sinh".'
-            ),
-            step=Step.COLLECT_INTENT,
-            state=state,
-        )
+        return self._finish(session_id, state, DialogAction(ActionType.GREET),
+                            '', state['history'])
 
     def reset(self, session_id: str) -> None:
         self._store.clear(session_id)
@@ -193,12 +185,16 @@ class DialogManager:
             Step.CONFIRM:          'Bạn xác nhận đặt lịch chứ?',
         }.get(step, 'Mình giúp bạn đặt lịch nhé?')
 
-    def _finish(self, session_id: str, state: Dict, action: DialogAction,
-                user_text: str, history: List[Dict]) -> DialogResponse:
-        if not hasattr(self, '_nlg'):
+    def _get_nlg(self):
+        """Lazy-init ResponseGenerator (NLG). Test có thể gán sẵn self._nlg."""
+        if getattr(self, '_nlg', None) is None:
             from .response_generator import ResponseGenerator
             self._nlg = ResponseGenerator()
-        reply = self._nlg.generate(action, user_text, history)
+        return self._nlg
+
+    def _finish(self, session_id: str, state: Dict, action: DialogAction,
+                user_text: str, history: List[Dict]) -> DialogResponse:
+        reply = self._get_nlg().generate(action, user_text, history)
         history.append({'role': 'bot', 'content': reply})
         state['history'] = history[-10:]
         self._store.set(session_id, state)
