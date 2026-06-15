@@ -32,6 +32,24 @@ class ResponseGenerator:
             reply = self._call_gemini(action, user_text, history or [])
         if not reply:
             reply = self._fallback(action)
+        return self._guardrail(action, reply)
+
+    def _guardrail(self, action: DialogAction, reply: str) -> str:
+        """Bảo đảm số/mã/giờ quan trọng có mặt; thiếu → nối thêm dòng deterministic."""
+        f = action.facts
+        missing: List[str] = []
+        if action.type == ActionType.BOOKING_SUCCESS:
+            code, queue = str(f.get('code', '')), str(f.get('queue', ''))
+            if code and code not in reply:
+                missing.append(f'Mã lịch: {code}')
+            if queue and queue not in reply:
+                missing.append(f'Số thứ tự: {queue}')
+        elif action.type == ActionType.OFFER_SLOTS:
+            absent = [s for s in f.get('slots', []) if s not in reply]
+            if absent:
+                missing.append('Các khung giờ: ' + ', '.join(absent))
+        if missing:
+            reply = reply.rstrip('. ') + '. ' + '. '.join(missing) + '.'
         return reply
 
     # ── template fallback ──────────────────────────────────────────────────
