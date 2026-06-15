@@ -110,3 +110,28 @@ def test_change_of_mind_resets_and_refetches(monkeypatch):
     assert after['entities']['appointment_date'] == '2026-07-05'
     assert after['suggested_slots'] == ['08:00:00']   # slot cũ '09:00:00' đã bị thay
     assert after['step'] == Step.SUGGEST_SLOTS
+
+
+def test_full_booking_flow_offline(monkeypatch):
+    """NLU + NLG bị mock; kiểm tra FSM dẫn dắt đúng tới CONFIRM."""
+    dm = DialogManager()
+    sid = 'flow1'; dm.reset(sid)
+    # ép NLG dùng template (tắt Gemini) để output deterministic
+    from ai_voice_backend.response_generator import ResponseGenerator
+    dm._nlg = ResponseGenerator(enabled=False)
+    # ép suggest_slots trả về cố định
+    monkeypatch.setattr(dm, '_get_slots',
+                        lambda loc, date: ['08:00:00', '09:00:00'])
+
+    # turn 1: cung cấp đủ service + location + date
+    _force_nlu(dm, Intent.BOOK_APPOINTMENT,
+               Entities(service_type='Làm căn cước', location='UBND Hoàn Kiếm',
+                        appointment_date='2026-07-01'))
+    r1 = dm.process(sid, 'làm căn cước ở Hoàn Kiếm ngày 1 tháng 7')
+    assert '08:00' in r1.reply and '09:00' in r1.reply   # OFFER_SLOTS
+
+    # turn 2: chọn giờ
+    _force_nlu(dm, Intent.BOOK_APPOINTMENT,
+               Entities(appointment_time='09:00:00'))
+    r2 = dm.process(sid, 'chọn 9 giờ')
+    assert 'xác nhận' in r2.reply.lower()                # CONFIRM_DETAILS
