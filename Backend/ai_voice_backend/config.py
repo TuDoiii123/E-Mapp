@@ -10,9 +10,11 @@ GEMINI_MODEL     = os.getenv('GEMINI_MODEL_NAME', 'models/gemini-2.0-flash')
 # ── Google Cloud TTS ────────────────────────────────────────────────────────
 GCP_CREDENTIALS  = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', '')
 TTS_LANGUAGE     = os.getenv('GOOGLE_TTS_LANGUAGE', 'vi-VN')
-TTS_VOICE_NAME   = os.getenv('GOOGLE_TTS_VOICE_NAME', '')          # để trống = auto
-TTS_SPEAKING_RATE= float(os.getenv('GOOGLE_TTS_SPEAKING_RATE', '1.0'))
-TTS_PITCH        = float(os.getenv('GOOGLE_TTS_PITCH', '0.0'))
+# Giọng tự nhiên nhất cho tiếng Việt: Chirp3-HD (KHÔNG nhận SSML/pitch).
+# Đổi sang vi-VN-Neural2-A nếu muốn dùng SSML điều khiển ngữ điệu.
+TTS_VOICE_NAME   = os.getenv('GOOGLE_TTS_VOICE_NAME', 'vi-VN-Chirp3-HD-Aoede')
+TTS_SPEAKING_RATE= float(os.getenv('GOOGLE_TTS_SPEAKING_RATE', '0.96'))  # chậm nhẹ, đỡ gấp
+TTS_PITCH        = float(os.getenv('GOOGLE_TTS_PITCH', '-1.0'))          # chỉ áp dụng giọng Neural2/Wavenet
 
 # ── Google Cloud STT ────────────────────────────────────────────────────────
 STT_LANGUAGE     = os.getenv('GOOGLE_STT_LANGUAGE', 'vi-VN')

@@ -20,8 +20,16 @@ from .config import (
     TTS_LANGUAGE, TTS_VOICE_NAME,
     TTS_SPEAKING_RATE, TTS_PITCH,
 )
+from .text_normalizer import normalize, to_ssml
 
 log = get_logger('voice.tts')
+
+
+def _is_natural_voice(voice_name: str) -> bool:
+    """Giọng thế hệ mới (Chirp3-HD, Studio, Journey) KHÔNG nhận SSML/pitch —
+    chỉ nhận text thô. Trả True để TTS biết dùng text + bỏ pitch."""
+    v = (voice_name or '').lower()
+    return any(tag in v for tag in ('chirp', 'studio', 'journey', '-hd'))
 
 
 class TTSEngine:
@@ -88,23 +96,39 @@ class TTSEngine:
             if self._gcloud_client is None:
                 self._gcloud_client = g_tts.TextToSpeechClient()
 
-            # Chọn giọng đọc
+            # Chọn giọng đọc — luôn kèm language_code cho chắc
             if TTS_VOICE_NAME:
-                voice_params = g_tts.VoiceSelectionParams(name=TTS_VOICE_NAME)
+                voice_params = g_tts.VoiceSelectionParams(
+                    language_code=TTS_LANGUAGE,
+                    name=TTS_VOICE_NAME,
+                )
             else:
                 voice_params = g_tts.VoiceSelectionParams(
                     language_code=TTS_LANGUAGE,
                     ssml_gender=g_tts.SsmlVoiceGender.FEMALE,
                 )
 
+            # Chuẩn hóa text → đọc tự nhiên (ngày/giờ/số/viết tắt)
+            spoken = normalize(text)
+            natural = _is_natural_voice(TTS_VOICE_NAME)
+
+            # Chirp3-HD/Studio: text thô, không pitch. Neural2/Wavenet: SSML + pitch.
+            if natural:
+                synth_input = g_tts.SynthesisInput(text=spoken)
+            else:
+                synth_input = g_tts.SynthesisInput(ssml=to_ssml(spoken))
+
+            audio_cfg = g_tts.AudioConfig(
+                audio_encoding=g_tts.AudioEncoding.MP3,
+                speaking_rate=TTS_SPEAKING_RATE,
+            )
+            if not natural:
+                audio_cfg.pitch = TTS_PITCH  # Chirp3-HD báo lỗi nếu set pitch
+
             res = self._gcloud_client.synthesize_speech(
-                input=g_tts.SynthesisInput(text=text),
+                input=synth_input,
                 voice=voice_params,
-                audio_config=g_tts.AudioConfig(
-                    audio_encoding=g_tts.AudioEncoding.MP3,
-                    speaking_rate=TTS_SPEAKING_RATE,
-                    pitch=TTS_PITCH,
-                ),
+                audio_config=audio_cfg,
             )
             return res.audio_content
         except Exception as e:
