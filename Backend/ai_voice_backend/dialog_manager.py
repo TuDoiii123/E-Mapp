@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from logger import get_logger
 from .nlu import NLUEngine, NLUResult, Entities, Intent
 from .session_store import get_store
+from .dialog_action import ActionType, DialogAction
 
 log = get_logger('voice.dialog')
 
@@ -165,14 +166,21 @@ class DialogManager:
                                   step=Step.GREETING, state=state)
 
         # Điều hướng theo step hiện tại
-        response = self._dispatch(session_id, state, nlu, user_text)
+        action = self._dispatch(session_id, state, nlu, user_text)
+        from .response_generator import ResponseGenerator
+        if not hasattr(self, '_nlg'):
+            self._nlg = ResponseGenerator()
+        reply = self._nlg.generate(action, user_text, state.get('history', []))
 
         # Lưu state
-        history.append({'role': 'bot', 'content': response.reply})
+        history.append({'role': 'bot', 'content': reply})
         state['history'] = history[-10:]
         self._store.set(session_id, state)
-
-        return response
+        return DialogResponse(
+            reply=reply, step=state['step'],
+            done=(state['step'] == Step.DONE),
+            appointment=state.get('appointment'),
+            slots=state.get('suggested_slots', []), state=state)
 
     def start(self, session_id: str) -> DialogResponse:
         """Bắt đầu phiên mới."""
@@ -193,168 +201,104 @@ class DialogManager:
 
     # ── dispatch ──────────────────────────────────────────────────────────────
 
+    def _recompute_step(self, entities: Entities, state: Dict) -> str:
+        if not entities.service_type:
+            return Step.COLLECT_INTENT
+        if not entities.location:
+            return Step.COLLECT_LOCATION
+        if not entities.appointment_date:
+            return Step.COLLECT_DATE
+        if not state.get('suggested_slots'):
+            return Step.SUGGEST_SLOTS
+        if not entities.appointment_time:
+            return Step.SUGGEST_SLOTS
+        return Step.CONFIRM
+
     def _dispatch(self, session_id: str, state: Dict, nlu: NLUResult,
-                  user_text: str) -> DialogResponse:
+                  user_text: str) -> DialogAction:
         entities: Entities = Entities.from_dict(state['entities'])
+        state['step'] = self._recompute_step(entities, state)
         step = state['step']
 
-        # ── COLLECT_INTENT ────────────────────────────────────────────────────
         if step == Step.COLLECT_INTENT:
-            if not entities.service_type:
-                return DialogResponse(reply=_PROMPTS[Step.COLLECT_INTENT],
-                                      step=step, state=state)
-            state['step'] = Step.COLLECT_LOCATION
+            return DialogAction(ActionType.ASK_INTENT)
+        if step == Step.COLLECT_LOCATION:
+            return DialogAction(ActionType.ASK_LOCATION)
+        if step == Step.COLLECT_DATE:
+            return DialogAction(ActionType.ASK_DATE)
 
-        # ── COLLECT_LOCATION ──────────────────────────────────────────────────
-        if state['step'] == Step.COLLECT_LOCATION:
-            if not entities.location:
-                return DialogResponse(reply=_PROMPTS[Step.COLLECT_LOCATION],
-                                      step=state['step'], state=state)
-            state['step'] = Step.COLLECT_DATE
-
-        # ── COLLECT_DATE ──────────────────────────────────────────────────────
-        if state['step'] == Step.COLLECT_DATE:
-            if not entities.appointment_date:
-                return DialogResponse(reply=_PROMPTS[Step.COLLECT_DATE],
-                                      step=state['step'], state=state)
-            state['step'] = Step.SUGGEST_SLOTS
-
-        # ── SUGGEST_SLOTS ─────────────────────────────────────────────────────
-        if state['step'] == Step.SUGGEST_SLOTS:
+        if step == Step.SUGGEST_SLOTS:
             slots = self._get_slots(entities.location, entities.appointment_date)
+            d_str = self._fmt_date(entities.appointment_date)
             if not slots:
-                state['step'] = Step.COLLECT_DATE
-                return DialogResponse(
-                    reply=(f'Ngày {entities.appointment_date} tại {entities.location} '
-                           f'không còn khung giờ trống. Bạn có thể chọn ngày khác không?'),
-                    step=state['step'], state=state,
-                )
+                state['suggested_slots'] = []
+                return DialogAction(ActionType.NO_SLOTS,
+                                    {'date': d_str, 'location': entities.location})
             state['suggested_slots'] = slots
-            state['step'] = Step.CONFIRM
-            times = ', '.join(s[:5] for s in slots)
-            reply = (
-                f'Ngày {entities.appointment_date} tại {entities.location} '
-                f'còn trống các khung giờ: {times}. '
-                f'Bạn muốn chọn giờ nào?'
-            )
-            return DialogResponse(reply=reply, step=state['step'],
-                                  slots=slots, state=state)
+            short = [s[:5] for s in slots]
+            return DialogAction(ActionType.OFFER_SLOTS,
+                                {'date': d_str, 'location': entities.location,
+                                 'slots': short})
 
-        # ── CONFIRM ───────────────────────────────────────────────────────────
-        if state['step'] == Step.CONFIRM:
+        if step == Step.CONFIRM:
             slots = state.get('suggested_slots', [])
-
-            # Nếu chưa có giờ, xử lý như chọn giờ
-            if not entities.appointment_time:
-                if not slots:
-                    state['step'] = Step.SUGGEST_SLOTS
-                    return self._dispatch(session_id, state, nlu, user_text)
-                # Thử lấy giờ từ text trực tiếp
-                entities_updated = Entities.from_dict(state['entities'])
-                if not entities_updated.appointment_time:
-                    times_text = ', '.join(s[:5] for s in slots)
-                    return DialogResponse(
-                        reply=f'Bạn vui lòng chọn một trong các khung giờ: {times_text}.',
-                        step=state['step'], slots=slots, state=state,
-                    )
-
-            # Kiểm tra giờ chọn có trong danh sách gợi ý
-            chosen_time = entities.appointment_time
-            if slots and chosen_time not in slots:
-                # Tìm slot khớp gần nhất (HH:MM)
-                hhmm = chosen_time[:5]
-                matched = next((s for s in slots if s.startswith(hhmm)), None)
+            short = [s[:5] for s in slots]
+            chosen = entities.appointment_time
+            if chosen and slots and chosen not in slots:
+                matched = next((s for s in slots if s.startswith(chosen[:5])), None)
                 if matched:
-                    chosen_time = matched
+                    chosen = matched
                     state['entities']['appointment_time'] = matched
                     entities = Entities.from_dict(state['entities'])
                 else:
-                    times_text = ', '.join(s[:5] for s in slots)
-                    return DialogResponse(
-                        reply=f'Khung giờ đó không còn trống. Vui lòng chọn lại: {times_text}.',
-                        step=state['step'], slots=slots, state=state,
-                    )
-
-            # Xác nhận trước khi đặt — nếu chưa confirm
-            if nlu.intent not in (Intent.CONFIRM,) and not state.get('confirmed'):
-                d_str = self._fmt_date(entities.appointment_date)
-                reply = (
-                    f'Xác nhận thông tin đặt lịch:\n'
-                    f'• Thủ tục: {entities.service_type}\n'
-                    f'• Địa điểm: {entities.location}\n'
-                    f'• Ngày: {d_str}\n'
-                    f'• Giờ: {chosen_time[:5]}\n'
-                    f'Bạn có xác nhận không? (Có / Không)'
-                )
-                state['confirmed'] = False
-                return DialogResponse(reply=reply, step=state['step'], state=state)
-
-            # Thực hiện đặt lịch
+                    return DialogAction(ActionType.SLOT_TAKEN, {'slots': short})
+            if nlu.intent != Intent.CONFIRM and not state.get('confirmed'):
+                return DialogAction(ActionType.CONFIRM_DETAILS, {
+                    'service': entities.service_type, 'location': entities.location,
+                    'date': self._fmt_date(entities.appointment_date),
+                    'time': (chosen or '')[:5]})
             state['confirmed'] = True
-            return self._create_appointment(session_id, state, entities)
+            return self._create_appointment_action(session_id, state, entities)
 
-        return DialogResponse(reply='Xin lỗi, đã có lỗi xảy ra. Vui lòng thử lại.',
-                              step=step, state=state)
+        return DialogAction(ActionType.ASK_INTENT)
 
     # ── appointment creation ──────────────────────────────────────────────────
 
-    def _create_appointment(self, session_id: str, state: Dict,
-                            entities: Entities) -> DialogResponse:
+    def _create_appointment_action(self, session_id: str, state: Dict,
+                                    entities: Entities) -> DialogAction:
         try:
-            from services.appointments import create_appointment, suggest_slots
-
+            from services.appointments import create_appointment
             svc_code = self._service_code(entities.service_type or '')
             agency_id = self._agency_id(entities.location or '')
             raw_time = entities.appointment_time or '09:00:00'
-            try:
-                from datetime import datetime as _dt
-                for fmt in ('%H:%M:%S', '%H:%M', '%H'):
-                    try:
-                        hhmm = _dt.strptime(raw_time, fmt).strftime('%H:%M')
-                        break
-                    except ValueError:
-                        continue
-                else:
-                    hhmm = raw_time[:5] if len(raw_time) >= 5 else '09:00'
-            except Exception:
-                hhmm = '09:00'
-
+            from datetime import datetime as _dt
+            for fmt in ('%H:%M:%S', '%H:%M', '%H'):
+                try:
+                    hhmm = _dt.strptime(raw_time, fmt).strftime('%H:%M'); break
+                except ValueError:
+                    continue
+            else:
+                hhmm = raw_time[:5] if len(raw_time) >= 5 else '09:00'
             ok, appt, err = create_appointment({
-                'agencyId':    agency_id,
-                'serviceCode': svc_code,
-                'date':        entities.appointment_date,
-                'time':        hhmm,
-                'phone':       entities.phone,
-                'fullName':    entities.citizen_name or 'Người dân',
-                'info':        entities.note or 'Đặt lịch qua voice AI',
-            })
+                'agencyId': agency_id, 'serviceCode': svc_code,
+                'date': entities.appointment_date, 'time': hhmm,
+                'phone': entities.phone, 'fullName': entities.citizen_name or 'Người dân',
+                'info': entities.note or 'Đặt lịch qua voice AI'})
         except Exception as e:
             log.error(f'[Dialog] create_appointment error: {e}', exc_info=True)
-            return DialogResponse(
-                reply='Hệ thống đang gặp lỗi khi đặt lịch. Vui lòng thử lại sau.',
-                step=Step.CONFIRM, error=str(e), state=state,
-            )
-
+            state['step'] = Step.CONFIRM
+            return DialogAction(ActionType.BOOKING_ERROR, {'error': str(e)})
         if not ok:
-            return DialogResponse(
-                reply=f'Không thể đặt lịch: {err}. Bạn có muốn chọn thời gian khác không?',
-                step=Step.COLLECT_DATE, error=err, state=state,
-            )
-
+            state['step'] = Step.COLLECT_DATE
+            state['suggested_slots'] = []
+            return DialogAction(ActionType.BOOKING_ERROR, {'error': err or 'lỗi'})
         state['step'] = Step.DONE
-        d_str = self._fmt_date(entities.appointment_date)
-        msg = (
-            'Đặt lịch thành công! Thông tin chi tiết:\n'
-            f'• Thủ tục : {entities.service_type}\n'
-            f'• Địa điểm: {entities.location}\n'
-            f'• Ngày giờ: {d_str} lúc {hhmm}\n'
-            f'• Mã lịch : {appt.get("id", "N/A")}\n'
-            f'• Số thứ tự: {appt.get("queueNumber", "N/A")}\n'
-            'Hẹn gặp bạn tại cơ quan nhé!'
-        )
+        state['appointment'] = appt
         log.info(f'[Dialog][{session_id}] appointment created: {appt.get("id")}')
-        return DialogResponse(reply=msg, step=Step.DONE, done=True,
-                              appointment=appt, state=state)
+        return DialogAction(ActionType.BOOKING_SUCCESS, {
+            'service': entities.service_type, 'location': entities.location,
+            'date': self._fmt_date(entities.appointment_date), 'time': hhmm,
+            'code': appt.get('id', 'N/A'), 'queue': appt.get('queueNumber', 'N/A')})
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
