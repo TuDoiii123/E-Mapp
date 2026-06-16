@@ -16,6 +16,11 @@ TTS_VOICE_NAME   = os.getenv('GOOGLE_TTS_VOICE_NAME', 'vi-VN-Chirp3-HD-Aoede')
 TTS_SPEAKING_RATE= float(os.getenv('GOOGLE_TTS_SPEAKING_RATE', '0.96'))  # chậm nhẹ, đỡ gấp
 TTS_PITCH        = float(os.getenv('GOOGLE_TTS_PITCH', '-1.0'))          # chỉ áp dụng giọng Neural2/Wavenet
 
+# ── Gemini TTS (không cần GCP credentials, dùng GEMINI_API_KEY) ──────────────
+# Backend dự phòng khi không có Google Cloud TTS. Trả audio WAV (PCM 24kHz).
+GEMINI_TTS_MODEL = os.getenv('GEMINI_TTS_MODEL', 'gemini-2.5-flash-preview-tts')
+GEMINI_TTS_VOICE = os.getenv('GEMINI_TTS_VOICE', 'Kore')   # giọng prebuilt: Kore/Aoede/Leda/Puck...
+
 # ── Google Cloud STT ────────────────────────────────────────────────────────
 STT_LANGUAGE     = os.getenv('GOOGLE_STT_LANGUAGE', 'vi-VN')
 # Dev mock STT — mặc định OFF để không ảnh hưởng production
