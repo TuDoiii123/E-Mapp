@@ -12,6 +12,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -20,6 +21,66 @@ from logger import get_logger
 from .config import GEMINI_API_KEY, GEMINI_MODEL
 
 log = get_logger('voice.nlu')
+
+
+def _is_rate_limit_error(msg: str) -> bool:
+    """Nhận diện lỗi hết quota / rate-limit từ message ngoại lệ."""
+    m = (msg or '').lower()
+    return any(t in m for t in ('429', 'quota', 'resourceexhausted',
+                                'exhausted', 'rate limit', 'rate-limit'))
+
+
+def _fmt_date(y: int, mo: int, d: int) -> Optional[str]:
+    try:
+        return date(y, mo, d).isoformat()
+    except ValueError:
+        return None
+
+
+def _extract_date_vi(text: str, today: Optional[date] = None) -> Optional[str]:
+    """Trích ngày từ câu tiếng Việt → 'YYYY-MM-DD'. Trả None nếu không có.
+
+    Hỗ trợ: tương đối (hôm nay/ngày mai/ngày kia), ISO, D/M/YYYY, D-M-YYYY,
+    'ngày|mùng D tháng M [năm YYYY]' (thiếu năm → chọn năm để ngày ở tương lai).
+    Dùng làm lưới an toàn khi Gemini không khả dụng (vd hết quota).
+    """
+    if not text:
+        return None
+    today = today or date.today()
+    t = text.lower()
+
+    # 1. Tương đối (ưu tiên cụm dài trước)
+    rel = {'hôm nay': 0, 'bữa nay': 0, 'ngày mai': 1, 'ngày kia': 2,
+           'ngày mốt': 2}
+    for kw in sorted(rel, key=len, reverse=True):
+        if kw in t:
+            return (today + timedelta(days=rel[kw])).isoformat()
+
+    # 2. ISO YYYY-MM-DD
+    m = re.search(r'(20\d{2})-(\d{1,2})-(\d{1,2})', text)
+    if m:
+        return _fmt_date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+    # 3. D/M/YYYY hoặc D-M-YYYY
+    m = re.search(r'\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b', text)
+    if m:
+        return _fmt_date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+
+    # 4. 'ngày|mùng D tháng M [năm YYYY]'
+    m = re.search(r'(?:ngày|mùng|mồng)?\s*(\d{1,2})\s*tháng\s*(\d{1,2})'
+                  r'(?:\s*năm\s*(20\d{2}))?', t)
+    if m:
+        d, mo = int(m.group(1)), int(m.group(2))
+        if m.group(3):
+            return _fmt_date(int(m.group(3)), mo, d)
+        # thiếu năm → chọn năm sao cho ngày ở hiện tại/tương lai gần
+        y = today.year
+        cand = _fmt_date(y, mo, d)
+        if cand and date.fromisoformat(cand) < today:
+            cand = _fmt_date(y + 1, mo, d)
+        return cand
+
+    return None
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -121,7 +182,9 @@ class NLUEngine:
         '  }\n'
         '}\n\n'
         'Quy tắc:\n'
-        '- Ngày tương đối ("ngày mai", "thứ 2") → chuyển sang YYYY-MM-DD so với hôm nay.\n'
+        '- Ngày → LUÔN trả YYYY-MM-DD (không null nếu câu có ngày): tương đối '
+        '("ngày mai", "thứ 2") tính từ hôm nay; tường minh ("ngày 1 tháng 7 năm 2026", '
+        '"1/7/2026") đổi thẳng, vd "ngày 1 tháng 7 năm 2026"→"2026-07-01".\n'
         '- Giờ ("9 giờ", "9h", "9:00") → HH:MM:SS.\n'
         '- Chỉ trả JSON thuần, không giải thích.\n'
     )
@@ -218,8 +281,16 @@ class NLUEngine:
             m    = re.search(r'\{.*\}', raw, re.DOTALL)
             if m:
                 return json.loads(m.group(0))
+            # Gọi được nhưng không có JSON → log để không "im lặng" rơi fallback
+            log.warning('[NLU][Gemini] phản hồi rỗng/không có JSON — dùng regex fallback')
         except Exception as e:
-            log.debug(f'[NLU][Gemini] {e}')
+            msg = str(e)
+            if _is_rate_limit_error(msg):
+                log.warning('[NLU][Gemini] HẾT QUOTA / rate-limit — dùng regex fallback. '
+                            'Cân nhắc đổi model free-tier cao hơn hoặc bật billing. '
+                            f'Chi tiết: {msg[:160]}')
+            else:
+                log.warning(f'[NLU][Gemini] lỗi gọi model — dùng regex fallback: {msg[:160]}')
         return {}
 
     def _parse_gemini_response(self, raw: Dict) -> NLUResult:
@@ -275,15 +346,8 @@ class NLUEngine:
         loc_match = re.search(r'(ubnd[^,.\n]*|ủy ban[^,.\n]*|quận[^,.\n]*|huyện[^,.\n]*)', t)
         location  = loc_match.group(1).strip() if loc_match else None
 
-        # Date YYYY-MM-DD or DD/MM/YYYY
-        date_str = None
-        m = re.search(r'(20\d{2})-(\d{1,2})-(\d{1,2})', text)
-        if m:
-            date_str = f'{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}'
-        else:
-            m = re.search(r'(\d{1,2})/(\d{1,2})/(20\d{2})', text)
-            if m:
-                date_str = f'{m.group(3)}-{int(m.group(2)):02d}-{int(m.group(1)):02d}'
+        # Date — ISO / D-M-Y / 'ngày D tháng M năm Y' / tương đối
+        date_str = _extract_date_vi(text)
 
         # Time
         time_str = None

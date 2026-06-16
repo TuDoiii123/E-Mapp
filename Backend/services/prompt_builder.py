@@ -200,6 +200,9 @@ def _fallback_prompt(
             '    "note": null\n'
             '  }\n'
             '}\n\n'
+            'Ngày → LUÔN trả YYYY-MM-DD: tương đối ("ngày mai", "thứ 2") tính từ hôm nay; '
+            'tường minh ("ngày 1 tháng 7 năm 2026", "1/7/2026") đổi thẳng '
+            '(vd "ngày 1 tháng 7 năm 2026" → "2026-07-01").\n'
             f'Hôm nay: {today}. Chỉ trả JSON thuần.'
         )
 
