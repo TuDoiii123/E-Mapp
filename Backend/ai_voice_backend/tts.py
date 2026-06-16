@@ -93,9 +93,13 @@ class TTSEngine:
 
     @property
     def available(self) -> bool:
-        """True nếu có ít nhất một backend TTS hoạt động."""
+        """True nếu có ít nhất một backend TTS hoạt động (có cả key lẫn SDK)."""
         if GEMINI_API_KEY:
-            return True
+            try:
+                from google import genai  # noqa
+                return True
+            except ImportError:
+                pass
         try:
             from google.cloud import texttospeech  # type: ignore  # noqa
             return True
