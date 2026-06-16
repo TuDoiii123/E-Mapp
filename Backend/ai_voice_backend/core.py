@@ -75,7 +75,7 @@ class VoiceBackend:
         return self._tts.synthesize_b64(text)
 
     def tts_response(self, text: str) -> Optional[dict]:
-        """Trả {'mimeType': 'audio/mpeg', 'base64': '...'} hoặc None."""
+        """Trả {'mimeType': 'audio/mpeg'|'audio/wav', 'base64': '...'} hoặc None."""
         return self._tts.synthesize_response(text)
 
     # ── NLU ───────────────────────────────────────────────────────────────────
