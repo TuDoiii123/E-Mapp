@@ -97,3 +97,35 @@ def test_build_prompt_includes_facts_and_user_text():
     prompt = g._build_prompt(a, 'ngày mai nhé', [])
     assert '08:00' in prompt and 'ngày mai nhé' in prompt
     assert 'OFFER_SLOTS' in prompt
+
+
+def test_guardrail_skips_slots_when_spoken_form_present():
+    """NLG đã đọc '8 giờ, 9 giờ, 13 giờ 30' → guardrail không nối lại HH:MM."""
+    g = _RG(enabled=False)
+    a = DialogAction(ActionType.OFFER_SLOTS,
+                     {'date': '01/07/2026', 'location': 'UBND',
+                      'slots': ['08:00', '09:00', '13:30']})
+    reply = 'Có các khung giờ trống là 8 giờ, 9 giờ và 13 giờ 30 ạ. Bạn chọn giờ nào?'
+    fixed = g._guardrail(a, reply)
+    assert fixed == reply
+    assert 'Các khung giờ:' not in fixed
+
+
+def test_guardrail_appends_only_slots_not_spoken():
+    """NLG đọc 8 giờ, 9 giờ nhưng bỏ sót 13 giờ 30 → chỉ nối slot còn thiếu."""
+    g = _RG(enabled=False)
+    a = DialogAction(ActionType.OFFER_SLOTS,
+                     {'slots': ['08:00', '09:00', '13:30']})
+    reply = 'Có 8 giờ và 9 giờ ạ.'
+    fixed = g._guardrail(a, reply)
+    assert '13:30' in fixed
+    assert '08:00' not in fixed and '09:00' not in fixed   # đã đọc rồi, không nối
+
+
+def test_guardrail_spoken_hour_not_false_matched_by_longer_number():
+    """Slot 08:00 KHÔNG được coi là đã đọc chỉ vì reply có '18 giờ'."""
+    g = _RG(enabled=False)
+    a = DialogAction(ActionType.OFFER_SLOTS, {'slots': ['08:00']})
+    reply = 'Chỉ còn 18 giờ thôi ạ.'
+    fixed = g._guardrail(a, reply)
+    assert '08:00' in fixed                                # vẫn nối vì 8h chưa được đọc

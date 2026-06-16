@@ -13,6 +13,7 @@ import base64
 import io
 import re
 import sys
+import time
 import wave
 from pathlib import Path
 from typing import Optional, Tuple
@@ -193,19 +194,26 @@ class TTSEngine:
         try:
             if self._genai_client is None:
                 self._genai_client = genai.Client(api_key=GEMINI_API_KEY)
-            resp = self._genai_client.models.generate_content(
-                model=GEMINI_TTS_MODEL,
-                contents=spoken,
-                config=types.GenerateContentConfig(
-                    response_modalities=['AUDIO'],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=GEMINI_TTS_VOICE))),
-                ),
-            )
-            inline = resp.candidates[0].content.parts[0].inline_data
-            return _pcm_to_wav(inline.data, rate=_parse_rate(inline.mime_type))
         except Exception as e:
-            log.debug(f'[TTS][Gemini] {e}')
+            log.debug(f'[TTS][Gemini] client init: {e}')
             return None
+
+        cfg = types.GenerateContentConfig(
+            response_modalities=['AUDIO'],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                        voice_name=GEMINI_TTS_VOICE))),
+        )
+        # Model preview thỉnh thoảng nghẽn tạm thời → thử lại 1 lần.
+        for attempt in range(2):
+            try:
+                resp = self._genai_client.models.generate_content(
+                    model=GEMINI_TTS_MODEL, contents=spoken, config=cfg)
+                inline = resp.candidates[0].content.parts[0].inline_data
+                return _pcm_to_wav(inline.data, rate=_parse_rate(inline.mime_type))
+            except Exception as e:
+                log.debug(f'[TTS][Gemini] lần {attempt + 1}: {e}')
+                if attempt == 0:
+                    time.sleep(0.6)
+        return None

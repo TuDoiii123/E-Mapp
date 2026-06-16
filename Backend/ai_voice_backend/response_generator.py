@@ -8,6 +8,7 @@ Thứ tự ưu tiên:
 Guardrail: facts được bơm vào prompt; số/mã/giờ quan trọng bị thiếu trong câu LLM
 sẽ được nối thêm dòng deterministic (thêm ở task sau).
 """
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -18,6 +19,26 @@ from .dialog_action import ActionType, DialogAction
 from .config import VOICE_NLG_ENABLED
 
 log = get_logger('voice.nlg')
+
+
+def _slot_mentioned(slot: str, reply: str) -> bool:
+    """Khung giờ 'HH:MM' đã được nhắc trong reply chưa — chấp nhận cả dạng nói.
+
+    Vd '08:00' coi như đã đọc nếu reply có '08:00' hoặc '8 giờ';
+    '13:30' nếu có '13:30' hoặc '13 giờ 30'. Dùng biên số (?<!\\d) để
+    '8 giờ' KHÔNG khớp nhầm trong '18 giờ'.
+    """
+    if slot in reply:
+        return True
+    try:
+        hh, mm = slot.split(':')
+        h, m = int(hh), int(mm)
+    except (ValueError, AttributeError):
+        return False
+    if m == 0:
+        return re.search(rf'(?<!\d){h}\s*giờ', reply) is not None
+    return (re.search(rf'(?<!\d){h}\s*giờ\s*{m}\b', reply) is not None
+            or f'{h}:{mm}' in reply)
 
 
 class ResponseGenerator:
@@ -45,7 +66,8 @@ class ResponseGenerator:
             if queue and queue not in reply:
                 missing.append(f'Số thứ tự: {queue}')
         elif action.type == ActionType.OFFER_SLOTS:
-            absent = [s for s in f.get('slots', []) if s not in reply]
+            # Chỉ nối slot mà NLG chưa đọc (kể cả dạng nói '8 giờ') → tránh lặp.
+            absent = [s for s in f.get('slots', []) if not _slot_mentioned(s, reply)]
             if absent:
                 missing.append('Các khung giờ: ' + ', '.join(absent))
         if missing:
