@@ -51,3 +51,14 @@ def test_rate_limit_classifier():
     assert _is_rate_limit_error('Rate limit reached')
     assert not _is_rate_limit_error('400 invalid argument')
     assert not _is_rate_limit_error('')
+
+
+def test_duration_phrase_not_parsed_as_date():
+    # 'D tháng M' không prefix, không năm → KHÔNG phải ngày (là thời lượng)
+    assert _extract_date_vi('phải chờ 3 tháng 2 tuần nữa', _TODAY) is None
+    assert _extract_date_vi('học 3 tháng 6 môn', _TODAY) is None
+
+
+def test_explicit_date_without_prefix_but_with_year():
+    # không có 'ngày' nhưng có 'năm YYYY' → vẫn là ngày
+    assert _extract_date_vi('đặt lịch 1 tháng 7 năm 2026', _TODAY) == '2026-07-01'

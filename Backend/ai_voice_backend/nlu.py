@@ -27,7 +27,7 @@ def _is_rate_limit_error(msg: str) -> bool:
     """Nhận diện lỗi hết quota / rate-limit từ message ngoại lệ."""
     m = (msg or '').lower()
     return any(t in m for t in ('429', 'quota', 'resourceexhausted',
-                                'exhausted', 'rate limit', 'rate-limit'))
+                                'rate limit', 'rate-limit'))
 
 
 def _fmt_date(y: int, mo: int, d: int) -> Optional[str]:
@@ -66,9 +66,12 @@ def _extract_date_vi(text: str, today: Optional[date] = None) -> Optional[str]:
     if m:
         return _fmt_date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
 
-    # 4. 'ngày|mùng D tháng M [năm YYYY]'
-    m = re.search(r'(?:ngày|mùng|mồng)?\s*(\d{1,2})\s*tháng\s*(\d{1,2})'
+    # 4. 'ngày|mùng D tháng M [năm YYYY]' — YÊU CẦU prefix ngày/mùng HOẶC có 'năm YYYY'
+    #    (tránh đọc nhầm cụm thời lượng như "3 tháng 2 tuần" thành ngày)
+    m = re.search(r'(?:ngày|mùng|mồng)\s*(\d{1,2})\s*tháng\s*(\d{1,2})'
                   r'(?:\s*năm\s*(20\d{2}))?', t)
+    if not m:
+        m = re.search(r'(?<!\d)(\d{1,2})\s*tháng\s*(\d{1,2})\s*năm\s*(20\d{2})', t)
     if m:
         d, mo = int(m.group(1)), int(m.group(2))
         if m.group(3):
