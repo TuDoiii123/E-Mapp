@@ -28,6 +28,8 @@ def _slot_mentioned(slot: str, reply: str) -> bool:
     '13:30' nếu có '13:30' hoặc '13 giờ 30'. Dùng biên số (?<!\\d) để
     '8 giờ' KHÔNG khớp nhầm trong '18 giờ'.
     """
+    if not slot:
+        return False
     if slot in reply:
         return True
     try:
@@ -36,7 +38,8 @@ def _slot_mentioned(slot: str, reply: str) -> bool:
     except (ValueError, AttributeError):
         return False
     if m == 0:
-        return re.search(rf'(?<!\d){h}\s*giờ', reply) is not None
+        # (?!\s*\d): '8 giờ' KHÔNG khớp '8 giờ 30' (đó là 08:30, không phải 08:00)
+        return re.search(rf'(?<!\d){h}\s*giờ(?!\s*\d)', reply) is not None
     return (re.search(rf'(?<!\d){h}\s*giờ\s*{m}\b', reply) is not None
             or f'{h}:{mm}' in reply)
 

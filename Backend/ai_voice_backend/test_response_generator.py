@@ -129,3 +129,12 @@ def test_guardrail_spoken_hour_not_false_matched_by_longer_number():
     reply = 'Chỉ còn 18 giờ thôi ạ.'
     fixed = g._guardrail(a, reply)
     assert '08:00' in fixed                                # vẫn nối vì 8h chưa được đọc
+
+
+def test_guardrail_whole_hour_not_matched_by_subhour_mention():
+    """Slot 08:00 KHÔNG bị coi là đã đọc khi reply chỉ nói '8 giờ 30' (=08:30)."""
+    g = _RG(enabled=False)
+    a = DialogAction(ActionType.OFFER_SLOTS, {'slots': ['08:00', '08:30']})
+    reply = 'Còn khung giờ 8 giờ 30 ạ.'        # chỉ đọc 08:30
+    fixed = g._guardrail(a, reply)
+    assert '08:00' in fixed                     # 08:00 chưa đọc → phải nối lại
