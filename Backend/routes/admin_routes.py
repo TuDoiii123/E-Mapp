@@ -118,6 +118,20 @@ def review_application():
         )
         db.session.commit()
 
+        # Sinh thông báo cho người nộp hồ sơ
+        try:
+            _applicant = db.session.execute(
+                text('SELECT applicant_id FROM public.applications WHERE id = :id'),
+                {'id': application_id}).fetchone()
+            if _applicant and _applicant[0]:
+                from services.notification_service import emit, status_notification
+                _title, _prio = status_notification(status)
+                emit(_applicant[0], 'document', _title,
+                     f'Hồ sơ mã {application_id}', link='search',
+                     ref_id=application_id, priority=_prio)
+        except Exception as _e:
+            log.debug(f'[notif] hook duyệt hồ sơ bỏ qua: {_e}')
+
         log.info(f'[AUDIT] admin={request.user_id} action={action} '
                  f'application={application_id} new_status={status}')
         _write_audit(action, 'application', application_id,
