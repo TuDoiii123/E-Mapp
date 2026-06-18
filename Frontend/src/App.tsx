@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { MessageCircle } from 'lucide-react';
+import { initPush } from './lib/push';
 import { LoginScreen } from './screens/user/LoginScreen';
 import { HomeScreen } from './screens/user/HomeScreen';
 import { MapScreen } from './screens/user/MapScreen';
@@ -45,6 +46,11 @@ function AppContent() {
     window.addEventListener('auth:logout', onAuthLogout);
     return () => window.removeEventListener('auth:logout', onAuthLogout);
   }, [logout]);
+
+  // Khởi tạo web push Firebase khi người dùng đăng nhập
+  useEffect(() => {
+    if (isAuthenticated) { initPush(); }
+  }, [isAuthenticated]);
 
   // Auto-redirect: admin → trang quản trị | citizen/staff → home
   useEffect(() => {
