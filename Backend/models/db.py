@@ -370,6 +370,45 @@ def init_db(app):
             log.warning(f'Ensuring chatbot tables failed: {e}')
             db.session.rollback()
 
+        # ── Notification tables ───────────────────────────────────────────────
+        try:
+            notif_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.notifications (
+                id         VARCHAR(80)  PRIMARY KEY DEFAULT gen_random_uuid()::text,
+                user_id    VARCHAR(80)  NOT NULL,
+                type       VARCHAR(30)  NOT NULL,
+                title      VARCHAR(255) NOT NULL,
+                content    TEXT         NOT NULL DEFAULT '',
+                link       VARCHAR(60),
+                ref_id     VARCHAR(80),
+                priority   VARCHAR(10)  NOT NULL DEFAULT 'low',
+                read_at    TIMESTAMPTZ,
+                created_at TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_notif_user
+                ON public.notifications(user_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_notif_unread
+                ON public.notifications(user_id, read_at);
+
+            CREATE TABLE IF NOT EXISTS public.push_tokens (
+                token      VARCHAR(255) PRIMARY KEY,
+                user_id    VARCHAR(80)  NOT NULL,
+                platform   VARCHAR(20)  NOT NULL DEFAULT 'web',
+                created_at TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            CREATE INDEX IF NOT EXISTS idx_pushtok_user
+                ON public.push_tokens(user_id);
+
+            ALTER TABLE public.appointments
+                ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN NOT NULL DEFAULT FALSE;
+            ''')
+            db.session.execute(notif_ddl)
+            db.session.commit()
+            log.debug('Notification tables OK')
+        except Exception as e:
+            log.warning(f'Ensuring notification tables failed: {e}')
+            db.session.rollback()
+
         # ── Evaluations + form_templates + procedures tables ─────────────────
         # QUAN TRỌNG: Phải tạo TRƯỚC khối hardening (FK constraints)
         try:
