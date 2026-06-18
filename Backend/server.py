@@ -228,6 +228,13 @@ def _cleanup_rag_sessions():
 
 threading.Thread(target=_cleanup_rag_sessions, daemon=True).start()
 
+try:
+    from services.notification_scheduler import run_reminder_loop
+    threading.Thread(target=run_reminder_loop, args=(app,), daemon=True).start()
+    log.info('[notif] reminder scheduler started')
+except Exception as _e:
+    log.warning(f'[notif] không start được scheduler: {_e}')
+
 # ── Rate limiter đơn giản (in-memory, per-IP) ─────────────────────────────────
 from collections import defaultdict
 _rate_store: dict = defaultdict(list)
