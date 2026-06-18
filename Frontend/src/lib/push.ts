@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { getApps, initializeApp } from 'firebase/app';
 import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import { registerPushToken } from '../services/notificationService';
 
@@ -16,7 +16,7 @@ export async function initPush(): Promise<void> {
   try {
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') return;
-    const app = initializeApp(cfg);
+    const app = getApps().length ? getApps()[0] : initializeApp(cfg);
     const messaging = getMessaging(app);
     const token = await getToken(messaging, {
       vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
