@@ -1455,6 +1455,14 @@ def withdraw_application(app_id):
         '''), {'app_id': app_id, 'note': reason, 'by': request.user_id})
         db.session.commit()
 
+        try:
+            from services.notification_service import emit, status_notification
+            _title, _prio = status_notification('withdraw')
+            emit(getattr(request, 'user_id', None), 'document', _title,
+                 f'Hồ sơ mã {app_id}', link='search', ref_id=app_id, priority=_prio)
+        except Exception as _e:
+            log.debug(f'[notif] hook rút hồ sơ bỏ qua: {_e}')
+
         return jsonify({'success': True, 'message': 'Đã rút hồ sơ',
                         'data': {'application': _pg_get_application(app_id)}})
 

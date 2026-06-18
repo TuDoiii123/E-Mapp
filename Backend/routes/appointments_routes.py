@@ -64,6 +64,17 @@ def create_appointment_route():
                 return jsonify({'success': False, 'message': err}), 409
             return jsonify({'success': False, 'message': err}), 400
 
+        try:
+            from services.notification_service import emit
+            _uid = getattr(request, 'user_id', None)
+            _appt_id = new_item.get('id') if new_item else None
+            if _uid:
+                emit(_uid, 'appointment', 'Đặt lịch hẹn thành công',
+                     f'Lịch hẹn mã {_appt_id} đã được tạo.',
+                     link='appointments', ref_id=_appt_id, priority='medium')
+        except Exception as _e:
+            log.debug(f'[notif] hook tạo lịch hẹn bỏ qua: {_e}')
+
         return jsonify({'success': True, 'message': 'Đặt lịch hẹn thành công', 'data': new_item}), 201
 
     except Exception as exc:
