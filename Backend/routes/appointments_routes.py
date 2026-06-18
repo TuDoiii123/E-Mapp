@@ -68,7 +68,7 @@ def create_appointment_route():
             from services.notification_service import emit
             _uid = getattr(request, 'user_id', None)
             _appt_id = new_item.get('id') if new_item else None
-            if _uid:
+            if _uid and _appt_id:
                 emit(_uid, 'appointment', 'Đặt lịch hẹn thành công',
                      f'Lịch hẹn mã {_appt_id} đã được tạo.',
                      link='appointments', ref_id=_appt_id, priority='medium')

@@ -63,7 +63,7 @@ def run_reminder_loop(app):
                     db.session.execute(text(
                         'UPDATE public.appointments SET reminder_sent = TRUE WHERE id = :id'),
                         {'id': m['id']})
-                db.session.commit()
+                    db.session.commit()
         except Exception as e:  # noqa: BLE001
-            log.debug(f'[notif.scheduler] vòng quét lỗi (bỏ qua): {e}')
+            log.warning(f'[notif.scheduler] vòng quét lỗi (bỏ qua): {e}')
         time.sleep(_INTERVAL_SECONDS)

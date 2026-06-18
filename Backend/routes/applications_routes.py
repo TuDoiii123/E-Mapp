@@ -500,7 +500,15 @@ def update_status(id):
                 Application.update(id, {'currentStatus': status})
                 StatusTracking.create({'applicationId': id, 'status': status,
                                        'note': note, 'by': request.user_id})
-            
+
+            try:
+                from services.notification_service import emit, status_notification
+                _title, _prio = status_notification(status)
+                emit(request.user_id, 'document', _title,
+                     f'Hồ sơ mã {id}', link='search', ref_id=id, priority=_prio)
+            except Exception as _e:
+                log.debug(f'[notif] hook update_status bỏ qua: {_e}')
+
             return jsonify({
                 'success': True,
                 'message': 'Trạng thái đã được thêm',
