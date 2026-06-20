@@ -97,6 +97,11 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
     }
   };
 
+  const TYPE_LABEL: Record<string, string> = {
+    document: 'Hồ sơ', appointment: 'Lịch hẹn', system: 'Hệ thống',
+    office: 'Cơ quan', evaluation: 'Đánh giá',
+  };
+
   const filteredNotifications = filter === 'all'
     ? notifications
     : notifications.filter(n => n.type === filter);
@@ -155,6 +160,8 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
               >
                 <option value="all">Tất cả</option>
                 <option value="document">Hồ sơ</option>
+                <option value="appointment">Lịch hẹn</option>
+                <option value="system">Hệ thống</option>
                 <option value="office">Cơ quan</option>
                 <option value="evaluation">Đánh giá</option>
               </select>
@@ -162,7 +169,7 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
             {filter !== 'all' && (
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">
-                  Đang lọc: {filter === 'document' ? 'Hồ sơ' : filter === 'office' ? 'Cơ quan' : 'Đánh giá'}
+                  Đang lọc: {TYPE_LABEL[filter] || filter}
                 </Badge>
                 <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setFilter('all')}>
                   Xóa lọc
@@ -207,8 +214,7 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
                         </p>
                         <div className="flex items-center gap-2 mt-2">
                           <Badge variant="outline" className={getPriorityColor(notification.priority)}>
-                            {notification.type === 'document' ? 'Hồ sơ' :
-                             notification.type === 'office'   ? 'Cơ quan' : 'Đánh giá'}
+                            {TYPE_LABEL[notification.type] || 'Thông báo'}
                           </Badge>
                           {notification.documentId && (
                             <Badge variant="secondary">{notification.documentId}</Badge>
