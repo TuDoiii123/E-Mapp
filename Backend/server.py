@@ -109,6 +109,7 @@ _blueprints = [
     ('routes.templates_routes',        'templates_bp'),
     ('routes.ai_routes',               'ai_bp'),
     ('routes.notification_routes',     'notification_bp'),
+    ('routes.queue_forecast_routes',   'queue_forecast_bp'),
 ]
 
 _bp_ok: list = []
