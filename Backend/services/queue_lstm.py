@@ -38,3 +38,74 @@ def scale(series):
 
 def unscale(value: float, mn: float, mx: float) -> float:
     return mn + value * (mx - mn)
+
+
+def _build_model(lookback: int):
+    import torch.nn as nn
+
+    class _LSTM(nn.Module):
+        def __init__(self, hidden=32):
+            super().__init__()
+            self.lstm = nn.LSTM(input_size=1, hidden_size=hidden, num_layers=1, batch_first=True)
+            self.fc = nn.Linear(hidden, 1)
+
+        def forward(self, x):                 # x: (batch, lookback, 1)
+            out, _ = self.lstm(x)
+            return self.fc(out[:, -1, :])     # (batch, 1)
+
+    return _LSTM()
+
+
+_model = None
+_meta = None
+
+
+def _load():
+    """Load model + meta 1 lần. Trả (model, meta) hoặc (None, None)."""
+    global _model, _meta
+    if _model is not None:
+        return _model, _meta
+    if not QUEUE_LSTM_ENABLED:
+        return None, None
+    pt = _MODEL_DIR / 'model.pt'
+    mj = _MODEL_DIR / 'meta.json'
+    if not pt.exists() or not mj.exists():
+        log.info('[lstm] chưa có artifact → dùng fallback thống kê')
+        return None, None
+    try:
+        import json
+        import torch
+        meta = json.loads(mj.read_text('utf-8'))
+        model = _build_model(meta['lookback'])
+        model.load_state_dict(torch.load(pt, map_location='cpu'))
+        model.eval()
+        _model, _meta = model, meta
+        return _model, _meta
+    except Exception as e:  # noqa: BLE001
+        log.warning(f'[lstm] load lỗi → fallback: {e}')
+        return None, None
+
+
+def predict_next(recent_scaled, horizon: int):
+    """Dự báo đệ quy `horizon` giá trị (đã scale). None nếu model không khả dụng."""
+    model, meta = _load()
+    if model is None:
+        return None
+    try:
+        import torch
+        lookback = meta['lookback']
+        seq = list(recent_scaled)[-lookback:]
+        if len(seq) < lookback:
+            seq = [0.0] * (lookback - len(seq)) + seq
+        preds = []
+        with torch.no_grad():
+            for _ in range(horizon):
+                x = torch.tensor(seq[-lookback:], dtype=torch.float32).view(1, lookback, 1)
+                p = float(model(x).item())
+                p = min(1.0, max(0.0, p))
+                preds.append(p)
+                seq.append(p)
+        return preds
+    except Exception as e:  # noqa: BLE001
+        log.warning(f'[lstm] predict lỗi → fallback: {e}')
+        return None
