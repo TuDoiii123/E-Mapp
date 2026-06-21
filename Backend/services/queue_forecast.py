@@ -5,6 +5,7 @@ Hàm thuần (synth_count, weekday_hour_avg, percentiles, load_level) test đư�
 import math
 import sys
 from pathlib import Path
+from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from logger import get_logger
@@ -112,3 +113,58 @@ def rollup_real() -> int:
         n += 1
     db.session.commit()
     return n
+
+
+def _profile_lookup(profile):
+    return {(p['weekday'], p['hour']): p for p in profile}
+
+
+def _try_lstm(agency_id, hours, now):
+    """Lấy chuỗi gần đây từ DB, scale, gọi LSTM, unscale → list count. None nếu lỗi/không có."""
+    try:
+        from services import queue_lstm
+        db, text = _db()
+        rows = db.session.execute(text('''
+            SELECT date, hour, ticket_count FROM public.queue_history_daily
+            WHERE agency_id=:a ORDER BY date DESC, hour DESC LIMIT 240
+        '''), {'a': agency_id}).fetchall()
+        if not rows:
+            return None
+        series = queue_lstm.build_series([(r[0], r[1], r[2]) for r in reversed(rows)])
+        scaled, mn, mx = queue_lstm.scale(series)
+        preds = queue_lstm.predict_next(scaled, hours)
+        if preds is None:
+            return None
+        return [max(0, int(round(queue_lstm.unscale(p, mn, mx)))) for p in preds]
+    except Exception as e:  # noqa: BLE001
+        log.debug(f'[forecast] _try_lstm bỏ qua: {e}')
+        return None
+
+
+def forecast_short_term(agency_id: str, hours: int = 8, now=None) -> dict:
+    """Dự báo `hours` giờ tới. Luôn trả kết quả (LSTM → fallback thống kê)."""
+    now = now or datetime.now()
+    profile = weekly_profile(agency_id)
+    lookup = _profile_lookup(profile)
+    avgs = [p['avg'] for p in profile] or [0.0]
+    p50, p85 = percentiles(avgs)
+
+    counts = _try_lstm(agency_id, hours, now)
+    source = 'lstm' if counts is not None else 'stats'
+    if counts is None:
+        counts = []
+        for i in range(1, hours + 1):
+            t = now + timedelta(hours=i)
+            p = lookup.get((t.weekday(), t.hour))
+            counts.append(int(round(p['avg'])) if p else 0)
+
+    forecast, warnings = [], []
+    for i, c in enumerate(counts, start=1):
+        t = now + timedelta(hours=i)
+        lvl = load_level(c, p50, p85)
+        item = {'time': t.isoformat(timespec='hours'), 'count': c,
+                'level': lvl, 'peak': lvl == 'high'}
+        forecast.append(item)
+        if lvl == 'high':
+            warnings.append({'time': item['time'], 'level': lvl})
+    return {'agency': agency_id, 'source': source, 'forecast': forecast, 'warnings': warnings}
