@@ -45,3 +45,4 @@ Backend/RAG/chroma_db/
 
 # User uploads
 Backend/uploads/
+Backend/models/queue_lstm/
