@@ -409,6 +409,27 @@ def init_db(app):
             log.warning(f'Ensuring notification tables failed: {e}')
             db.session.rollback()
 
+        # ── Queue history (forecast) ──────────────────────────────────────────
+        try:
+            qhist_ddl = text('''
+            CREATE TABLE IF NOT EXISTS public.queue_history_daily (
+                agency_id    VARCHAR(120) NOT NULL,
+                date         DATE         NOT NULL,
+                hour         SMALLINT     NOT NULL,
+                ticket_count INTEGER      NOT NULL DEFAULT 0,
+                source       VARCHAR(10)  NOT NULL DEFAULT 'real',
+                PRIMARY KEY (agency_id, date, hour)
+            );
+            CREATE INDEX IF NOT EXISTS idx_qhist_agency
+                ON public.queue_history_daily(agency_id, date);
+            ''')
+            db.session.execute(qhist_ddl)
+            db.session.commit()
+            log.debug('Queue history table OK')
+        except Exception as e:
+            log.warning(f'Ensuring queue_history_daily failed: {e}')
+            db.session.rollback()
+
         # ── Evaluations + form_templates + procedures tables ─────────────────
         # QUAN TRỌNG: Phải tạo TRƯỚC khối hardening (FK constraints)
         try:
