@@ -65,3 +65,50 @@ def load_level(value: float, p50: float, p85: float) -> str:
     if value > p50:
         return 'medium'
     return 'low'
+
+
+def _db():
+    from models.db import db
+    from sqlalchemy import text
+    return db, text
+
+
+def weekly_profile(agency_id: str) -> list:
+    """Profile tải theo (weekday 0=Mon..6=Sun, hour) cho 1 cơ quan."""
+    db, text = _db()
+    rows = db.session.execute(text('''
+        SELECT EXTRACT(DOW FROM date)::int AS dow, hour, ticket_count
+        FROM public.queue_history_daily WHERE agency_id = :a
+    '''), {'a': agency_id}).fetchall()
+    # Postgres DOW: 0=Sun..6=Sat → đổi sang 0=Mon..6=Sun
+    norm = [((int(r[0]) + 6) % 7, int(r[1]), float(r[2])) for r in rows]
+    avg = weekday_hour_avg(norm)
+    p50, p85 = percentiles(list(avg.values()))
+    out = []
+    for (wd, h), v in sorted(avg.items()):
+        lvl = load_level(v, p50, p85)
+        out.append({'weekday': wd, 'hour': h, 'avg': round(v, 2),
+                    'level': lvl, 'peak': lvl == 'high'})
+    return out
+
+
+def rollup_real() -> int:
+    """Gộp queue_tickets thật → queue_history_daily (source='real'). Trả số dòng upsert."""
+    db, text = _db()
+    rows = db.session.execute(text('''
+        SELECT agency_id, date, EXTRACT(HOUR FROM created_at)::int AS h, COUNT(*) AS c
+        FROM public.queue_tickets
+        WHERE agency_id IS NOT NULL AND agency_id <> ''
+        GROUP BY agency_id, date, h
+    ''')).fetchall()
+    n = 0
+    for r in rows:
+        db.session.execute(text('''
+            INSERT INTO public.queue_history_daily (agency_id, date, hour, ticket_count, source)
+            VALUES (:a, :d, :h, :c, 'real')
+            ON CONFLICT (agency_id, date, hour)
+            DO UPDATE SET ticket_count = EXCLUDED.ticket_count, source = 'real'
+        '''), {'a': r[0], 'd': r[1], 'h': int(r[2]), 'c': int(r[3])})
+        n += 1
+    db.session.commit()
+    return n
