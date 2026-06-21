@@ -3,6 +3,7 @@ import { Bell, Filter, FileText, Building, Star, Clock, CheckCircle, AlertCircle
 import { Button, Card as HCard, Tabs, Chip } from '@heroui/react';
 import React from 'react';
 import * as adminSvc from '../../services/adminService';
+import * as notifSvc from '../../services/notificationService';
 
 // Aliases for drop-in shadcn compatibility
 const Card        = HCard;
@@ -15,34 +16,6 @@ interface NotificationScreenProps {
   onNavigate: (screen: string) => void;
 }
 
-// Map application status → notification shape
-function appToNotification(app: any) {
-  const STATUS_TITLE: Record<string, string> = {
-    submitted:      'Hồ sơ đã được tiếp nhận',
-    in_review:   'Hồ sơ đang được xem xét',
-    more_info: 'Cần bổ sung hồ sơ',
-    approved:       'Hồ sơ đã được duyệt',
-    rejected:       'Hồ sơ bị từ chối',
-  };
-  const PRIORITY: Record<string, string> = {
-    more_info: 'high',
-    rejected:       'high',
-    approved:       'medium',
-    in_review:   'medium',
-    submitted:      'low',
-  };
-  const st = app.currentStatus || 'submitted';
-  return {
-    id:         app.id,
-    type:       'document',
-    title:      STATUS_TITLE[st] || 'Cập nhật hồ sơ',
-    content:    `Hồ sơ "${app.procedureName || app.procedureId}" - Mã: ${app.id}`,
-    time:       app.updatedAt ? new Date(app.updatedAt).toLocaleDateString('vi-VN') : '',
-    read:       st === 'submitted',
-    priority:   PRIORITY[st] || 'low',
-    documentId: app.id,
-  };
-}
 
 const STATUS_VI: Record<string, string> = {
   submitted:      'Đã nộp',
@@ -65,17 +38,21 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
   const [applications, setApplications] = useState<any[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [readSet,      setReadSet]      = useState<Set<string>>(new Set());
+  const [notifs,       setNotifs]       = useState<any[]>([]);
 
   useEffect(() => {
+    notifSvc.list().then(setNotifs).catch(() => setNotifs([]));
     adminSvc.getMyApplications()
       .then(r => setApplications(Array.isArray(r.data) ? r.data : []))
       .catch(() => setApplications([]))
       .finally(() => setLoading(false));
   }, []);
 
-  const notifications = applications.map(appToNotification).map(n => ({
-    ...n,
+  const notifications = notifs.map(n => ({
+    id: n.id, type: n.type, title: n.title, content: n.content,
+    time: n.time ? new Date(n.time).toLocaleDateString('vi-VN') : '',
     read: readSet.has(String(n.id)) || n.read,
+    priority: n.priority, documentId: n.refId, link: n.link,
   }));
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -120,12 +97,18 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
     }
   };
 
+  const TYPE_LABEL: Record<string, string> = {
+    document: 'Hồ sơ', appointment: 'Lịch hẹn', system: 'Hệ thống',
+    office: 'Cơ quan', evaluation: 'Đánh giá',
+  };
+
   const filteredNotifications = filter === 'all'
     ? notifications
     : notifications.filter(n => n.type === filter);
 
   const handleMarkAllRead = () => {
     setReadSet(new Set(notifications.map(n => String(n.id))));
+    notifSvc.markAllRead().catch(() => {});
   };
 
   return (
@@ -177,6 +160,8 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
               >
                 <option value="all">Tất cả</option>
                 <option value="document">Hồ sơ</option>
+                <option value="appointment">Lịch hẹn</option>
+                <option value="system">Hệ thống</option>
                 <option value="office">Cơ quan</option>
                 <option value="evaluation">Đánh giá</option>
               </select>
@@ -184,7 +169,7 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
             {filter !== 'all' && (
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">
-                  Đang lọc: {filter === 'document' ? 'Hồ sơ' : filter === 'office' ? 'Cơ quan' : 'Đánh giá'}
+                  Đang lọc: {TYPE_LABEL[filter] || filter}
                 </Badge>
                 <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setFilter('all')}>
                   Xóa lọc
@@ -205,7 +190,11 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
                 <Card
                   key={notification.id}
                   className={`cursor-pointer transition-all ${!notification.read ? 'bg-blue-50 border-blue-200' : ''}`}
-                  onClick={() => { if (notification.documentId) onNavigate('search'); }}
+                  onClick={() => {
+                    setReadSet(prev => new Set(prev).add(String(notification.id)));
+                    notifSvc.markRead(String(notification.id)).catch(() => {});
+                    onNavigate(notification.link || 'search');
+                  }}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
@@ -225,8 +214,7 @@ export function NotificationScreen({ onNavigate }: NotificationScreenProps) {
                         </p>
                         <div className="flex items-center gap-2 mt-2">
                           <Badge variant="outline" className={getPriorityColor(notification.priority)}>
-                            {notification.type === 'document' ? 'Hồ sơ' :
-                             notification.type === 'office'   ? 'Cơ quan' : 'Đánh giá'}
+                            {TYPE_LABEL[notification.type] || 'Thông báo'}
                           </Badge>
                           {notification.documentId && (
                             <Badge variant="secondary">{notification.documentId}</Badge>

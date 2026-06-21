@@ -108,6 +108,7 @@ _blueprints = [
     ('routes.procedures_routes',       'procedures_bp'),
     ('routes.templates_routes',        'templates_bp'),
     ('routes.ai_routes',               'ai_bp'),
+    ('routes.notification_routes',     'notification_bp'),
 ]
 
 _bp_ok: list = []
@@ -226,6 +227,13 @@ def _cleanup_rag_sessions():
             log.warning(f'[RAG cleanup] Failed: {e}')
 
 threading.Thread(target=_cleanup_rag_sessions, daemon=True).start()
+
+try:
+    from services.notification_scheduler import run_reminder_loop
+    threading.Thread(target=run_reminder_loop, args=(app,), daemon=True).start()
+    log.info('[notif] reminder scheduler started')
+except Exception as _e:
+    log.warning(f'[notif] không start được scheduler: {_e}')
 
 # ── Rate limiter đơn giản (in-memory, per-IP) ─────────────────────────────────
 from collections import defaultdict
