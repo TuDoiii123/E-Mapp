@@ -1030,6 +1030,25 @@ def init_db(app):
             except Exception:
                 db.session.rollback()
 
+        # ── Cache PDF preview của template (BYTEA) ───────────────────────────
+        # Lưu PDF đã convert để prod (không có LibreOffice) vẫn xem trước được.
+        try:
+            db.session.execute(text('''
+            CREATE TABLE IF NOT EXISTS public.template_pdf_cache (
+                filename     VARCHAR(255) PRIMARY KEY,
+                content_hash VARCHAR(32)  NOT NULL,
+                pdf_data     BYTEA        NOT NULL,
+                size_bytes   INTEGER      NOT NULL DEFAULT 0,
+                created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+            );
+            '''))
+            db.session.commit()
+            log.debug('template_pdf_cache table OK')
+        except Exception as e:
+            log.warning(f'Ensuring template_pdf_cache table failed: {e}')
+            db.session.rollback()
+
     return db
 
 

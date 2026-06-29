@@ -5,7 +5,9 @@ Templates routes:
   GET  /api/templates                    → liệt kê tất cả template có sẵn
 """
 import os
+import hashlib
 import threading
+from io import BytesIO
 from flask import Blueprint, send_from_directory, send_file, jsonify, abort, request
 from logger import get_logger
 
@@ -238,25 +240,52 @@ def preview_template(filename: str):
     if ext in ('doc', 'docx'):
         stem = fn.rsplit('.', 1)[0]
 
-        # 1. Kiểm tra cache trực tiếp theo pattern <stem>_*.pdf (không cần gọi word_to_pdf)
+        # MD5 nội dung template gốc — dùng để so cache DB và phát hiện stale
+        try:
+            with open(fpath, 'rb') as f:
+                content_hash = hashlib.md5(f.read()).hexdigest()
+        except Exception as e:
+            log.warning(f'Không đọc được template {fn}: {e}')
+            content_hash = None
+
+        # 1. DB-first: phục vụ PDF từ Postgres nếu có và hash khớp.
+        #    Đây là đường production đi — không cần LibreOffice/Word.
+        if content_hash:
+            from services import pdf_cache_db
+            meta = pdf_cache_db.get_meta(fn)
+            if meta and meta.get('content_hash') == content_hash:
+                pdf_bytes = pdf_cache_db.get_pdf(fn)
+                if pdf_bytes:
+                    log.debug(f'Cache hit (DB): {fn}')
+                    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf',
+                                     download_name=f'{stem}.pdf')
+
+        # 2. Cache đĩa trực tiếp theo pattern <stem>_*.pdf (không cần gọi word_to_pdf)
         import glob as _glob
         cached = sorted(_glob.glob(os.path.join(_CACHE_DIR, f'{stem}_*.pdf')))
         if cached:
-            log.debug(f'Cache hit (direct): {os.path.basename(cached[-1])}')
+            log.debug(f'Cache hit (disk): {os.path.basename(cached[-1])}')
             return send_file(cached[-1], mimetype='application/pdf')
 
-        # 2. Thử convert qua word_to_pdf
+        # 3. Convert local (máy có engine) → write-through vào DB
         try:
             from services.pdf_converter import word_to_pdf
             pdf_path = word_to_pdf(fpath)
             if pdf_path and os.path.exists(pdf_path):
                 log.debug(f'Serving PDF preview for {fn}')
+                if content_hash:
+                    try:
+                        from services import pdf_cache_db
+                        with open(pdf_path, 'rb') as pf:
+                            pdf_cache_db.put_pdf(fn, content_hash, pf.read())
+                    except Exception as e:
+                        log.warning(f'Write-through DB lỗi cho {fn}: {e}')
                 return send_file(pdf_path, mimetype='application/pdf')
             _schedule_bg_convert(fpath)
         except Exception as e:
             log.warning(f'PDF conversion failed for {fn}: {e}')
 
-        # 3. Fallback: trả về file Word inline
+        # 4. Fallback: trả về file Word inline
         mime = ('application/msword' if ext == 'doc'
                 else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         log.debug(f'Serving Word fallback for {fn}')
