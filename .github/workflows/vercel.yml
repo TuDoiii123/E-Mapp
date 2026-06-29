@@ -1,0 +1,45 @@
+name: Deploy Frontend to Vercel
+
+# LƯU Ý: dùng MỘT trong hai cách, KHÔNG bật cả hai (tránh deploy 2 lần):
+#   (a) Vercel Git Integration (import repo trên dashboard) — đơn giản nhất, KHÔNG cần workflow này.
+#   (b) Workflow này — cần thêm 3 secret vào repo: VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID.
+# Lấy ORG_ID/PROJECT_ID: chạy `npx vercel link` ở repo (Root Directory = Frontend),
+# rồi đọc file .vercel/project.json. Token: https://vercel.com/account/tokens
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Frontend/**'
+      - '.github/workflows/vercel.yml'
+  workflow_dispatch:
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy:
+    name: Build & deploy (production)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # Kéo cấu hình project (gồm Root Directory = Frontend) từ Vercel
+      - name: Pull Vercel project settings
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy (prebuilt)
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
