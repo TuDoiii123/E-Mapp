@@ -37,7 +37,8 @@ sentencepiece.bpe.model
 
 # IDE / tools
 .vscode/
-.claude/skills/
+.claude/
+CLAUDE.md
 .superpowers/
 
 # ChromaDB vector store (local binary — không commit)
@@ -46,3 +47,13 @@ Backend/RAG/chroma_db/
 # User uploads
 Backend/uploads/
 Backend/models/queue_lstm/
+
+# Generated PDF preview cache (rebuilt from Postgres template_pdf_cache)
+Backend/data/pdf_cache/
+
+# Local-only unit tests (giữ trên máy, không push GitHub)
+Backend/ai_voice_backend/test_*.py
+Backend/services/test_*.py
+
+# Demo / scratch audio output
+*.wav

@@ -1,189 +1,198 @@
-## AI Đặt lịch
-## 1. Endpoint & Luồng
-### 1.1 /voice/stt (POST)
-Nhận file `audio/webm` (Opus) → Gọi Google STT → trả `{ status, text }`.
-Trường hợp không nghe thấy gì: trả `status=error`.
+# E-Mapp — Dịch vụ công số tỉnh Thanh Hóa
 
-### 1.2 /voice/tts (POST)
-Input: `{ text: "..." }` → Tổng hợp giọng (vi-VN, neutral) → trả về bytes MP3 (`audio/mpeg`). Dùng trực tiếp làm nguồn HTML5 Audio.
+> Nền tảng dịch vụ hành chính công trực tuyến: nộp hồ sơ, đặt lịch hẹn, lấy số xếp hàng, tra cứu thủ tục, trợ lý AI (chatbot RAG + giọng nói) và bản đồ cơ quan hành chính.
 
-### 1.3 /appointments (POST)
-Tạo lịch hẹn từ payload đầy đủ (dùng nội bộ sau khi trích JSON). DB fields:
-- citizen_name, phone, id_number, service_type, location
-- appointment_date (DATE), appointment_time (TIME), note
+**Repository:** https://github.com/TuDoiii123/E-Mapp
 
-### 1.4 /appointments (GET)
-Liệt kê tối đa 50 lịch sắp xếp theo ngày + giờ.
+---
 
-### 1.5 /appointments/by-phone (GET?phone=...)
-Truy xuất 10 lịch mới nhất theo số điện thoại.
+## Mục lục
 
-### 1.6 /voice/appointments/auto-create (POST)
-One-shot booking. Nhận `{ text, phone? }` → Prompt Gemini trích xuất 8 trường JSON:
+- [Tổng quan](#tổng-quan)
+- [Tính năng chính](#tính-năng-chính)
+- [Kiến trúc](#kiến-trúc)
+- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
+- [Cấu trúc thư mục](#cấu-trúc-thư-mục)
+- [Cài đặt & Chạy](#cài-đặt--chạy)
+  - [1. Chạy nhanh bằng Docker Compose](#1-chạy-nhanh-bằng-docker-compose)
+  - [2. Chạy thủ công (dev)](#2-chạy-thủ-công-dev)
+- [Biến môi trường](#biến-môi-trường)
+- [RAG & mô hình AI](#rag--mô-hình-ai)
+- [Triển khai (Deploy)](#triển-khai-deploy)
+- [Đóng góp](#đóng-góp)
+
+---
+
+## Tổng quan
+
+**E-Mapp** là cổng dịch vụ công số giúp người dân tương tác với các thủ tục hành chính một cách trực tuyến, đồng thời cung cấp công cụ quản trị cho cán bộ. Hệ thống gồm một **frontend React** (web/app), một **backend Flask** với REST API + WebSocket, và một **module AI** (RAG chatbot, trợ lý giọng nói, trích xuất tài liệu, dự báo hàng đợi).
+
+## Tính năng chính
+
+| Nhóm | Mô tả |
+|------|-------|
+| 🔐 **Tài khoản** | Đăng ký / đăng nhập bằng JWT, phân quyền người dân & cán bộ |
+| 📄 **Hồ sơ trực tuyến** | Nộp & theo dõi hồ sơ theo luồng trạng thái (draft → submitted → in_review → approved/rejected/more_info) kèm lịch sử |
+| 📚 **Tra cứu thủ tục** | Danh mục thủ tục hành chính theo lĩnh vực (dân sự, doanh nghiệp, đất đai…) |
+| 📅 **Đặt lịch hẹn** | Đặt lịch theo khung giờ, hiển thị bằng FullCalendar |
+| 🎫 **Xếp hàng & dự báo** | Lấy số thứ tự thời gian thực qua WebSocket + dự báo thời gian chờ bằng mô hình LSTM |
+| 🤖 **Chatbot RAG** | Hỏi đáp tiếng Việt dựa trên ChromaDB + embedding tiếng Việt + Gemini |
+| 🎙️ **Trợ lý giọng nói** | STT/TTS (Google Cloud) + hội thoại đa bước để đặt lịch bằng giọng nói |
+| 🖼️ **Trích xuất tài liệu** | Đọc thông tin từ ảnh/PDF giấy tờ (Gemini Vision) |
+| 📝 **Điền biểu mẫu** | Sinh & cache bản xem trước PDF của biểu mẫu (lưu trong PostgreSQL) |
+| 🗺️ **Bản đồ** | Bản đồ cơ quan hành chính (Leaflet) + tính khoảng cách |
+| 🔔 **Thông báo** | Push notification qua Firebase |
+| ⭐ **Đánh giá** | Đánh giá chất lượng dịch vụ |
+
+## Kiến trúc
+
 ```
-citizen_name, phone, id_number, service_type, location,
-appointment_date (YYYY-MM-DD), appointment_time (HH:MM:SS), note
-```
-- Nếu thiếu bất kỳ trường quan trọng (service_type, location, appointment_date, appointment_time) → `status=missing_fields + missing=[...]`.
-- Nếu đủ → chuyển đổi định dạng ngày/giờ, gọi `/appointments` nội bộ → trả `status=success + appointment`.
-
-### 1.7 /voice/dialog (POST)
-Hội thoại đa bước với `session_id` cố định cho phiên:
-Các bước (`DialogStep`):
-1. ASK_INTENT → trích `service_type`.
-2. ASK_LOCATION → trích `location`.
-3. ASK_DATE → trích `appointment_date`.
-4. CONFIRM (sau khi gợi ý giờ) → chọn 1 trong các slot trống.
-5. DONE → lịch đã tạo; có thể reset nếu người dùng lại đề cập thủ tục mới.
-
-Gợi ý giờ (`suggest_slots_for_state`): so sánh các khung cố định `[08:00,09:00,10:00,14:00,15:00]` với DB để bỏ slot bận. Nếu kín hết → yêu cầu ngày khác.
-
-Gemini được gọi ở mỗi bước để trích JSON tối giản:
-- ASK_INTENT: `{ service_type }`
-- ASK_LOCATION: `{ location }`
-- ASK_DATE: `{ appointment_date }`
-- CONFIRM: `{ appointment_time }` (khớp một slot trong danh sách gợi ý)
-
-Khi người dùng chọn giờ hợp lệ → tạo lịch hẹn DB → state chuyển sang DONE và trả về thông tin lịch.
-
-## 2. Môi trường & Biến .env
-Các biến cần có trong `.env`:
-```
-GEMINI_API_KEY=""
-DB_HOST=""
-DB_PORT=""
-DB_USER=""
-DB_PASSWORD=""
-DB_NAME=""
-```
-Yêu cầu thiết lập Google Application Credentials nếu dùng service account:
-```
-GOOGLE_APPLICATION_CREDENTIALS=""
+┌────────────────┐      REST /api/*  +  WebSocket /ws/*      ┌────────────────────┐
+│   Frontend     │ ─────────────────────────────────────────▶│   Backend (Flask)   │
+│  React + TS    │                                            │   server.py :8888   │
+│  (Rsbuild)     │◀───────────────────────────────────────── │   17 blueprints     │
+└────────────────┘                                            └─────────┬───────────┘
+                                                                        │
+                          ┌────────────────────┬──────────────────┬─────┴───────────┐
+                          ▼                    ▼                  ▼                 ▼
+                   ┌────────────┐      ┌──────────────┐   ┌──────────────┐  ┌──────────────┐
+                   │ PostgreSQL │      │  RAG / Chroma │   │ Google Cloud │  │   Firebase   │
+                   │            │      │  + Gemini     │   │  STT / TTS   │  │  (push noti) │
+                   └────────────┘      └──────────────┘   └──────────────┘  └──────────────┘
 ```
 
-## 3. Cài đặt & Chạy
-### 3.1 Cài đặt dependencies
-`requirements.txt` chứa các gói chính: `fastapi`, `uvicorn`, `google-cloud-speech`, `google-cloud-texttospeech`, `google-generativeai`, `mysql-connector-python`, `python-dotenv`.
+## Công nghệ sử dụng
 
-Cài đặt:
+**Frontend**
+- React 19 + TypeScript, đóng gói bằng **Rsbuild**
+- Tailwind CSS 4, HeroUI, Lucide icons, Framer Motion
+- Leaflet (bản đồ), FullCalendar (lịch hẹn), Recharts (biểu đồ)
+- Firebase (push notification)
+
+**Backend**
+- Python **Flask 3** (`server.py`, cổng `8888`), REST API tiền tố `/api/*`
+- **PostgreSQL** qua `psycopg2` + Flask-SQLAlchemy
+- Xác thực **JWT** (PyJWT) + bcrypt
+- WebSocket qua `flask-sock` (`/ws/queue/<agency_id>`)
+- **RAG:** ChromaDB + `sentence-transformers` (Vietnamese_Embedding) + Gemini
+- **Voice:** Google Cloud Speech-to-Text / Text-to-Speech
+- **Tài liệu:** PyMuPDF, python-docx
+- **Dự báo hàng đợi:** PyTorch (LSTM)
+
+**Hạ tầng**
+- Docker & Docker Compose (frontend nginx, backend, Cloudflare Tunnel, Watchtower)
+- GitHub Actions (CI/CD), Vercel (frontend), Oracle Cloud ARM (backend)
+
+## Cấu trúc thư mục
+
+```
+E-Mapp/
+├── Frontend/                 # React + TypeScript (Rsbuild)
+│   ├── src/
+│   ├── Dockerfile
+│   └── vercel.json
+├── Backend/                  # Flask API
+│   ├── server.py             # Entry point (cổng 8888)
+│   ├── routes/               # Các blueprint API (auth, applications, rag, voice, queue…)
+│   ├── services/             # Business logic (appointments, queue_forecast, pdf_cache…)
+│   ├── RAG/                  # Chatbot RAG: ChromaDB, agent, embedding, prompt
+│   ├── SuggestProcedure/     # Gợi ý thủ tục (mô hình fine-tuned)
+│   ├── ImageExtract/         # Trích xuất thông tin từ ảnh/giấy tờ
+│   ├── middleware/           # Auth, logging…
+│   └── requirements.txt
+├── docs/                     # Tài liệu, UML
+├── docker-compose.yml
+└── .env.example
+```
+
+## Cài đặt & Chạy
+
+### 1. Chạy nhanh bằng Docker Compose
+
 ```bash
-pip install -r requirements.txt
+git clone https://github.com/TuDoiii123/E-Mapp.git
+cd E-Mapp
+
+cp .env.example .env        # rồi điền các giá trị thật
+docker compose up -d --build
 ```
 
-### 3.2 Chạy dev
-```bash
-python main.py
-```
-FastAPI mặc định sẽ chạy tại `http://127.0.0.1:8000`.
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8888/api
+- Health check: http://localhost:8888/api/health
 
+### 2. Chạy thủ công (dev)
 
-## RAG
-## 1. Cài đặt môi trường
-
-### Clone project
+**Backend**
 
 ```bash
-git clone https://github.com/<your-name>/<your-repo>.git
-cd <your-repo>
-```
-
-### Tạo môi trường Python
-
-```bash
+cd Backend
 python -m venv venv
-source venv/bin/activate   # Linux / Mac
-venv\Scripts\activate      # Windows
-```
+source venv/bin/activate     # Linux/macOS
+venv\Scripts\activate        # Windows
 
-### Cài đặt thư viện
-
-```bash
 pip install -r requirements.txt
+python server.py             # chạy tại http://127.0.0.1:8888
 ```
 
----
-
-## 2. Tạo file `.env`
-
-Tạo file `.env` ở thư mục gốc:
-
-```
-GOOGLE_API_KEY=<your-openai-key>
-```
-
-Tạo file `config.json` ở thư mục `connect_SQL` cho database tương ứng:
-
-```
-{
-    "connection": {
-        "server": "",
-        "database": "",
-        "username": "",
-        "password": ""
-    }
-} 
-```
-
-## 3. Tải mô hình Embedding
-
-Mô hình không kèm theo repo để giảm dung lượng.
-
-Tạo folder `models` trong thư mục dự án và tải từ Hugging Face:
-
-https://huggingface.co/AITeamVN/Vietnamese_Embedding
-
-
-## 4. Tạo vector database (Chroma)
-
-1. Tạo file `config.json` ở thư mục `create_vecto_db` tương ứng:
-```
-{
-  "faq_csv_path": "",
-  "db_path": "", # Tên folder chứa model
-  "db_folder": "chroma_db_faqs", # Tạo thêm 1 folder con trong db_path để giúp thao tác xóa
-  "collection_name": "faqs_collection",  # Tên collection trong ChromaDB, mặc định là faqs_collection
-  "local_model_path": "" # Path của file model đã tải
-}
-```
-
-2 Tạo vector DB:
-```bash
-python create_vect_db/create_faq_db.py
-```
----
-
-## 5. Chạy ứng dụng
+**Frontend**
 
 ```bash
-streamlit run app.py
+cd Frontend
+npm install
+npm run dev                  # chế độ phát triển
+npm run build                # build production
 ```
 
-Ứng dụng chạy tại:
+## Biến môi trường
+
+Sao chép `.env.example` thành `.env` ở thư mục gốc và điền giá trị:
+
+```dotenv
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=postgres
+DB_USER=postgres
+DB_PASSWORD=
+
+# JWT
+JWT_SECRET=change-this-to-a-long-random-string
+
+# Gemini AI
+GEMINI_API_KEY=
+GEMINI_MODEL_NAME=models/gemini-2.5-flash
+GEMINI_MODEL_RAG=gemini-2.5-flash
+
+# CORS (thêm domain thật khi deploy)
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+# Cloudflare Tunnel
+TUNNEL_TOKEN=
 ```
-http://localhost:8888
-```
+
+> ⚠️ Không commit file `.env`. Dùng Google Application Credentials nếu bật tính năng giọng nói (Google Cloud STT/TTS).
+
+## RAG & mô hình AI
+
+Module RAG nằm trong `Backend/RAG/`. Mô hình embedding **không kèm theo repo** để giảm dung lượng — tải từ Hugging Face:
+
+- Vietnamese Embedding: https://huggingface.co/AITeamVN/Vietnamese_Embedding
+
+Vector store dùng **ChromaDB** (thư mục cục bộ, không commit). Script tạo DB từ FAQ nằm trong `Backend/RAG/create_vecto_db/`.
+
+## Triển khai (Deploy)
+
+- **Frontend** → Vercel (cấu hình `Frontend/vercel.json`, workflow `.github/workflows/vercel.yml`)
+- **Backend** → Oracle Cloud ARM qua Docker, cập nhật tự động bằng Watchtower; expose qua Cloudflare Tunnel
+- **CI/CD** → GitHub Actions (`.github/workflows/`)
+
+## Đóng góp
+
+1. Fork & tạo nhánh từ `master`
+2. Commit theo quy ước (`feat:`, `fix:`, `chore:`…)
+3. Mở Pull Request về https://github.com/TuDoiii123/E-Mapp
+
 ---
 
-## 6. Tính năng chính
-
-* Chatbot hỏi đáp tiếng Việt dựa trên RAG
-* Tìm kiếm embedding qua ChromaDB
-* Agent sử dụng tools RAG
-* Tạo DB từ file CSV câu hỏi thường gặp
-
-## Quick Start SERVER — Python/Flask (recommended for migration)
-
-## 1. Cài đặt môi trường:
-
-## Cài đặt biến
-``
-pip install -r requirements.txt
-# if requirements.txt is missing, at minimum install:
-pip install flask flask-cors pyjwt
-```
-
-2. Run the Flask server:
-
-```powershell
-python server.py
-```
+© E-Mapp — Dịch vụ công số tỉnh Thanh Hóa.
