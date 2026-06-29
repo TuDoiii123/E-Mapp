@@ -12,8 +12,15 @@ WORKDIR /app
 # Copy requirements trước để tận dụng Docker layer cache
 COPY requirements.txt .
 
-# Cài PyTorch CPU-only trước (nhỏ hơn ~3GB so với CUDA version)
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+# Cài PyTorch CPU-only trước (nhỏ hơn ~3GB so với CUDA version).
+# x86_64 dùng index CPU của PyTorch; ARM (aarch64 — vd Oracle Ampere A1)
+# index đó không có wheel → cài từ PyPI mặc định (wheel aarch64 vốn là CPU).
+RUN ARCH="$(uname -m)" && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu; \
+    else \
+        pip install --no-cache-dir torch; \
+    fi
 
 # Cài các package còn lại
 RUN pip install --no-cache-dir -r requirements.txt
