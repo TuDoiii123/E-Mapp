@@ -21,6 +21,7 @@ import { AdminAnalyticsScreen }      from './AdminAnalyticsScreen';
 import { AdminAppointmentsScreen }   from './AdminAppointmentsScreen';
 import { AdminEvaluationsScreen }    from './AdminEvaluationsScreen';
 import { AdminQueueManagementScreen } from './AdminQueueManagementScreen';
+import { AdminForecastScreen }       from './AdminForecastScreen';
 
 interface Props { onNavigate: (screen: string, params?: any) => void }
 
@@ -35,7 +36,8 @@ type AdminPage =
   | 'analytics'
   | 'appointments'
   | 'evaluations'
-  | 'queue';
+  | 'queue'
+  | 'forecast';
 
 const PAGE_META: Record<Exclude<AdminPage, 'home'>, { label: string }> = {
   applications: { label: 'Hồ sơ' },
@@ -48,6 +50,7 @@ const PAGE_META: Record<Exclude<AdminPage, 'home'>, { label: string }> = {
   appointments: { label: 'Lịch hẹn' },
   evaluations:  { label: 'Đánh giá dịch vụ' },
   queue:        { label: 'Hàng chờ' },
+  forecast:     { label: 'Dự báo hàng chờ' },
 };
 
 const P = '#8f000d';
@@ -162,6 +165,14 @@ function AdminHomeView({
       Icon: Ticket,
       iconBg: 'bg-cyan-50',
       iconColor: 'text-cyan-600',
+    },
+    {
+      page: 'forecast' as AdminPage,
+      title: 'Dự báo hàng chờ',
+      desc: 'Cao điểm bằng AI',
+      Icon: TrendingUp,
+      iconBg: 'bg-red-50',
+      iconColor: 'text-[#8f000d]',
     },
   ];
 
@@ -393,6 +404,7 @@ export function AdminShell({ onNavigate }: Props) {
         {page === 'appointments' && <AdminAppointmentsScreen onNavigate={onNavigate} />}
         {page === 'evaluations'  && <AdminEvaluationsScreen  onNavigate={onNavigate} />}
         {page === 'queue'        && <AdminQueueManagementScreen onNavigate={onNavigate} />}
+        {page === 'forecast'     && <AdminForecastScreen     onNavigate={onNavigate} />}
       </div>
     </div>
   );
