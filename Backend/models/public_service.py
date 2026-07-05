@@ -50,6 +50,10 @@ def _map_db_row_to_service(row):
         'workingHours': {},
         'services': [r.get('field')] if r.get('field') else [],
         'level': r.get('level') or r.get('leve') or r.get('lvl') or None,
+        # địa bàn — để lọc theo tỉnh/quận-huyện trên bản đồ (Phase 2)
+        'province': r.get('province') or '',
+        'district': r.get('district') or '',
+        'ward': r.get('ward') or '',
         'rating': float(r.get('rating')) if r.get('rating') is not None and str(r.get('rating')).replace('.', '', 1).isdigit() else 0,
         'status': r.get('status') or 'normal',
         'distance': None,

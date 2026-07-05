@@ -31,6 +31,9 @@ export interface PublicService {
   };
   services: string[];
   level: 'ward' | 'district' | 'province';
+  province?: string;
+  district?: string;
+  ward?: string;
   rating: number;
   status: 'normal' | 'busy' | 'available';
   distance?: number;

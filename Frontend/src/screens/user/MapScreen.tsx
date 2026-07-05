@@ -124,6 +124,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   // Filters
   const [radius,           setRadius]           = useState(5);
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedDistrict, setSelectedDistrict] = useState('all');
 
   // Search
   const [searchQuery,    setSearchQuery]    = useState('');
@@ -204,35 +205,39 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     }
   }, [radius, userLocation, mapReady]);
 
-  // ── Filtered offices (drive search filtering) ─────────────────────────────────
-  const filteredOffices = searchQuery.trim()
-    ? offices.filter(o =>
-        o.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (o.address ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
-    : offices;
+  // ── Danh sách quận/huyện (từ chính data cơ quan) để lọc theo địa bàn ──────────
+  const districtOptions = Array.from(
+    new Set(offices.map(o => o.district).filter((d): d is string => !!d))
+  ).sort();
 
-  const filteredIds = new Set(filteredOffices.map(o => o.id));
+  // ── Filtered offices (search + lọc theo địa bàn) ──────────────────────────────
+  const q = searchQuery.trim().toLowerCase();
+  const filteredOffices = offices.filter(o => {
+    if (selectedDistrict !== 'all' && (o.district || '') !== selectedDistrict) return false;
+    if (q) {
+      return o.name.toLowerCase().includes(q) || (o.address ?? '').toLowerCase().includes(q);
+    }
+    return true;
+  });
 
   // ── Agency markers — update icons based on search/selected state ──────────────
   useEffect(() => {
     if (!mapInstance.current || !mapReady) return;
-    const currentIds = new Set(offices.map(o => o.id));
+    // Chỉ hiển thị marker của các cơ quan khớp bộ lọc (địa bàn + tìm kiếm)
+    const shownIds = new Set(filteredOffices.map(o => o.id));
 
-    // Remove markers no longer in list
+    // Remove markers no longer matching filter
     markersMap.current.forEach((m, id) => {
-      if (!currentIds.has(id)) { m.remove(); markersMap.current.delete(id); }
+      if (!shownIds.has(id)) { m.remove(); markersMap.current.delete(id); }
     });
 
-    const searching = searchQuery.trim().length > 0;
-
-    offices.forEach(office => {
+    filteredOffices.forEach(office => {
       if (!office.latitude || !office.longitude) return;
       const qs        = queueData[office.id];
       const waiting   = qs?.totalWaiting ?? 0;
       const loadLevel = qs?.loadLevel ?? 'low';
       const isSelected = selectedOffice?.id === office.id;
-      const isDimmed   = searching && !filteredIds.has(office.id);
-      const icon = buildAgencyIcon(waiting, loadLevel, isSelected, isDimmed);
+      const icon = buildAgencyIcon(waiting, loadLevel, isSelected, false);
 
       if (markersMap.current.has(office.id)) {
         markersMap.current.get(office.id)!.setIcon(icon);
@@ -245,8 +250,9 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
       markersMap.current.set(office.id, marker);
     });
 
-    // When searching: zoom map to fit matching results
-    if (searching && filteredOffices.length > 0) {
+    // Khi đang lọc (tìm kiếm hoặc chọn địa bàn): zoom vừa khung kết quả
+    const filtering = searchQuery.trim().length > 0 || selectedDistrict !== 'all';
+    if (filtering && filteredOffices.length > 0) {
       const pts = filteredOffices
         .filter(o => o.latitude && o.longitude)
         .map(o => [o.latitude!, o.longitude!] as L.LatLngExpression);
@@ -254,7 +260,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
         mapInstance.current.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 15 });
       }
     }
-  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery]);
+  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedDistrict]);
 
   // ── Route rendering ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -865,6 +871,23 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                       </button>
                     ))}
                   </div>
+
+                  {/* Lọc theo địa bàn (quận/huyện) */}
+                  {districtOptions.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
+                      <select
+                        value={selectedDistrict}
+                        onChange={e => setSelectedDistrict(e.target.value)}
+                        className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
+                      >
+                        <option value="all">Tất cả địa bàn ({offices.length})</option>
+                        {districtOptions.map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 {/* Results */}
