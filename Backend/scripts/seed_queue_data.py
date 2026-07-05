@@ -247,12 +247,16 @@ def seed_agency_counters(db_session, text):
     """Seed agency_counters — bỏ qua nếu đã có."""
     from sqlalchemy.exc import IntegrityError
 
+    # Đọc cơ quan thật từ DB (thay id hardcode cũ) — cấp tỉnh nhiều quầy hơn
+    rows = db_session.execute(text(
+        "SELECT id, level FROM public.agencies WHERE is_active ORDER BY id")).fetchall()
     inserted = 0
-    for agency_id, num_counters, operators in AGENCY_COUNTERS:
+    for agency_id, level in rows:
+        num_counters = 5 if level == 'province' else 2
         for i in range(num_counters):
             counter_no = i + 1
             counter_id = f'ctr-{agency_id}-{counter_no}'
-            operator = operators[i] if i < len(operators) else f'Nhân viên {counter_no}'
+            operator = f'Nhân viên {counter_no}'
             try:
                 db_session.execute(text('''
                     INSERT INTO public.agency_counters (id, agency_id, counter_no, is_active, operator_name)
@@ -286,10 +290,18 @@ SAMPLE_LOAD_OVERRIDES = {
 def seed_agency_queue_realtime(db_session, text):
     """Seed agency_queue_realtime với tải mẫu — đa số vắng (xanh), một vài
     cơ quan trung bình (vàng) hoặc đông (đỏ) để bản đồ có đủ 3 màu."""
-    agency_ids = [row[0] for row in AGENCY_COUNTERS]
+    agency_ids = [r[0] for r in db_session.execute(text(
+        "SELECT id FROM public.agencies WHERE is_active ORDER BY id")).fetchall()]
     inserted = 0
-    for agency_id in agency_ids:
-        waiting, serving, level = SAMPLE_LOAD_OVERRIDES.get(agency_id, (0, 0, 'low'))
+    for idx, agency_id in enumerate(agency_ids):
+        # Rải tải để bản đồ có đủ 3 màu: ~30% đông (đỏ), ~40% trung bình (vàng), ~30% vắng (xanh)
+        m = idx % 10
+        if m < 3:
+            waiting, serving, level = 20 + m, 5, 'high'
+        elif m < 7:
+            waiting, serving, level = 8 + m, 3, 'medium'
+        else:
+            waiting, serving, level = m, 1, 'low'
         try:
             db_session.execute(text('''
                 INSERT INTO public.agency_queue_realtime
@@ -310,16 +322,13 @@ def seed_agency_queue_realtime(db_session, text):
 
 def seed_service_stats(db_session, text):
     """Seed service_stats với thời gian xử lý trung bình cho các cơ quan chính."""
-    # Các cơ quan tỉnh → seed đủ bộ service
-    province_agencies = [
-        'tthcc-thanhhoa', 'ubnd-thanhhoa', 'congan-thanhhoa',
-        'so-tu-phap', 'so-tnmt', 'so-gtvt', 'so-xay-dung',
-        'so-khdt', 'cuc-thue-thanhhoa', 'bhxh-thanhhoa', 'so-y-te', 'so-gd-dt', 'so-ldtbxh',
-    ]
-    # Các cơ quan huyện → chỉ seed dịch vụ phổ biến
+    # Cơ quan tỉnh → seed đủ bộ service; huyện/xã → chỉ dịch vụ phổ biến. Đọc từ DB.
+    province_agencies = [r[0] for r in db_session.execute(text(
+        "SELECT id FROM public.agencies WHERE is_active AND level='province' ORDER BY id")).fetchall()]
+    district_agencies = [r[0] for r in db_session.execute(text(
+        "SELECT id FROM public.agencies WHERE is_active AND level<>'province' ORDER BY id")).fetchall()]
     district_services = ['khai_sinh', 'dang_ky_ket_hon', 'khai_tu', 'cap_cccd',
                          'dang_ky_cu_tru', 'chung_thuc', 'cap_phep_xay_dung', 'general']
-    district_agencies = [a for a, _, _ in AGENCY_COUNTERS if a not in province_agencies]
 
     inserted = 0
     for agency_id in province_agencies:
@@ -374,7 +383,7 @@ def seed_form_templates(db_session, text):
             db_session.execute(text('''
                 INSERT INTO public.form_templates
                     (id, name, description, service_id, filename, original_name, extracted_structure)
-                VALUES (:id, :name, :desc, :service_id, :filename, :orig_name, :structure::jsonb)
+                VALUES (:id, :name, :desc, :service_id, :filename, :orig_name, CAST(:structure AS jsonb))
                 ON CONFLICT (id) DO NOTHING
             '''), {
                 'id': tpl['id'],

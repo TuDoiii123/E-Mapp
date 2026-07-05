@@ -57,6 +57,26 @@ spec:
           readinessProbe:
             tcpSocket: { port: 8888 }
             periodSeconds: 10
+          volumeMounts:
+            # Model LSTM dự báo hàng chờ — bền qua restart pod (train 1 lần, dùng mãi)
+            - name: lstm-model
+              mountPath: /app/models/queue_lstm
+      volumes:
+        - name: lstm-model
+          persistentVolumeClaim:
+            claimName: emapp-lstm-model
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: emapp-lstm-model
+  namespace: emapp
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 512Mi
 ---
 apiVersion: v1
 kind: Service
