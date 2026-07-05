@@ -31,18 +31,18 @@
 
 | Nhóm | Mô tả |
 |------|-------|
-| 🔐 **Tài khoản** | Đăng ký / đăng nhập bằng JWT, phân quyền người dân & cán bộ |
-| 📄 **Hồ sơ trực tuyến** | Nộp & theo dõi hồ sơ theo luồng trạng thái (draft → submitted → in_review → approved/rejected/more_info) kèm lịch sử |
-| 📚 **Tra cứu thủ tục** | Danh mục thủ tục hành chính theo lĩnh vực (dân sự, doanh nghiệp, đất đai…) |
-| 📅 **Đặt lịch hẹn** | Đặt lịch theo khung giờ, hiển thị bằng FullCalendar |
-| 🎫 **Xếp hàng & dự báo** | Lấy số thứ tự thời gian thực qua WebSocket + dự báo thời gian chờ bằng mô hình LSTM |
-| 🤖 **Chatbot RAG** | Hỏi đáp tiếng Việt dựa trên ChromaDB + embedding tiếng Việt + Gemini |
-| 🎙️ **Trợ lý giọng nói** | STT/TTS (Google Cloud) + hội thoại đa bước để đặt lịch bằng giọng nói |
-| 🖼️ **Trích xuất tài liệu** | Đọc thông tin từ ảnh/PDF giấy tờ (Gemini Vision) |
-| 📝 **Điền biểu mẫu** | Sinh & cache bản xem trước PDF của biểu mẫu (lưu trong PostgreSQL) |
-| 🗺️ **Bản đồ** | Bản đồ cơ quan hành chính (Leaflet) + tính khoảng cách |
-| 🔔 **Thông báo** | Push notification qua Firebase |
-| ⭐ **Đánh giá** | Đánh giá chất lượng dịch vụ |
+| **Tài khoản** | Đăng ký / đăng nhập bằng JWT, phân quyền người dân & cán bộ |
+| **Hồ sơ trực tuyến** | Nộp & theo dõi hồ sơ theo luồng trạng thái (draft → submitted → in_review → approved/rejected/more_info) kèm lịch sử |
+| **Tra cứu thủ tục** | Danh mục thủ tục hành chính theo lĩnh vực (dân sự, doanh nghiệp, đất đai…) |
+| **Đặt lịch hẹn** | Đặt lịch theo khung giờ, hiển thị bằng FullCalendar |
+| **Xếp hàng & dự báo** | Lấy số thứ tự thời gian thực qua WebSocket + dự báo thời gian chờ bằng mô hình LSTM |
+| **Chatbot RAG** | Hỏi đáp tiếng Việt dựa trên ChromaDB + embedding tiếng Việt + Gemini |
+| **Trợ lý giọng nói** | STT/TTS (Google Cloud) + hội thoại đa bước để đặt lịch bằng giọng nói |
+| **Trích xuất tài liệu** | Đọc thông tin từ ảnh/PDF giấy tờ (Gemini Vision) |
+| **Điền biểu mẫu** | Sinh & cache bản xem trước PDF của biểu mẫu (lưu trong PostgreSQL) |
+| **Bản đồ** | Bản đồ cơ quan hành chính (Leaflet) + tính khoảng cách |
+| **Thông báo** | Push notification qua Firebase |
+| **Đánh giá** | Đánh giá chất lượng dịch vụ |
 
 ## Kiến trúc
 
@@ -171,7 +171,7 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 TUNNEL_TOKEN=
 ```
 
-> ⚠️ Không commit file `.env`. Dùng Google Application Credentials nếu bật tính năng giọng nói (Google Cloud STT/TTS).
+> Không commit file `.env`. Dùng Google Application Credentials nếu bật tính năng giọng nói (Google Cloud STT/TTS).
 
 ## RAG & mô hình AI
 
@@ -193,6 +193,3 @@ Vector store dùng **ChromaDB** (thư mục cục bộ, không commit). Script t
 2. Commit theo quy ước (`feat:`, `fix:`, `chore:`…)
 3. Mở Pull Request về https://github.com/TuDoiii123/E-Mapp
 
----
-
-© E-Mapp — Dịch vụ công số tỉnh Thanh Hóa.
