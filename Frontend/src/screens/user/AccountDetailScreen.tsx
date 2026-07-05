@@ -10,7 +10,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { authAPI, apiRequest, API_BASE_URL } from '../../services/api';
+import ProvinceWardSelect, { ProvinceWardValue } from '../../components/ProvinceWardSelect';
 import React from 'react';
+
+const EMPTY_PW: ProvinceWardValue = { provinceCode: '', provinceName: '', wardCode: '', wardName: '' };
 
 // Aliases for drop-in shadcn compatibility
 const Card           = HCard;
@@ -50,6 +53,12 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
 
   const [displayInfo, setDisplayInfo] = useState(initInfo);
   const [editForm,    setEditForm]    = useState(initInfo);
+
+  /* Địa chỉ: tách phần số nhà/đường + chọn tỉnh/xã chuẩn hoá (ghép lại khi lưu) */
+  const [street, setStreet] = useState('');
+  const [pw,     setPw]     = useState<ProvinceWardValue>(EMPTY_PW);
+  const composedAddress = [street.trim(), pw.wardName, pw.provinceName]
+    .filter(Boolean).join(', ');
 
   /* ── password state ─────────────────────────────── */
   const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -138,6 +147,9 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
       address:     user?.address     || '',
       avatarUrl:   user?.avatarUrl   || '',
     });
+    // Địa chỉ cũ (free-text) đưa vào ô số nhà/đường; tỉnh/xã để người dùng chọn lại
+    setStreet(user?.address || '');
+    setPw(EMPTY_PW);
     setIsEditing(true);
   };
 
@@ -149,14 +161,15 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const finalAddress = composedAddress || editForm.address;
       await authAPI.updateProfile({
         fullName:    editForm.fullName,
         phone:       editForm.phone,
         email:       editForm.email,
         dateOfBirth: editForm.dateOfBirth,
-        address:     editForm.address,
+        address:     finalAddress,
       });
-      setDisplayInfo({ ...editForm });
+      setDisplayInfo({ ...editForm, address: finalAddress });
       setIsEditing(false);
       await refreshProfile();
       showToast('success', 'Cập nhật thông tin thành công');
@@ -375,7 +388,13 @@ export function AccountDetailScreen({ onNavigate }: AccountDetailScreenProps) {
             <div className="space-y-1">
               <Label>Địa chỉ</Label>
               {isEditing
-                ? <Input value={editForm.address} placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành" onChange={e => setEditForm(p => ({ ...p, address: e.target.value }))} />
+                ? <div className="space-y-2">
+                    <Input value={street} placeholder="Số nhà, tên đường/thôn" onChange={e => setStreet(e.target.value)} />
+                    <ProvinceWardSelect value={pw} onChange={setPw} />
+                    {composedAddress && (
+                      <p className="text-xs text-gray-500">Địa chỉ đầy đủ: <span className="font-medium text-gray-700">{composedAddress}</span></p>
+                    )}
+                  </div>
                 : <p className="text-gray-900 py-1">{displayInfo.address || '—'}</p>}
             </div>
 
