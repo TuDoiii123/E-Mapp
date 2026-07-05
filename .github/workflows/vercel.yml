@@ -21,6 +21,10 @@ env:
 jobs:
   deploy:
     name: Build & deploy (production)
+    # Chỉ chạy khi đã bật Vercel: đặt repo Variable VERCEL_ENABLED=true
+    # (Settings → Secrets and variables → Actions → Variables) + 3 secret bên dưới.
+    # Chưa bật → job bị SKIP (xám), không fail đỏ. Demo hiện chạy trên k3s nên để tắt.
+    if: ${{ vars.VERCEL_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
