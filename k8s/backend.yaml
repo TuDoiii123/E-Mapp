@@ -70,6 +70,8 @@ spec:
       port: 8888
       targetPort: 8888
 ---
+# Ingress 1 host cho cả frontend + backend (cùng origin → không dính CORS):
+#   /api, /ws  → backend (8888);  còn lại /  → frontend (emapp-frontend, xem frontend.yaml)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -81,15 +83,20 @@ spec:
   ingressClassName: traefik
   tls:
     - hosts: [ emapp.huvisoft.com ]
-      secretName: emapp-backend-tls
+      secretName: emapp-tls
   rules:
     - host: emapp.huvisoft.com
       http:
         paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: emapp-backend, port: { number: 8888 } }
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service: { name: emapp-backend, port: { number: 8888 } }
           - path: /
             pathType: Prefix
             backend:
-              service:
-                name: emapp-backend
-                port:
-                  number: 8888
+              service: { name: emapp-frontend, port: { number: 80 } }
