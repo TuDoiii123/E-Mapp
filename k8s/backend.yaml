@@ -1,0 +1,95 @@
+# E-Mapp backend trên k3s (single-node, Traefik ingress + cert-manager).
+# Áp dụng: k3s kubectl apply -f k8s/backend.yaml
+# Secret emapp-env tạo riêng từ Backend/.env (xem k8s/README.md) — KHÔNG commit secret.
+#
+# Image pull từ Docker Hub (CI tự build & push mỗi lần push master).
+# Host backend: emapp-api.huvisoft.com (cần đã trỏ DNS A về IP VPS).
+# DB_HOST được override = postgres (service in-cluster) — xem k8s/postgres.yaml.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: emapp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: emapp-backend
+  namespace: emapp
+  labels: { app: emapp-backend }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: emapp-backend }
+  strategy:
+    type: Recreate           # app nặng + chroma trên đĩa pod → tránh chạy 2 bản song song
+  template:
+    metadata:
+      labels: { app: emapp-backend }
+    spec:
+      containers:
+        - name: backend
+          image: tubeo78910/emapp-backend:latest
+          imagePullPolicy: Always       # luôn pull bản latest từ Docker Hub (CI push mỗi lần master)
+          ports:
+            - containerPort: 8888
+          envFrom:
+            - secretRef:
+                name: emapp-env
+          env:
+            # Override DB_HOST/PORT về Postgres in-cluster (thắng giá trị trong Secret)
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+          resources:
+            requests: { cpu: "250m", memory: "1Gi" }
+            limits:   { cpu: "2",    memory: "3Gi" }
+          # App load model torch lúc khởi động → cho thời gian warmup rộng rãi
+          startupProbe:
+            tcpSocket: { port: 8888 }
+            periodSeconds: 10
+            failureThreshold: 30      # tối đa ~5 phút để sẵn sàng
+          livenessProbe:
+            tcpSocket: { port: 8888 }
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket: { port: 8888 }
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: emapp-backend
+  namespace: emapp
+spec:
+  selector: { app: emapp-backend }
+  ports:
+    - name: http
+      port: 8888
+      targetPort: 8888
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: emapp-backend
+  namespace: emapp
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [ emapp-api.huvisoft.com ]
+      secretName: emapp-backend-tls
+  rules:
+    - host: emapp-api.huvisoft.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: emapp-backend
+                port:
+                  number: 8888
