@@ -3,7 +3,7 @@
 # Secret emapp-env tạo riêng từ Backend/.env (xem k8s/README.md) — KHÔNG commit secret.
 #
 # Image pull từ Docker Hub (CI tự build & push mỗi lần push master).
-# Host backend: emapp-api.huvisoft.com (cần đã trỏ DNS A về IP VPS).
+# Host backend: emapp.huvisoft.com (cần đã trỏ DNS A về IP VPS).
 # DB_HOST được override = postgres (service in-cluster) — xem k8s/postgres.yaml.
 ---
 apiVersion: v1
@@ -80,10 +80,10 @@ metadata:
 spec:
   ingressClassName: traefik
   tls:
-    - hosts: [ emapp-api.huvisoft.com ]
+    - hosts: [ emapp.huvisoft.com ]
       secretName: emapp-backend-tls
   rules:
-    - host: emapp-api.huvisoft.com
+    - host: emapp.huvisoft.com
       http:
         paths:
           - path: /

@@ -5,7 +5,7 @@ Cluster: k3s single-node, Traefik ingress (class `traefik`), cert-manager
 
 Cấu hình đã chốt:
 - **Image:** `tubeo78910/emapp-backend:latest` (CI tự build & push lên Docker Hub mỗi lần push `master`)
-- **Host backend:** `emapp-api.huvisoft.com` (cần trỏ DNS A về IP VPS `157.66.80.93`)
+- **Host backend:** `emapp.huvisoft.com` (cần trỏ DNS A về IP VPS `157.66.80.93`)
 - **Postgres:** chạy in-cluster (`postgres.yaml`) — backend override `DB_HOST=postgres`
 
 ## 1. Tạo Secret env từ Backend/.env (không commit)
