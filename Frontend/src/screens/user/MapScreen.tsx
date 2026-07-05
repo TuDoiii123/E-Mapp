@@ -107,6 +107,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const markersMap      = useRef<Map<string, L.Marker>>(new Map());
   const userMarkerRef   = useRef<L.Marker | null>(null);
   const routeLayerRef   = useRef<L.FeatureGroup | null>(null);
+  const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
   const radiusCircleRef = useRef<L.Circle | null>(null);
   const stepMarkersRef  = useRef<L.Marker[]>([]);
   const acTimer         = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,6 +126,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const [radius,           setRadius]           = useState(5);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedDistrict, setSelectedDistrict] = useState('all');
+  const [showBoundary,     setShowBoundary]     = useState(false);
 
   // Search
   const [searchQuery,    setSearchQuery]    = useState('');
@@ -261,6 +263,29 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
       }
     }
   }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedDistrict]);
+
+  // ── Lớp ranh giới hành chính (GeoJSON tỉnh Thanh Hóa) — bật/tắt ──────────────
+  useEffect(() => {
+    if (!mapInstance.current || !mapReady) return;
+    if (showBoundary) {
+      if (boundaryLayerRef.current) {
+        boundaryLayerRef.current.addTo(mapInstance.current);
+      } else {
+        fetch('/thanhhoa-province.geojson')
+          .then(r => r.json())
+          .then(gj => {
+            if (!mapInstance.current || !showBoundary) return;
+            boundaryLayerRef.current = L.geoJSON(gj, {
+              style: { color: '#2563eb', weight: 2, fillColor: '#3b82f6', fillOpacity: 0.06, dashArray: '5 4' },
+              interactive: false,
+            }).addTo(mapInstance.current);
+          })
+          .catch(() => {});
+      }
+    } else if (boundaryLayerRef.current) {
+      boundaryLayerRef.current.remove();
+    }
+  }, [showBoundary, mapReady]);
 
   // ── Route rendering ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -888,6 +913,16 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                       </select>
                     </div>
                   )}
+
+                  {/* Bật/tắt ranh giới hành chính tỉnh Thanh Hóa */}
+                  <button
+                    onClick={() => setShowBoundary(v => !v)}
+                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all w-fit ${
+                      showBoundary ? 'bg-primary text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}>
+                    <MapPin className="w-3.5 h-3.5" />
+                    {showBoundary ? 'Đang hiện ranh giới tỉnh' : 'Hiện ranh giới tỉnh'}
+                  </button>
                 </div>
 
                 {/* Results */}
