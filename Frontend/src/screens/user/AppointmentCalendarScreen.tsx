@@ -510,7 +510,7 @@ export const AppointmentCalendarScreen: React.FC<AppointmentCalendarScreenProps>
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
                     {agencies.length === 0 && (
-                      <option value="ubnd-thanhhoa">UBND tỉnh Thanh Hóa</option>
+                      <option value="th-ubnd-tpth">UBND TP. Thanh Hóa</option>
                     )}
                   </select>
                 </div>

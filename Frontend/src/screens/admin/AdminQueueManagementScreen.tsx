@@ -18,18 +18,20 @@ import {
   Wifi, WifiOff, BarChart2,
 } from 'lucide-react';
 import * as adminSvc from '../../services/adminService';
+import { servicesAPI } from '../../services/servicesApi';
 
 interface Props { onNavigate: (s: string, p?: any) => void }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const PRIMARY = '#8f000d';
 
-const AGENCIES = [
-  { id: 'ubnd-thanhhoa',    name: 'UBND tỉnh Thanh Hóa' },
-  { id: 'ubnd-tp-thanhhoa', name: 'UBND TP Thanh Hóa' },
-  { id: 'bql-nghi-son',     name: 'Ban Quản lý KKT Nghi Sơn' },
-  { id: 'so-tu-phap',       name: 'Sở Tư pháp Thanh Hóa' },
-  { id: 'so-tttt-thanhhoa', name: 'Sở TT&TT Thanh Hóa' },
+// Fallback id thật (khớp DB) — thực tế danh sách được nạp động từ API khi mount.
+const FALLBACK_AGENCIES = [
+  { id: 'th-ubnd-tpth',  name: 'UBND TP. Thanh Hóa' },
+  { id: 'th-congantnh',  name: 'Công an Tỉnh Thanh Hóa' },
+  { id: 'th-sotuphanh',  name: 'Sở Tư pháp Thanh Hóa' },
+  { id: 'th-cuethuetnh', name: 'Cục Thuế Tỉnh Thanh Hóa' },
+  { id: 'th-bhxhtinh',   name: 'BHXH Tỉnh Thanh Hóa' },
 ];
 
 // Fallback 4 counters when API returns nothing
@@ -289,8 +291,16 @@ function QueueItem({
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function AdminQueueManagementScreen({ onNavigate }: Props) {
-  const [agencyId,   setAgencyId]   = useState(AGENCIES[0].id);
+  const [agencies,   setAgencies]   = useState(FALLBACK_AGENCIES);
+  const [agencyId,   setAgencyId]   = useState(FALLBACK_AGENCIES[0].id);
   const [showPicker, setShowPicker] = useState(false);
+
+  // Nạp danh sách cơ quan thật từ API (tránh id hardcode lỗi thời)
+  useEffect(() => {
+    servicesAPI.getAgencies()
+      .then(list => { if (list.length) setAgencies(list); })
+      .catch(() => {});
+  }, []);
   const [summary,    setSummary]    = useState<any>(null);
   const [tickets,    setTickets]    = useState<any[]>([]);
   const [counters,   setCounters]   = useState<any[]>([]);
@@ -357,7 +367,7 @@ export function AdminQueueManagementScreen({ onNavigate }: Props) {
 
   const displayCounters = counters.length > 0 ? counters : DEFAULT_COUNTERS;
   const filtered        = filter ? tickets.filter(t => t.status === filter) : tickets;
-  const agencyName      = AGENCIES.find(a => a.id === agencyId)?.name ?? agencyId;
+  const agencyName      = agencies.find(a => a.id === agencyId)?.name ?? agencyId;
 
   // Average service time display (backend trả về avgServiceTimeSec — đơn vị giây)
   const avgSec = summary?.avgServiceTimeSec as number | undefined;
@@ -400,7 +410,7 @@ export function AdminQueueManagementScreen({ onNavigate }: Props) {
             {showPicker && (
               <div className="absolute top-full left-0 z-40 bg-white border border-[#de9ca4]/20 rounded-xl
                 shadow-xl mt-1 min-w-[220px] overflow-hidden py-1">
-                {AGENCIES.map(a => (
+                {agencies.map(a => (
                   <button key={a.id}
                     onClick={() => { setAgencyId(a.id); setShowPicker(false); }}
                     className={`w-full px-3 py-2 text-left text-xs hover:bg-[#fff4f4] transition-colors

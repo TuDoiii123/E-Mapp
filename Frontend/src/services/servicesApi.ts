@@ -67,6 +67,18 @@ export interface ServiceDetailResponse {
 }
 
 export const servicesAPI = {
+  /** Danh sách cơ quan (id + tên) — lấy động từ DB, tránh hardcode id lỗi thời. */
+  getAgencies: async (): Promise<{ id: string; name: string }[]> => {
+    // Trung tâm Thanh Hóa, bán kính lớn → toàn bộ cơ quan
+    const res = await apiRequest<NearbyServicesResponse>(
+      `/services/nearby?lat=19.8&lng=105.77&radius=300&limit=300`
+    );
+    const list = res?.data?.services || [];
+    return list
+      .map(s => ({ id: s.id, name: s.name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'vi'));
+  },
+
   getNearby: (lat: number, lng: number, radius = 10, category?: string, level?: string, limit = 200) => {
     const params = new URLSearchParams({ lat: String(lat), lng: String(lng), radius: String(radius), limit: String(limit) });
     if (category) params.append('category', category);

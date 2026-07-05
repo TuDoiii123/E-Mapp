@@ -150,7 +150,7 @@ function AppContent() {
         return (
           <QueueScreen
             onNavigate={handleNavigateWithParams}
-            agencyId={screenParams?.agencyId || 'ubnd-thanhhoa'}
+            agencyId={screenParams?.agencyId || 'th-ubnd-tpth'}
             agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công tỉnh Thanh Hóa'}
           />
         );
@@ -158,7 +158,7 @@ function AppContent() {
         return (
           <QueueDisplayScreen
             onNavigate={handleNavigate}
-            agencyId={screenParams?.agencyId || 'ubnd-thanhhoa'}
+            agencyId={screenParams?.agencyId || 'th-ubnd-tpth'}
             agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công tỉnh Thanh Hóa'}
           />
         );
@@ -166,7 +166,7 @@ function AppContent() {
         return (
           <QueueStaffScreen
             onNavigate={handleNavigateWithParams}
-            agencyId={screenParams?.agencyId || 'ubnd-thanhhoa'}
+            agencyId={screenParams?.agencyId || 'th-ubnd-tpth'}
             agencyName={screenParams?.agencyName || 'Trung tâm Hành chính công'}
           />
         );

@@ -22,15 +22,16 @@ interface Props { onNavigate: (s: string, p?: any) => void }
 
 const PRIMARY = '#8f000d';
 
+// Các cơ quan có dữ liệu lịch sử hàng chờ (queue_history_daily) → forecast có ý nghĩa.
 const AGENCIES = [
-  { id: 'ubnd-tp-thanhhoa', name: 'UBND TP Thanh Hóa' },
-  { id: 'ubnd-quangxuong',  name: 'UBND huyện Quảng Xương' },
-  { id: 'ubnd-samson',      name: 'UBND TP Sầm Sơn' },
-  { id: 'ubnd-bimson',      name: 'UBND thị xã Bỉm Sơn' },
-  { id: 'ubnd-nghison',     name: 'UBND thị xã Nghi Sơn' },
-  { id: 'ubnd-dongson',     name: 'UBND huyện Đông Sơn' },
-  { id: 'congan-thanhhoa',  name: 'Công an tỉnh Thanh Hóa' },
-  { id: 'bhxh-thanhhoa',    name: 'BHXH tỉnh Thanh Hóa' },
+  { id: 'th-ubnd-tinh',  name: 'UBND Tỉnh Thanh Hóa' },
+  { id: 'th-congantnh',  name: 'Công an Tỉnh Thanh Hóa' },
+  { id: 'th-sotuphanh',  name: 'Sở Tư pháp Thanh Hóa' },
+  { id: 'th-sotnmt',     name: 'Sở Tài nguyên & Môi trường Thanh Hóa' },
+  { id: 'th-sokhdt',     name: 'Sở Kế hoạch & Đầu tư Thanh Hóa' },
+  { id: 'th-soxaydung',  name: 'Sở Xây dựng Thanh Hóa' },
+  { id: 'th-sogtvt',     name: 'Sở Giao thông Vận tải Thanh Hóa' },
+  { id: 'th-soyte',      name: 'Sở Y tế Thanh Hóa' },
 ];
 
 const WEEKDAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
