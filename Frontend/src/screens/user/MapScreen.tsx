@@ -126,6 +126,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const [radius,           setRadius]           = useState(5);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedDistrict, setSelectedDistrict] = useState('all');
+  const [selectedWard,     setSelectedWard]     = useState('all');
   const [showBoundary,     setShowBoundary]     = useState(false);
 
   // Search
@@ -212,10 +213,21 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     new Set(offices.map(o => o.district).filter((d): d is string => !!d))
   ).sort();
 
-  // ── Filtered offices (search + lọc theo địa bàn) ──────────────────────────────
+  // Xã/phường (2025) trong phạm vi huyện đang chọn
+  const wardOptions = Array.from(
+    new Set(
+      offices
+        .filter(o => selectedDistrict === 'all' || o.district === selectedDistrict)
+        .map(o => o.ward)
+        .filter((w): w is string => !!w)
+    )
+  ).sort();
+
+  // ── Filtered offices (search + lọc theo địa bàn: huyện + xã) ──────────────────
   const q = searchQuery.trim().toLowerCase();
   const filteredOffices = offices.filter(o => {
     if (selectedDistrict !== 'all' && (o.district || '') !== selectedDistrict) return false;
+    if (selectedWard !== 'all' && (o.ward || '') !== selectedWard) return false;
     if (q) {
       return o.name.toLowerCase().includes(q) || (o.address ?? '').toLowerCase().includes(q);
     }
@@ -253,7 +265,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     });
 
     // Khi đang lọc (tìm kiếm hoặc chọn địa bàn): zoom vừa khung kết quả
-    const filtering = searchQuery.trim().length > 0 || selectedDistrict !== 'all';
+    const filtering = searchQuery.trim().length > 0 || selectedDistrict !== 'all' || selectedWard !== 'all';
     if (filtering && filteredOffices.length > 0) {
       const pts = filteredOffices
         .filter(o => o.latitude && o.longitude)
@@ -262,7 +274,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
         mapInstance.current.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 15 });
       }
     }
-  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedDistrict]);
+  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedDistrict, selectedWard]);
 
   // ── Lớp ranh giới hành chính (GeoJSON tỉnh Thanh Hóa) — bật/tắt ──────────────
   useEffect(() => {
@@ -897,20 +909,32 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                     ))}
                   </div>
 
-                  {/* Lọc theo địa bàn (quận/huyện) */}
+                  {/* Lọc theo địa bàn: quận/huyện + xã/phường (2025) */}
                   {districtOptions.length > 0 && (
                     <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
                       <select
                         value={selectedDistrict}
-                        onChange={e => setSelectedDistrict(e.target.value)}
+                        onChange={e => { setSelectedDistrict(e.target.value); setSelectedWard('all'); }}
                         className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
                       >
-                        <option value="all">Tất cả địa bàn ({offices.length})</option>
+                        <option value="all">Tất cả huyện ({offices.length})</option>
                         {districtOptions.map(d => (
                           <option key={d} value={d}>{d}</option>
                         ))}
                       </select>
+                      {wardOptions.length > 0 && (
+                        <select
+                          value={selectedWard}
+                          onChange={e => setSelectedWard(e.target.value)}
+                          className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
+                        >
+                          <option value="all">Tất cả xã/phường</option>
+                          {wardOptions.map(w => (
+                            <option key={w} value={w}>{w}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
                   )}
 

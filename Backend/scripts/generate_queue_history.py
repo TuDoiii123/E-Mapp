@@ -14,7 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def _load_env():
-    for l in open(Path(__file__).parent.parent / '.env', encoding='utf-8'):
+    p = Path(__file__).parent.parent / '.env'
+    if not p.exists():
+        return  # không có .env (vd chạy trong container) → dùng env sẵn có
+    for l in open(p, encoding='utf-8'):
         s = l.strip()
         if s and not s.startswith('#') and '=' in s:
             k, _, v = s.partition('=')

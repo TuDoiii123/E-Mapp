@@ -11,10 +11,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def main(lookback: int = 24, epochs: int = 8):
-    for l in open(Path(__file__).parent.parent / '.env', encoding='utf-8'):
-        s = l.strip()
-        if s and not s.startswith('#') and '=' in s:
-            k, _, v = s.partition('='); os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+    _envp = Path(__file__).parent.parent / '.env'
+    if _envp.exists():
+        for l in open(_envp, encoding='utf-8'):
+            s = l.strip()
+            if s and not s.startswith('#') and '=' in s:
+                k, _, v = s.partition('='); os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
     from flask import Flask
     from models.db import init_db, db
     from sqlalchemy import text
