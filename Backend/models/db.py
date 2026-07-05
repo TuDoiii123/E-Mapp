@@ -499,6 +499,11 @@ def init_db(app):
                 ON public.procedures(implementing_level, is_active);
             CREATE INDEX IF NOT EXISTS idx_proc_active
                 ON public.procedures(is_active, name);
+            -- steps / conditions: mô tả nhiều dòng (procedures_routes SELECT 2 cột này)
+            ALTER TABLE public.procedures
+                ADD COLUMN IF NOT EXISTS steps      TEXT NOT NULL DEFAULT '';
+            ALTER TABLE public.procedures
+                ADD COLUMN IF NOT EXISTS conditions TEXT NOT NULL DEFAULT '';
             ''')
             db.session.execute(eval_ddl)
             db.session.commit()

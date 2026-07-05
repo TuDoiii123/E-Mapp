@@ -1785,7 +1785,7 @@ def seed_procedure_metadata():
                     (id, name, code, category, fee, fee_note, processing_days,
                      processing_note, legal_basis, implementing_level, agency)
                 VALUES (:id, :name, :code, :cat, :fee, :fee_note, :days,
-                        :days_note, :legal::jsonb, :level, :agency)
+                        :days_note, CAST(:legal AS jsonb), :level, :agency)
                 ON CONFLICT (id) DO UPDATE SET
                     name            = EXCLUDED.name,
                     code            = EXCLUDED.code,
