@@ -9,6 +9,7 @@ import {
 import { servicesAPI, PublicService } from '../../services/servicesApi';
 import { getMapOverview, AgencyQueueStatus } from '../../services/queueService';
 import { mapAPI, DirectionsResult, RouteStep, SmartRecommendation } from '../../services/mapApi';
+import { adminDivisionsAPI, AdminDivision } from '../../services/adminDivisionsApi';
 
 interface MapScreenProps { onNavigate: (screen: string, params?: any) => void; }
 
@@ -125,6 +126,8 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   // Filters
   const [radius,           setRadius]           = useState(5);
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [provinces,        setProvinces]        = useState<AdminDivision[]>([]);
+  const [selectedProvince, setSelectedProvince] = useState('all'); // tên tỉnh (khớp cột province)
   const [selectedDistrict, setSelectedDistrict] = useState('all');
   const [selectedWard,     setSelectedWard]     = useState('all');
   const [showBoundary,     setShowBoundary]     = useState(false);
@@ -187,6 +190,11 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   // ── Radius circle — vẽ vòng tròn bán kính quanh vị trí người dùng ────────────
   useEffect(() => {
     if (!mapInstance.current || !mapReady) return;
+    // Duyệt theo tỉnh → bán kính không áp dụng, ẩn vòng tròn
+    if (selectedProvince !== 'all') {
+      if (radiusCircleRef.current) { radiusCircleRef.current.remove(); radiusCircleRef.current = null; }
+      return;
+    }
     const center = userLocation
       ? [userLocation.lat, userLocation.lng] as L.LatLngExpression
       : [DEFAULT_LAT, DEFAULT_LNG] as L.LatLngExpression;
@@ -206,7 +214,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
         interactive: false,
       }).addTo(mapInstance.current);
     }
-  }, [radius, userLocation, mapReady]);
+  }, [radius, userLocation, mapReady, selectedProvince]);
 
   // ── Danh sách quận/huyện (từ chính data cơ quan) để lọc theo địa bàn ──────────
   const districtOptions = Array.from(
@@ -264,8 +272,9 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
       markersMap.current.set(office.id, marker);
     });
 
-    // Khi đang lọc (tìm kiếm hoặc chọn địa bàn): zoom vừa khung kết quả
-    const filtering = searchQuery.trim().length > 0 || selectedDistrict !== 'all' || selectedWard !== 'all';
+    // Khi đang lọc (tìm kiếm hoặc chọn địa bàn/tỉnh): zoom vừa khung kết quả
+    const filtering = searchQuery.trim().length > 0 || selectedProvince !== 'all'
+      || selectedDistrict !== 'all' || selectedWard !== 'all';
     if (filtering && filteredOffices.length > 0) {
       const pts = filteredOffices
         .filter(o => o.latitude && o.longitude)
@@ -274,7 +283,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
         mapInstance.current.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 15 });
       }
     }
-  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedDistrict, selectedWard]);
+  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedProvince, selectedDistrict, selectedWard]);
 
   // ── Lớp ranh giới hành chính (GeoJSON tỉnh Thanh Hóa) — bật/tắt ──────────────
   useEffect(() => {
@@ -390,22 +399,37 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     return () => clearInterval(id);
   }, []);
 
+  // ── Danh sách 34 tỉnh (mô hình 2025) cho bộ lọc toàn quốc ────────────────────
+  useEffect(() => {
+    adminDivisionsAPI.provinces().then(setProvinces).catch(() => {});
+  }, []);
+
   // ── Load services ─────────────────────────────────────────────────────────────
-  useEffect(() => { loadServices(); }, [radius, userLocation, selectedCategory]);
+  useEffect(() => { loadServices(); }, [radius, userLocation, selectedCategory, selectedProvince]);
 
   const loadServices = async () => {
     setLoading(true);
     try {
-      const res = await servicesAPI.getNearby(
-        userLocation?.lat ?? DEFAULT_LAT,
-        userLocation?.lng ?? DEFAULT_LNG,
-        radius,
-        selectedCategory === 'all' ? undefined : selectedCategory,
-        undefined,
-        // limit tăng theo bán kính: 50km = toàn TP → lấy hết
-        radius >= 30 ? 500 : radius >= 15 ? 200 : 100,
-      );
-      if (res.success) setOffices(res.data.services);
+      if (selectedProvince !== 'all') {
+        // Duyệt theo tỉnh: lấy toàn bộ cơ quan của tỉnh (không giới hạn bán kính,
+        // không truyền lat/lng để backend khỏi cắt theo khoảng cách 100km)
+        const res = await servicesAPI.getAll(
+          selectedCategory === 'all' ? undefined : selectedCategory,
+          undefined, selectedProvince, undefined, undefined, 1000,
+        );
+        if (res.success) setOffices(res.data.services);
+      } else {
+        const res = await servicesAPI.getNearby(
+          userLocation?.lat ?? DEFAULT_LAT,
+          userLocation?.lng ?? DEFAULT_LNG,
+          radius,
+          selectedCategory === 'all' ? undefined : selectedCategory,
+          undefined,
+          // limit tăng theo bán kính: 50km = toàn TP → lấy hết
+          radius >= 30 ? 500 : radius >= 15 ? 200 : 100,
+        );
+        if (res.success) setOffices(res.data.services);
+      }
     } finally { setLoading(false); }
   };
 
@@ -862,7 +886,29 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
 
                 {/* Filters */}
                 <div className="px-4 pb-3 space-y-3 flex-shrink-0 border-b border-gray-100">
-                  {/* Radius — preset buttons + slider */}
+                  {/* Tỉnh/thành (toàn quốc, mô hình 2025) */}
+                  {provinces.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-gray-400 shrink-0" />
+                      <select
+                        value={selectedProvince}
+                        onChange={e => {
+                          setSelectedProvince(e.target.value);
+                          setSelectedDistrict('all');
+                          setSelectedWard('all');
+                        }}
+                        className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
+                      >
+                        <option value="all">Quanh vị trí của tôi</option>
+                        {provinces.map(p => (
+                          <option key={p.code} value={p.name}>{p.fullName || p.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Radius — preset buttons + slider (chỉ khi tìm quanh vị trí) */}
+                  {selectedProvince === 'all' && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Bán kính tìm kiếm</span>
@@ -894,6 +940,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                       onChange={e => setRadius(Number(e.target.value))}
                       className="w-full accent-primary h-1.5" />
                   </div>
+                  )}
 
                   {/* Category chips */}
                   <div className="flex flex-wrap gap-2">
@@ -909,25 +956,27 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                     ))}
                   </div>
 
-                  {/* Lọc theo địa bàn: quận/huyện + xã/phường (2025) */}
-                  {districtOptions.length > 0 && (
+                  {/* Lọc theo địa bàn: quận/huyện (mô hình cũ) + xã/phường (2025) */}
+                  {(districtOptions.length > 0 || wardOptions.length > 0) && (
                     <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 text-gray-400 shrink-0" />
-                      <select
-                        value={selectedDistrict}
-                        onChange={e => { setSelectedDistrict(e.target.value); setSelectedWard('all'); }}
-                        className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
-                      >
-                        <option value="all">Tất cả huyện ({offices.length})</option>
-                        {districtOptions.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
+                      {districtOptions.length > 0 && (
+                        <select
+                          value={selectedDistrict}
+                          onChange={e => { setSelectedDistrict(e.target.value); setSelectedWard('all'); }}
+                          className="flex-1 min-w-0 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
+                        >
+                          <option value="all">Tất cả huyện ({offices.length})</option>
+                          {districtOptions.map(d => (
+                            <option key={d} value={d}>{d}</option>
+                          ))}
+                        </select>
+                      )}
                       {wardOptions.length > 0 && (
                         <select
                           value={selectedWard}
                           onChange={e => setSelectedWard(e.target.value)}
-                          className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
+                          className="flex-1 min-w-0 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
                         >
                           <option value="all">Tất cả xã/phường</option>
                           {wardOptions.map(w => (
@@ -961,7 +1010,9 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                       <p className="text-sm text-gray-500">
                         {searchQuery.trim()
                           ? `Không tìm thấy kết quả cho "${searchQuery}"`
-                          : `Không có dịch vụ trong bán kính ${radius} km`}
+                          : selectedProvince !== 'all'
+                            ? `Chưa có dữ liệu cơ quan tại ${selectedProvince}`
+                            : `Không có dịch vụ trong bán kính ${radius} km`}
                       </p>
                     </div>
                   ) : (

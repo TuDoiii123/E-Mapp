@@ -57,3 +57,7 @@ Backend/services/test_*.py
 
 # Demo / scratch audio output
 *.wav
+
+# Cache/output cua script import du lieu (sinh lai duoc)
+Backend/scripts/osm_import_work/
+Backend/scripts/ward_centroid_work/

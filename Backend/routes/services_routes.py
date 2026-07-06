@@ -93,13 +93,19 @@ def search_services():
         if level:
             services = [s for s in services if s.get('level') == level]
         
-        # Filter by province
+        # Filter by province (khớp cột province trước, fallback address)
         if province:
-            services = [s for s in services if province.lower() in s.get('address', '').lower()]
-        
-        # Filter by district
+            p = province.strip().lower()
+            services = [s for s in services
+                        if (s.get('province') or '').strip().lower() == p
+                        or p in (s.get('address') or '').lower()]
+
+        # Filter by district (khớp cột district trước, fallback address)
         if district:
-            services = [s for s in services if district.lower() in s.get('address', '').lower()]
+            d = district.strip().lower()
+            services = [s for s in services
+                        if (s.get('district') or '').strip().lower() == d
+                        or d in (s.get('address') or '').lower()]
         
         # Calculate distances if user location provided
         if lat and lng:
@@ -215,8 +221,12 @@ def get_all_services():
             services = [s for s in services if s.get('level') == level]
         
         if province:
-            services = [s for s in services if province.lower() in s.get('address', '').lower()]
-        
+            p = province.strip().lower()
+            # Ưu tiên khớp đúng cột province; fallback substring address cho dòng cũ chưa có cột
+            services = [s for s in services
+                        if (s.get('province') or '').strip().lower() == p
+                        or p in (s.get('address') or '').lower()]
+
         # Calculate distances if user location provided
         if lat and lng:
             try:
@@ -226,7 +236,7 @@ def get_all_services():
                 services = nearby
             except (TypeError, ValueError):
                 pass
-        
+
         limit_num = int(limit)
         services = services[:limit_num]
         
