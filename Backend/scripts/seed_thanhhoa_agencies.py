@@ -572,7 +572,7 @@ def build_service_record(row: tuple) -> dict:
         'rating':      0,
         'status':      'normal',
         'distance':    None,
-        'province':    'Thanh Hóa',
+        'province':    'Thanh Hoá',
         'district':    district,
         'ward':        '',
         'createdAt':   datetime.now().isoformat(),
@@ -674,7 +674,7 @@ def seed_postgres():
             rows_dv.append((
                 sid, name, name, cat_id, address,
                 lat, lng, phone, '', '', level, 'normal', 0,
-                ', '.join(services), 'Thanh Hóa', district, '',
+                ', '.join(services), 'Thanh Hoá', district, '',
             ))
 
         execute_values(cur, '''
@@ -716,7 +716,7 @@ def seed_postgres():
         for row in AGENCIES_RAW:
             (sid, name, cat_id, address, lat, lng,
              phone, level, services, district) = row
-            rows_ag.append((sid, name, address, district, 'Thanh Hóa', lat, lng, level, phone))
+            rows_ag.append((sid, name, address, district, 'Thanh Hoá', lat, lng, level, phone))
 
         execute_values(cur, '''
             INSERT INTO public.agencies

@@ -37,7 +37,7 @@ def main(days: int = 180, seed: int = 42):
     rng = random.Random(seed)
 
     agencies = [r[0] for r in db.session.execute(text(
-        "SELECT id FROM public.agencies LIMIT 8")).fetchall()]
+        "SELECT id FROM public.agencies WHERE id NOT LIKE 'osm-%' AND id NOT LIKE 'th-x-%' ORDER BY id LIMIT 8")).fetchall()]
     if not agencies:
         agencies = [f'demo-agency-{i}' for i in range(1, 6)]
     bases = {a: rng.randint(15, 40) for a in agencies}

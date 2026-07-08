@@ -15,7 +15,6 @@ khi có toạ độ trụ sở thật (OSM/khảo sát) thì UPDATE đè sau.
 import argparse
 import json
 import os
-import re
 import time
 import urllib.parse
 import urllib.request

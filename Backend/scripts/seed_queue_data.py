@@ -249,7 +249,7 @@ def seed_agency_counters(db_session, text):
 
     # Đọc cơ quan thật từ DB (thay id hardcode cũ) — cấp tỉnh nhiều quầy hơn
     rows = db_session.execute(text(
-        "SELECT id, level FROM public.agencies WHERE is_active ORDER BY id")).fetchall()
+        "SELECT id, level FROM public.agencies WHERE is_active AND id NOT LIKE 'osm-%' AND id NOT LIKE 'th-x-%' ORDER BY id")).fetchall()
     inserted = 0
     for agency_id, level in rows:
         num_counters = 5 if level == 'province' else 2
@@ -291,7 +291,7 @@ def seed_agency_queue_realtime(db_session, text):
     """Seed agency_queue_realtime với tải mẫu — đa số vắng (xanh), một vài
     cơ quan trung bình (vàng) hoặc đông (đỏ) để bản đồ có đủ 3 màu."""
     agency_ids = [r[0] for r in db_session.execute(text(
-        "SELECT id FROM public.agencies WHERE is_active ORDER BY id")).fetchall()]
+        "SELECT id FROM public.agencies WHERE is_active AND id NOT LIKE 'osm-%' AND id NOT LIKE 'th-x-%' ORDER BY id")).fetchall()]
     inserted = 0
     for idx, agency_id in enumerate(agency_ids):
         # Rải tải để bản đồ có đủ 3 màu: ~30% đông (đỏ), ~40% trung bình (vàng), ~30% vắng (xanh)
@@ -324,9 +324,9 @@ def seed_service_stats(db_session, text):
     """Seed service_stats với thời gian xử lý trung bình cho các cơ quan chính."""
     # Cơ quan tỉnh → seed đủ bộ service; huyện/xã → chỉ dịch vụ phổ biến. Đọc từ DB.
     province_agencies = [r[0] for r in db_session.execute(text(
-        "SELECT id FROM public.agencies WHERE is_active AND level='province' ORDER BY id")).fetchall()]
+        "SELECT id FROM public.agencies WHERE is_active AND level='province' AND id NOT LIKE 'osm-%' AND id NOT LIKE 'th-x-%' ORDER BY id")).fetchall()]
     district_agencies = [r[0] for r in db_session.execute(text(
-        "SELECT id FROM public.agencies WHERE is_active AND level<>'province' ORDER BY id")).fetchall()]
+        "SELECT id FROM public.agencies WHERE is_active AND level<>'province' AND id NOT LIKE 'osm-%' AND id NOT LIKE 'th-x-%' ORDER BY id")).fetchall()]
     district_services = ['khai_sinh', 'dang_ky_ket_hon', 'khai_tu', 'cap_cccd',
                          'dang_ky_cu_tru', 'chung_thuc', 'cap_phep_xay_dung', 'general']
 

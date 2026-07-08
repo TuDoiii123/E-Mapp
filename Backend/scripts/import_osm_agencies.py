@@ -166,6 +166,8 @@ def make_find_province(provinces):
 
 def categorize(name):
     n = strip_dia(name)
+    # nl giữ dấu (NFC) để phân biệt 'Sở' với 'số'/'trụ sở' — bỏ dấu đều thành 'so'
+    nl = unicodedata.normalize('NFC', name).lower()
     if 'cong an' in n:
         return 'police'
     if 'thue' in n or 'kho bac' in n:
@@ -176,18 +178,24 @@ def categorize(name):
         return 'health'
     if 'trung tam' in n and ('hanh chinh' in n or 'phuc vu' in n or 'dich vu cong' in n):
         return 'trung-tam'
-    if n.startswith('so ') or ' so ' in f' {n} ':
+    if nl.startswith('sở ') or ', sở ' in nl:
         return 'so-nganh'
     return 'ubnd'
 
 
 def level_of(name):
-    n = strip_dia(name)
-    if 'phuong' in n or re.search(r'\bxa\b', n):
-        return 'ward'
-    if 'huyen' in n or 'thi xa' in n or n.startswith('tp ') or 'thanh pho' in n or re.search(r'\bquan\b', n):
+    # Giữ dấu (NFC): 'thị xã' phải xét TRƯỚC 'xã' (chuỗi 'thị xã' chứa 'xã'),
+    # nhưng 'phường X, quận Y' vẫn phải ra ward → chỉ 'thị xã' đứng trước nhóm ward
+    nl = unicodedata.normalize('NFC', name).lower()
+    if nl.startswith('sở '):
+        return 'province'
+    if 'thị xã' in nl:
         return 'district'
-    if 'tinh' in n or n.startswith('so ') or 'tinh uy' in n:
+    if 'phường' in nl or 'thị trấn' in nl or re.search(r'\bxã\b', nl):
+        return 'ward'
+    if 'huyện' in nl or 'thành phố' in nl or 'quận' in nl or re.search(r'\btp\.?\s', nl):
+        return 'district'
+    if 'tỉnh' in nl:
         return 'province'
     return 'ward'
 

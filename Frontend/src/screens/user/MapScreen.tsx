@@ -112,6 +112,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const radiusCircleRef = useRef<L.Circle | null>(null);
   const stepMarkersRef  = useRef<L.Marker[]>([]);
   const acTimer         = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadSeqRef      = useRef(0);
   const [mapReady, setMapReady] = useState(false);
 
   // Data
@@ -231,6 +232,18 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     )
   ).sort();
 
+  // Huyện/xã đang chọn có thể biến mất khỏi options khi offices đổi (đổi chip
+  // category, đổi bán kính...) → tự trả về 'all' thay vì kẹt filter 0 kết quả
+  useEffect(() => {
+    if (selectedDistrict !== 'all' && !districtOptions.includes(selectedDistrict)) {
+      setSelectedDistrict('all');
+    }
+    if (selectedWard !== 'all' && !wardOptions.includes(selectedWard)) {
+      setSelectedWard('all');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offices, selectedDistrict, selectedWard]);
+
   // ── Filtered offices (search + lọc theo địa bàn: huyện + xã) ──────────────────
   const q = searchQuery.trim().toLowerCase();
   const filteredOffices = offices.filter(o => {
@@ -259,31 +272,42 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
       const waiting   = qs?.totalWaiting ?? 0;
       const loadLevel = qs?.loadLevel ?? 'low';
       const isSelected = selectedOffice?.id === office.id;
-      const icon = buildAgencyIcon(waiting, loadLevel, isSelected, false);
+      // Chỉ setIcon khi trạng thái đổi — tránh thay 1000 DOM node mỗi lần poll
+      const iconKey = `${waiting}|${loadLevel}|${isSelected}`;
 
-      if (markersMap.current.has(office.id)) {
-        markersMap.current.get(office.id)!.setIcon(icon);
+      const existing = markersMap.current.get(office.id);
+      if (existing) {
+        if ((existing as any)._iconKey !== iconKey) {
+          existing.setIcon(buildAgencyIcon(waiting, loadLevel, isSelected, false));
+          (existing as any)._iconKey = iconKey;
+        }
         return;
       }
 
-      const marker = L.marker([office.latitude, office.longitude], { icon })
-        .addTo(mapInstance.current!);
+      const marker = L.marker([office.latitude, office.longitude], {
+        icon: buildAgencyIcon(waiting, loadLevel, isSelected, false),
+      }).addTo(mapInstance.current!);
+      (marker as any)._iconKey = iconKey;
       marker.on('click', () => handleSelectOffice(office));
       markersMap.current.set(office.id, marker);
     });
+  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedProvince, selectedDistrict, selectedWard]);
 
-    // Khi đang lọc (tìm kiếm hoặc chọn địa bàn/tỉnh): zoom vừa khung kết quả
+  // ── Fit-bounds khi ĐỔI bộ lọc (tách khỏi effect marker: không chạy lại theo
+  //    poll queueData 30s → không giật viewport; không fit khi đang tải dở) ─────
+  useEffect(() => {
+    if (!mapInstance.current || !mapReady || loading) return;
     const filtering = searchQuery.trim().length > 0 || selectedProvince !== 'all'
       || selectedDistrict !== 'all' || selectedWard !== 'all';
-    if (filtering && filteredOffices.length > 0) {
-      const pts = filteredOffices
-        .filter(o => o.latitude && o.longitude)
-        .map(o => [o.latitude!, o.longitude!] as L.LatLngExpression);
-      if (pts.length) {
-        mapInstance.current.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 15 });
-      }
+    if (!filtering || filteredOffices.length === 0) return;
+    const pts = filteredOffices
+      .filter(o => o.latitude && o.longitude)
+      .map(o => [o.latitude!, o.longitude!] as L.LatLngExpression);
+    if (pts.length) {
+      mapInstance.current.fitBounds(L.latLngBounds(pts), { padding: [50, 50], maxZoom: 15 });
     }
-  }, [offices, queueData, mapReady, selectedOffice?.id, searchQuery, selectedProvince, selectedDistrict, selectedWard]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offices, loading, mapReady, searchQuery, selectedProvince, selectedDistrict, selectedWard]);
 
   // ── Lớp ranh giới hành chính (GeoJSON tỉnh Thanh Hóa) — bật/tắt ──────────────
   useEffect(() => {
@@ -405,32 +429,40 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   }, []);
 
   // ── Load services ─────────────────────────────────────────────────────────────
-  useEffect(() => { loadServices(); }, [radius, userLocation, selectedCategory, selectedProvince]);
+  // Debounce 250ms (slider bán kính fire mỗi tick kéo) — chỉ request cuối được chạy
+  useEffect(() => {
+    const t = setTimeout(loadServices, 250);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [radius, userLocation, selectedCategory, selectedProvince]);
 
   const loadServices = async () => {
+    // Sequence guard: response cũ về muộn không được đè dữ liệu mode hiện tại
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
-      if (selectedProvince !== 'all') {
-        // Duyệt theo tỉnh: lấy toàn bộ cơ quan của tỉnh (không giới hạn bán kính,
-        // không truyền lat/lng để backend khỏi cắt theo khoảng cách 100km)
-        const res = await servicesAPI.getAll(
-          selectedCategory === 'all' ? undefined : selectedCategory,
-          undefined, selectedProvince, undefined, undefined, 1000,
-        );
-        if (res.success) setOffices(res.data.services);
-      } else {
-        const res = await servicesAPI.getNearby(
-          userLocation?.lat ?? DEFAULT_LAT,
-          userLocation?.lng ?? DEFAULT_LNG,
-          radius,
-          selectedCategory === 'all' ? undefined : selectedCategory,
-          undefined,
-          // limit tăng theo bán kính: 50km = toàn TP → lấy hết
-          radius >= 30 ? 500 : radius >= 15 ? 200 : 100,
-        );
-        if (res.success) setOffices(res.data.services);
-      }
-    } finally { setLoading(false); }
+      // Duyệt theo tỉnh: lấy toàn bộ cơ quan của tỉnh (không truyền lat/lng để
+      // backend khỏi cắt theo khoảng cách 100km); ngược lại tìm quanh vị trí
+      const res = selectedProvince !== 'all'
+        ? await servicesAPI.getAll(
+            selectedCategory === 'all' ? undefined : selectedCategory,
+            undefined, selectedProvince, undefined, undefined, 1000,
+          )
+        : await servicesAPI.getNearby(
+            userLocation?.lat ?? DEFAULT_LAT,
+            userLocation?.lng ?? DEFAULT_LNG,
+            radius,
+            selectedCategory === 'all' ? undefined : selectedCategory,
+            undefined,
+            // limit tăng theo bán kính: 50km = toàn TP → lấy hết
+            radius >= 30 ? 500 : radius >= 15 ? 200 : 100,
+          );
+      if (seq === loadSeqRef.current && res.success) setOffices(res.data.services);
+    } catch {
+      // lỗi mạng: giữ dữ liệu cũ, không treo loading
+    } finally {
+      if (seq === loadSeqRef.current) setLoading(false);
+    }
   };
 
   // ── Geolocation ───────────────────────────────────────────────────────────────
@@ -455,10 +487,14 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     acTimer.current = setTimeout(async () => {
       try {
         setSearchLoading(true);
-        const res = await servicesAPI.search(
-          value, undefined, undefined, undefined, undefined,
-          userLocation?.lat, userLocation?.lng,
-        );
+        // Ở chế độ duyệt tỉnh: scope theo tỉnh, KHÔNG truyền lat/lng
+        // (backend cắt cứng 100km quanh user → tỉnh xa sẽ 0 kết quả)
+        const res = selectedProvince !== 'all'
+          ? await servicesAPI.search(value, undefined, undefined, selectedProvince)
+          : await servicesAPI.search(
+              value, undefined, undefined, undefined, undefined,
+              userLocation?.lat, userLocation?.lng,
+            );
         if (res.success) {
           const results = res.data.services.slice(0, 8);
           setSuggestions(results);
@@ -466,7 +502,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
         }
       } catch {} finally { setSearchLoading(false); }
     }, 300);
-  }, [userLocation]);
+  }, [userLocation, selectedProvince]);
 
   const selectSuggestion = useCallback((office: PublicService) => {
     setSearchQuery(office.name);
@@ -896,6 +932,12 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                           setSelectedProvince(e.target.value);
                           setSelectedDistrict('all');
                           setSelectedWard('all');
+                          // Về "Quanh vị trí của tôi": trả viewport về quanh user
+                          // (fitBounds chỉ chạy khi đang lọc — không tự recenter)
+                          if (e.target.value === 'all' && mapInstance.current) {
+                            const c = userLocation ?? { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+                            mapInstance.current.setView([c.lat, c.lng], DEFAULT_ZOOM);
+                          }
                         }}
                         className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
                       >

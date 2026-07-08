@@ -9,6 +9,17 @@ log = get_logger('services_routes')
 services_bp = Blueprint('services', __name__, url_prefix='/api/services')
 
 
+def _filter_by_locality(services, field, value):
+    """Lọc theo cột địa bàn (province/district) — khớp đúng giá trị cột;
+    chỉ fallback substring address cho dòng CŨ chưa có cột (tránh lọt chéo
+    tỉnh kiểu địa chỉ 'Xa Lộ Hà Nội' ở TP.HCM match filter Hà Nội)."""
+    v = value.strip().lower()
+    return [s for s in services
+            if (s.get(field) or '').strip().lower() == v
+            or (not (s.get(field) or '').strip()
+                and v in (s.get('address') or '').lower())]
+
+
 @services_bp.route('/nearby', methods=['GET'])
 def get_nearby_services():
     """Get nearby public services"""
@@ -93,19 +104,11 @@ def search_services():
         if level:
             services = [s for s in services if s.get('level') == level]
         
-        # Filter by province (khớp cột province trước, fallback address)
         if province:
-            p = province.strip().lower()
-            services = [s for s in services
-                        if (s.get('province') or '').strip().lower() == p
-                        or p in (s.get('address') or '').lower()]
+            services = _filter_by_locality(services, 'province', province)
 
-        # Filter by district (khớp cột district trước, fallback address)
         if district:
-            d = district.strip().lower()
-            services = [s for s in services
-                        if (s.get('district') or '').strip().lower() == d
-                        or d in (s.get('address') or '').lower()]
+            services = _filter_by_locality(services, 'district', district)
         
         # Calculate distances if user location provided
         if lat and lng:
@@ -221,11 +224,7 @@ def get_all_services():
             services = [s for s in services if s.get('level') == level]
         
         if province:
-            p = province.strip().lower()
-            # Ưu tiên khớp đúng cột province; fallback substring address cho dòng cũ chưa có cột
-            services = [s for s in services
-                        if (s.get('province') or '').strip().lower() == p
-                        or p in (s.get('address') or '').lower()]
+            services = _filter_by_locality(services, 'province', province)
 
         # Calculate distances if user location provided
         if lat and lng:
