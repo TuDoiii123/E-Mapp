@@ -65,6 +65,11 @@ log.debug(f'CORS allowed origins: {_CORS_ORIGINS}')
 
 app = Flask(__name__)
 
+# Chạy sau Traefik ingress: tin X-Forwarded-Proto/Host để redirect (vd 308
+# thêm trailing-slash) trả về https:// — không có thì browser chặn Mixed Content
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 CORS(
     app,
     resources={

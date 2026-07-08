@@ -110,7 +110,9 @@ export const servicesAPI = {
     if (level) params.append('level', level);
     if (province) params.append('province', province);
     if (lat && lng) { params.append('lat', String(lat)); params.append('lng', String(lng)); }
-    return apiRequest<{ success: boolean; data: { services: PublicService[]; total: number } }>(`/services?${params}`);
+    // Phải có '/' trước query: /services (thiếu slash) bị Flask 308 redirect,
+    // Location trả http:// → browser chặn Mixed Content trên trang HTTPS
+    return apiRequest<{ success: boolean; data: { services: PublicService[]; total: number } }>(`/services/?${params}`);
   },
 
   getCategories: () =>
