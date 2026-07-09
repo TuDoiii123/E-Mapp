@@ -109,7 +109,6 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const userMarkerRef   = useRef<L.Marker | null>(null);
   const routeLayerRef   = useRef<L.FeatureGroup | null>(null);
   const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
-  const radiusCircleRef = useRef<L.Circle | null>(null);
   const stepMarkersRef  = useRef<L.Marker[]>([]);
   const acTimer         = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadSeqRef      = useRef(0);
@@ -125,7 +124,6 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const [locationLoading, setLocationLoading] = useState(false);
 
   // Filters
-  const [radius,           setRadius]           = useState(5);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [provinces,        setProvinces]        = useState<AdminDivision[]>([]);
   const [selectedProvince, setSelectedProvince] = useState('all'); // tên tỉnh (khớp cột province)
@@ -187,35 +185,6 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     }
     mapInstance.current.setView(ll, mapInstance.current.getZoom());
   }, [userLocation]);
-
-  // ── Radius circle — vẽ vòng tròn bán kính quanh vị trí người dùng ────────────
-  useEffect(() => {
-    if (!mapInstance.current || !mapReady) return;
-    // Duyệt theo tỉnh → bán kính không áp dụng, ẩn vòng tròn
-    if (selectedProvince !== 'all') {
-      if (radiusCircleRef.current) { radiusCircleRef.current.remove(); radiusCircleRef.current = null; }
-      return;
-    }
-    const center = userLocation
-      ? [userLocation.lat, userLocation.lng] as L.LatLngExpression
-      : [DEFAULT_LAT, DEFAULT_LNG] as L.LatLngExpression;
-
-    if (radiusCircleRef.current) {
-      radiusCircleRef.current.setLatLng(center);
-      radiusCircleRef.current.setRadius(radius * 1000);
-    } else {
-      radiusCircleRef.current = L.circle(center, {
-        radius: radius * 1000,
-        color: '#3B82F6',
-        weight: 1.5,
-        opacity: 0.6,
-        fillColor: '#3B82F6',
-        fillOpacity: 0.06,
-        dashArray: '6 4',
-        interactive: false,
-      }).addTo(mapInstance.current);
-    }
-  }, [radius, userLocation, mapReady, selectedProvince]);
 
   // ── Danh sách quận/huyện (từ chính data cơ quan) để lọc theo địa bàn ──────────
   const districtOptions = Array.from(
@@ -429,34 +398,25 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   }, []);
 
   // ── Load services ─────────────────────────────────────────────────────────────
-  // Debounce 250ms (slider bán kính fire mỗi tick kéo) — chỉ request cuối được chạy
+  // Debounce nhẹ để gộp các lần đổi filter liên tiếp — chỉ request cuối được chạy
   useEffect(() => {
     const t = setTimeout(loadServices, 250);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [radius, userLocation, selectedCategory, selectedProvince]);
+  }, [selectedCategory, selectedProvince]);
 
   const loadServices = async () => {
     // Sequence guard: response cũ về muộn không được đè dữ liệu mode hiện tại
     const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
-      // Duyệt theo tỉnh: lấy toàn bộ cơ quan của tỉnh (không truyền lat/lng để
-      // backend khỏi cắt theo khoảng cách 100km); ngược lại tìm quanh vị trí
-      const res = selectedProvince !== 'all'
-        ? await servicesAPI.getAll(
-            selectedCategory === 'all' ? undefined : selectedCategory,
-            undefined, selectedProvince, undefined, undefined, 1000,
-          )
-        : await servicesAPI.getNearby(
-            userLocation?.lat ?? DEFAULT_LAT,
-            userLocation?.lng ?? DEFAULT_LNG,
-            radius,
-            selectedCategory === 'all' ? undefined : selectedCategory,
-            undefined,
-            // limit tăng theo bán kính: 50km = toàn TP → lấy hết
-            radius >= 30 ? 500 : radius >= 15 ? 200 : 100,
-          );
+      // Không giới hạn bán kính: 'all' = toàn quốc, chọn tỉnh = toàn tỉnh
+      const res = await servicesAPI.getAll(
+        selectedCategory === 'all' ? undefined : selectedCategory,
+        undefined,
+        selectedProvince !== 'all' ? selectedProvince : undefined,
+        undefined, undefined, 5000,
+      );
       if (seq === loadSeqRef.current && res.success) setOffices(res.data.services);
     } catch {
       // lỗi mạng: giữ dữ liệu cũ, không treo loading
@@ -487,14 +447,12 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     acTimer.current = setTimeout(async () => {
       try {
         setSearchLoading(true);
-        // Ở chế độ duyệt tỉnh: scope theo tỉnh, KHÔNG truyền lat/lng
-        // (backend cắt cứng 100km quanh user → tỉnh xa sẽ 0 kết quả)
-        const res = selectedProvince !== 'all'
-          ? await servicesAPI.search(value, undefined, undefined, selectedProvince)
-          : await servicesAPI.search(
-              value, undefined, undefined, undefined, undefined,
-              userLocation?.lat, userLocation?.lng,
-            );
+        // Tìm TOÀN BẢN ĐỒ (không truyền lat/lng — backend sẽ cắt cứng 100km
+        // quanh user nếu truyền); đang duyệt tỉnh thì scope theo tỉnh
+        const res = await servicesAPI.search(
+          value, undefined, undefined,
+          selectedProvince !== 'all' ? selectedProvince : undefined,
+        );
         if (res.success) {
           const results = res.data.services.slice(0, 8);
           setSuggestions(results);
@@ -941,47 +899,12 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                         }}
                         className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
                       >
-                        <option value="all">Quanh vị trí của tôi</option>
+                        <option value="all">Toàn quốc</option>
                         {provinces.map(p => (
                           <option key={p.code} value={p.name}>{p.fullName || p.name}</option>
                         ))}
                       </select>
                     </div>
-                  )}
-
-                  {/* Radius — preset buttons + slider (chỉ khi tìm quanh vị trí) */}
-                  {selectedProvince === 'all' && (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Bán kính tìm kiếm</span>
-                      <span className="text-sm font-black text-primary">
-                        {radius >= 50 ? 'Toàn TP' : `${radius} km`}
-                      </span>
-                    </div>
-                    {/* Quick preset buttons */}
-                    <div className="flex gap-1.5 mb-2">
-                      {[
-                        { v: 2,  label: '2km' },
-                        { v: 5,  label: '5km' },
-                        { v: 10, label: '10km' },
-                        { v: 20, label: '20km' },
-                        { v: 50, label: 'Toàn TP' },
-                      ].map(({ v, label }) => (
-                        <button key={v} onClick={() => setRadius(v)}
-                          className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all border ${
-                            radius === v
-                              ? 'bg-primary text-white border-primary shadow-sm'
-                              : 'bg-gray-50 text-gray-600 border-gray-200 hover:border-primary hover:text-primary'
-                          }`}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {/* Fine-tune slider */}
-                    <input type="range" min={1} max={50} value={radius}
-                      onChange={e => setRadius(Number(e.target.value))}
-                      className="w-full accent-primary h-1.5" />
-                  </div>
                   )}
 
                   {/* Category chips */}
@@ -1054,11 +977,13 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                           ? `Không tìm thấy kết quả cho "${searchQuery}"`
                           : selectedProvince !== 'all'
                             ? `Chưa có dữ liệu cơ quan tại ${selectedProvince}`
-                            : `Không có dịch vụ trong bán kính ${radius} km`}
+                            : 'Chưa có dữ liệu cơ quan'}
                       </p>
                     </div>
                   ) : (
-                    filteredOffices.map(office => {
+                    // Cap danh sách render 150 dòng — toàn quốc 3.400+ cơ quan,
+                    // đổ hết vào DOM sẽ lag; marker trên map vẫn hiện đầy đủ
+                    filteredOffices.slice(0, 150).map(office => {
                       const q  = queueData[office.id];
                       const lc = LOAD_COLOR[q?.loadLevel ?? 'low'];
                       const isSelected = selectedOffice?.id === office.id;
@@ -1101,6 +1026,11 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                         </button>
                       );
                     })
+                  )}
+                  {!loading && filteredOffices.length > 150 && (
+                    <p className="text-center text-[11px] text-gray-400 py-3">
+                      Hiển thị 150/{filteredOffices.length} cơ quan — thu hẹp bằng tìm kiếm hoặc bộ lọc
+                    </p>
                   )}
                 </div>
               </div>

@@ -180,7 +180,12 @@ def categorize(name):
         return 'trung-tam'
     if nl.startswith('sở ') or ', sở ' in nl:
         return 'so-nganh'
-    return 'ubnd'
+    # 'ubnd' CHỈ khi tên đúng nghĩa uỷ ban — không dùng làm nhánh mặc định
+    # (trước đây Cục/Ban/Chi cục... rơi hết vào ubnd làm chip lọc UBND sai)
+    if ('ubnd' in n or 'uy ban' in n or 'hdnd' in n
+            or 'hoi dong nhan dan' in n or 'cong so' in n):
+        return 'ubnd'
+    return 'khac'
 
 
 def level_of(name):
