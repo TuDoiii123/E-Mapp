@@ -24,7 +24,8 @@ def _load_env():
             os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
-def main(days: int = 180, seed: int = 42):
+def main(days: int = 180, seed: int = 42, limit: int | None = None):
+    """limit=None → toàn bộ cơ quan curated (không tính POI OSM / UBND xã centroid)."""
     _load_env()
     from flask import Flask
     from models.db import init_db, db
@@ -36,8 +37,10 @@ def main(days: int = 180, seed: int = 42):
     app.app_context().push()
     rng = random.Random(seed)
 
-    agencies = [r[0] for r in db.session.execute(text(
-        "SELECT id FROM public.agencies WHERE id NOT LIKE 'osm-%' AND id NOT LIKE 'th-x-%' ORDER BY id LIMIT 8")).fetchall()]
+    q = "SELECT id FROM public.agencies WHERE id NOT LIKE 'osm-%' AND id NOT LIKE 'th-x-%' ORDER BY id"
+    if limit:
+        q += f' LIMIT {int(limit)}'
+    agencies = [r[0] for r in db.session.execute(text(q)).fetchall()]
     if not agencies:
         agencies = [f'demo-agency-{i}' for i in range(1, 6)]
     bases = {a: rng.randint(15, 40) for a in agencies}
@@ -45,26 +48,31 @@ def main(days: int = 180, seed: int = 42):
     db.session.execute(text("DELETE FROM public.queue_history_daily WHERE source='synth'"))
     today = date.today()
     n = 0
-    for a in agencies:
+    ins = text('''
+        INSERT INTO public.queue_history_daily (agency_id, date, hour, ticket_count, source)
+        VALUES (:a, :d, :h, :c, 'synth')
+        ON CONFLICT (agency_id, date, hour)
+        DO UPDATE SET ticket_count = EXCLUDED.ticket_count, source='synth'
+    ''')
+    for i, a in enumerate(agencies, 1):
+        batch = []  # gom cả cơ quan rồi executemany 1 lần — nhanh hơn hàng chục lần từng dòng
         for d in range(days):
             day = today - timedelta(days=d)
             wd = day.weekday()
             for h in range(7, 18):
                 c = synth_count(bases[a], wd, h, rng)
-                if c <= 0:
-                    continue
-                db.session.execute(text('''
-                    INSERT INTO public.queue_history_daily (agency_id, date, hour, ticket_count, source)
-                    VALUES (:a, :d, :h, :c, 'synth')
-                    ON CONFLICT (agency_id, date, hour)
-                    DO UPDATE SET ticket_count = EXCLUDED.ticket_count, source='synth'
-                '''), {'a': a, 'd': day, 'h': h, 'c': c})
-                n += 1
+                if c > 0:
+                    batch.append({'a': a, 'd': day, 'h': h, 'c': c})
+        if batch:
+            db.session.execute(ins, batch)
+            n += len(batch)
         db.session.commit()
+        if i % 20 == 0:
+            print(f'  ...{i}/{len(agencies)} cơ quan', flush=True)
     real = rollup_real()
     print(f'Sinh {n} dòng synthetic cho {len(agencies)} cơ quan; rollup_real {real} dòng.')
-    print('agencies:', agencies)
 
 
 if __name__ == '__main__':
-    main()
+    import sys as _sys
+    main(limit=int(_sys.argv[1]) if len(_sys.argv) > 1 else None)

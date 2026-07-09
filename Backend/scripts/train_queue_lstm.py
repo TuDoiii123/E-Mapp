@@ -44,9 +44,22 @@ def main(lookback: int = 24, epochs: int = 8):
     opt = torch.optim.Adam(model.parameters(), lr=0.01)
     lossf = nn.MSELoss()
     model.train()
+    # Mini-batch: dữ liệu ~95 cơ quan là hàng trăm nghìn cửa sổ — full-batch sẽ
+    # ngốn RAM pod và cập nhật 1 lần/epoch quá thô
+    BATCH = 8192
+    n_samples = Xt.shape[0]
     for ep in range(epochs):
-        opt.zero_grad(); out = model(Xt); loss = lossf(out, yt); loss.backward(); opt.step()
-        print(f'epoch {ep+1}/{epochs} loss={loss.item():.4f}')
+        perm = torch.randperm(n_samples)
+        total = 0.0
+        for s in range(0, n_samples, BATCH):
+            idx = perm[s:s + BATCH]
+            opt.zero_grad()
+            out = model(Xt[idx])
+            loss = lossf(out, yt[idx])
+            loss.backward()
+            opt.step()
+            total += loss.item() * len(idx)
+        print(f'epoch {ep+1}/{epochs} loss={total / n_samples:.4f}', flush=True)
     _MODEL_DIR.mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), _MODEL_DIR / 'model.pt')
     (_MODEL_DIR / 'meta.json').write_text(json.dumps({'lookback': lookback}), 'utf-8')
