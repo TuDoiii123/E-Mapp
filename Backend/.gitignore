@@ -6,6 +6,7 @@ node_modules/
 *.wav
 # Ignore data/ contents but allow templates/ and RAG/data/
 data/*
+!data/place_lexicon.json
 !data/templates/
 data/templates/*
 !data/templates/*.doc

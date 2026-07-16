@@ -71,9 +71,11 @@ def _call_gemini(image_bytes: bytes, mime_type: str, prompt: str) -> str:
 def extract_document(file_path: str) -> dict:
     """
     Extract structured info from a personal document image or PDF.
-    Returns parsed JSON dict. Raises on failure.
+    Returns parsed JSON dict (đã qua hậu xử lý sửa địa danh + kiểm chéo CCCD).
+    Raises on failure.
     """
     from prompt import AGENT_MESSAGE
+    from services.ocr_postcorrect import postcorrect_document
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == '.pdf':
@@ -81,7 +83,7 @@ def extract_document(file_path: str) -> dict:
         # Return first page result that parsed successfully
         for page in pages:
             if not page.get('parse_error'):
-                return page['data']
+                return postcorrect_document(page['data'])
         return {'pages': pages}
 
     mime_type = _IMAGE_MIME.get(ext, 'image/jpeg')
@@ -89,7 +91,7 @@ def extract_document(file_path: str) -> dict:
         image_bytes = f.read()
 
     raw = _call_gemini(image_bytes, mime_type, AGENT_MESSAGE)
-    return json.loads(_clean_json(raw))
+    return postcorrect_document(json.loads(_clean_json(raw)))
 
 
 def extract_form_template(file_path: str) -> dict:

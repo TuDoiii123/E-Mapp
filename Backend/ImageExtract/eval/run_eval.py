@@ -133,7 +133,7 @@ def extract_with_cache(label: dict, retry_errors: bool = False) -> tuple:
     return entry, True
 
 
-def score_one(label: dict, entry: dict) -> dict:
+def score_one(label: dict, entry: dict, postcorrect: bool = True) -> dict:
     result = {
         'image': label['image'],
         'docType': label['docType'],
@@ -148,8 +148,13 @@ def score_one(label: dict, entry: dict) -> dict:
     if label['docType'] == 'form':
         result['form'] = score_form(label['expected'], entry['data'])
     else:
-        result['fields'] = score_document(label['expected'], entry['data'])
-        result['validity'] = validate_output(label['docType'], entry['data'])
+        data = entry['data']
+        if postcorrect:
+            # Cùng hậu xử lý với production (idempotent — cache mới đã corrected)
+            from services.ocr_postcorrect import postcorrect_document
+            data = postcorrect_document(data)
+        result['fields'] = score_document(label['expected'], data)
+        result['validity'] = validate_output(label['docType'], data)
     return result
 
 
@@ -162,8 +167,11 @@ def main():
                     help='không gọi API, chỉ chấm từ cache')
     ap.add_argument('--retry-errors', action='store_true',
                     help='gọi lại API cho các ảnh từng lỗi')
+    ap.add_argument('--no-postcorrect', action='store_true',
+                    help='chấm bản THÔ không hậu xử lý (đo baseline)')
     ap.add_argument('--seed', type=int, default=42)
     args = ap.parse_args()
+    postcorrect = not args.no_postcorrect
 
     _load_env()
 
@@ -190,7 +198,7 @@ def main():
             if entry is None:
                 continue  # report-only: bỏ qua ảnh chưa có kết quả
             cached_hits += 1
-            results.append(score_one(label, entry))
+            results.append(score_one(label, entry, postcorrect))
             continue
 
         if args.limit and api_calls >= args.limit:
@@ -209,7 +217,7 @@ def main():
         else:
             cached_hits += 1
         if entry is not None:
-            results.append(score_one(label, entry))
+            results.append(score_one(label, entry, postcorrect))
 
     if not results:
         print('Chưa có kết quả nào (cache trống và không gọi được API).')
