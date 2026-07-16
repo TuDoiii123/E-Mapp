@@ -53,8 +53,52 @@ def _gemini_client():
     return genai.Client(api_key=api_key)
 
 
+def _preprocess_image(image_bytes: bytes, mime_type: str) -> tuple:
+    """
+    Tiền xử lý ảnh trước khi gửi Gemini — cải thiện ảnh tối/mờ/nhỏ:
+    - sửa hướng theo EXIF (ảnh chụp điện thoại hay bị xoay)
+    - ảnh tối (độ sáng trung bình thấp) → autocontrast
+    - ảnh nhỏ (< 1600px cạnh dài) → upscale 2× LANCZOS + unsharp mask nhẹ
+    An toàn: thiếu Pillow / định dạng lạ (HEIC…) → trả nguyên bản.
+    """
+    try:
+        import io
+        from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageStat
+
+        img = Image.open(io.BytesIO(image_bytes))
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+
+        changed = False
+
+        # Ảnh tối: độ sáng trung bình < 110/255 → kéo tương phản + sáng
+        brightness = ImageStat.Stat(img.convert('L')).mean[0]
+        if brightness < 110:
+            img = ImageOps.autocontrast(img, cutoff=1)
+            img = ImageEnhance.Brightness(img).enhance(1.15)
+            changed = True
+
+        # Ảnh nhỏ: phóng to giúp Gemini soi dấu thanh + chữ số
+        if max(img.size) < 1600:
+            img = img.resize((img.width * 2, img.height * 2), Image.LANCZOS)
+            img = img.filter(ImageFilter.UnsharpMask(radius=1.4, percent=90, threshold=2))
+            changed = True
+
+        if not changed:
+            return image_bytes, mime_type
+
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue(), 'image/png'
+    except Exception as e:
+        log.warning(f'preprocess skipped: {e}')
+        return image_bytes, mime_type
+
+
 def _call_gemini(image_bytes: bytes, mime_type: str, prompt: str) -> str:
     from google.genai import types
+    image_bytes, mime_type = _preprocess_image(image_bytes, mime_type)
     client = _gemini_client()
     response = client.models.generate_content(
         model='gemini-2.5-flash',

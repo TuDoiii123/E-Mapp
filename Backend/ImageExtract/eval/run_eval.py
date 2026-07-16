@@ -55,6 +55,14 @@ def _file_hash(path: str) -> str:
     return h.hexdigest()[:20]
 
 
+def _cache_path(image_path: str, tag: str) -> str:
+    """v1 = tên cũ (kết quả thô trước cải tiến A+B); tag khác nối hậu tố."""
+    stem = _file_hash(image_path)
+    if tag != 'v1':
+        stem += f'_{tag}'
+    return os.path.join(CACHE_DIR, stem + '.json')
+
+
 def load_labels(doc_type: str = None) -> list:
     labels_dir = os.path.join(DATASET_DIR, 'labels')
     if not os.path.isdir(labels_dir):
@@ -94,7 +102,8 @@ def _is_quota_error(exc: Exception) -> bool:
     return any(m.lower() in msg for m in QUOTA_MARKERS)
 
 
-def extract_with_cache(label: dict, retry_errors: bool = False) -> tuple:
+def extract_with_cache(label: dict, retry_errors: bool = False,
+                       tag: str = 'v2') -> tuple:
     """
     Trả về (cache_entry | None, api_called: bool).
     cache_entry: {'data': dict} hoặc {'error': str}.
@@ -105,7 +114,7 @@ def extract_with_cache(label: dict, retry_errors: bool = False) -> tuple:
         return None, False
 
     os.makedirs(CACHE_DIR, exist_ok=True)
-    cache_path = os.path.join(CACHE_DIR, _file_hash(image_path) + '.json')
+    cache_path = _cache_path(image_path, tag)
 
     if os.path.exists(cache_path):
         with open(cache_path, encoding='utf-8') as f:
@@ -169,6 +178,9 @@ def main():
                     help='gọi lại API cho các ảnh từng lỗi')
     ap.add_argument('--no-postcorrect', action='store_true',
                     help='chấm bản THÔ không hậu xử lý (đo baseline)')
+    ap.add_argument('--tag', default='v2',
+                    help='version pipeline cho cache: v1 = trước cải tiến '
+                         'tiền xử lý + prompt (mặc định v2)')
     ap.add_argument('--seed', type=int, default=42)
     args = ap.parse_args()
     postcorrect = not args.no_postcorrect
@@ -191,7 +203,7 @@ def main():
             image_path = os.path.join(DATASET_DIR, 'images', label['image'])
             entry = None
             if os.path.exists(image_path):
-                cache_path = os.path.join(CACHE_DIR, _file_hash(image_path) + '.json')
+                cache_path = _cache_path(image_path, args.tag)
                 if os.path.exists(cache_path):
                     with open(cache_path, encoding='utf-8') as f:
                         entry = json.load(f)
@@ -205,7 +217,7 @@ def main():
             print(f'Đã chạm --limit {args.limit} lần gọi API, dừng gọi thêm.')
             break
         try:
-            entry, called = extract_with_cache(label, args.retry_errors)
+            entry, called = extract_with_cache(label, args.retry_errors, args.tag)
         except RuntimeError:
             quota_hit = True
             print(f'⚠ Hết quota Gemini sau {api_calls} lần gọi — dừng. '

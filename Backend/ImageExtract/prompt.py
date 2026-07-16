@@ -46,6 +46,16 @@ AGENT_MESSAGE = '''As a document observer and extractor, you are tasked with obs
     2. If the image quality is poor and you cannot read the information, return an empty string for that field.
     3. Ensure the output is in valid JSON format.
     4. Only return the JSON file, do not add any additional explanation or information.
+    5. Vietnamese diacritics matter — re-check tone marks carefully before answering.
+       Similar-looking words are DIFFERENT places/names: "Hoằng" vs "Hoàng",
+       "Lĩnh" vs "Linh", "Đồng" vs "Đông", "Thúy" vs "Thùy". Zoom into each
+       tone mark (huyền, sắc, hỏi, ngã, nặng) and vowel hat (â, ê, ô, ă, ơ, ư).
+    6. For document numbers, read digit by digit. Commonly confused pairs on
+       blurry images: 8 vs 9, 3 vs 5, 0 vs 6, 1 vs 7 — verify each digit
+       individually instead of reading the number as a whole.
+    7. Place names must be real Vietnamese administrative units (xã/phường,
+       huyện/quận, tỉnh/thành phố). If what you read does not look like a real
+       Vietnamese place name, re-examine the image before answering.
 
         For citizen identification card, you need to read front-side, read the following information:
             {
