@@ -68,8 +68,8 @@ số chứ KHÔNG tối ưu trực tiếp tổng phút, nên so với oracle là
 | Gần nhất | 102.6 | 49.0 | 16.8% |
 | Ngẫu nhiên | 105.6 | 51.9 | 11.5% |
 
-- Tiết kiệm **48.3 phút/lượt (47%)** vs chọn gần nhất; cao điểm 55 phút (45.1%).
-- NDCG@5 = 0.85, MRR = 0.73, oracle lọt top-5: 93.2%.
+- Tiết kiệm **48.3 phút/lượt (47%)** vs chọn gần nhất; cao điểm 58.6 phút (48.1%).
+- NDCG@5 = **0.97**, MRR = **0.91**, oracle lọt top-5: 100% (trọng số cũ: 0.85 / 0.73 / 93.2%).
 - ETA: MAE 2.73 phút, MAPE 30.7%, bias −0.70 phút; **hệ số đường vòng
   Hà Nội 1.73×** (đường thật dài gấp 1.73 lần đường chim bay).
 - Lý do chọn 0.2/0.7 thay vì 0.1/0.8 tối ưu lý thuyết: giữ khoảng cách làm
