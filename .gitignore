@@ -61,3 +61,15 @@ Backend/services/test_*.py
 # Cache/output cua script import du lieu (sinh lai duoc)
 Backend/scripts/osm_import_work/
 Backend/scripts/ward_centroid_work/
+
+# Bo danh gia OCR: dataset sinh lai duoc bang script (seed 42), cache/report la output
+Backend/ImageExtract/eval/dataset/
+Backend/ImageExtract/eval/cache/
+Backend/ImageExtract/eval/reports/
+
+# Bo danh gia smart-route: cache OSRM + report la output
+Backend/eval/smart_route/cache_osrm.json
+Backend/eval/smart_route/reports/
+
+.vercel
+.env*
