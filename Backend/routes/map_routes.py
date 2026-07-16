@@ -487,14 +487,10 @@ def directions():
 
 # ── Smart Route ────────────────────────────────────────────────────────────────
 
-# Trọng số điểm: queue quan trọng hơn khoảng cách
-_DIST_W   = 0.40
-_QUEUE_W  = 0.50
-_LEVEL_W  = 0.10
-_MAX_WAIT = 30.0   # người chờ → coi là "đầy"
-_LOAD_SCORE = {'low': 0.0, 'medium': 0.2, 'high': 0.6}
-_SPEED_KMH  = {'driving': 30, 'walking': 5, 'cycling': 15}
-_OSM_MODE   = {'driving': 'osrm_car', 'walking': 'osrm_foot', 'cycling': 'osrm_bicycle'}
+# Logic chấm điểm nằm ở services/smart_route_core.py (dùng chung với bộ eval)
+from services.smart_route_core import rank_agencies, SPEED_KMH as _SPEED_KMH
+
+_OSM_MODE = {'driving': 'osrm_car', 'walking': 'osrm_foot', 'cycling': 'osrm_bicycle'}
 
 
 def _fmt_dist(km: float) -> str:
@@ -588,35 +584,16 @@ def smart_route():
     except Exception as e:
         log.warning(f'smart_route: queue fetch failed: {e}')
 
-    # Score each agency
-    scored = []
-    max_dist = max(radius_km, 1.0)
-    for agency in nearby:
-        dist_km   = float(agency.get('distance') or 0)
-        qs        = queue_map.get(agency['id'], {})
-        waiting   = int(qs.get('waiting', 0))
-        load_lvl  = qs.get('loadLevel', 'low')
+    # Cơ quan chưa có dữ liệu realtime thật (vd toàn bộ Hà Nội trên deploy)
+    # → điền số mô phỏng tất định theo giờ, để smart-route có nghĩa
+    try:
+        from services.queue_demo import fill_queue_map
+        queue_map = fill_queue_map(nearby, queue_map)
+    except Exception as e:
+        log.warning(f'smart_route: fill demo queue failed: {e}')
 
-        dist_norm  = min(dist_km / max_dist, 1.0)
-        queue_norm = min(waiting / _MAX_WAIT, 1.0)
-        level_norm = _LOAD_SCORE.get(load_lvl, 0.0)
-
-        score = dist_norm * _DIST_W + queue_norm * _QUEUE_W + level_norm * _LEVEL_W
-
-        # Ước tính thời gian chờ: bình quân 5 phút/người, tối thiểu 5 phút
-        est_wait_min = max(5, waiting * 5)
-
-        scored.append({
-            'agency':       agency,
-            'queue':        qs,
-            'waiting':      waiting,
-            'loadLevel':    load_lvl,
-            'dist_km':      dist_km,
-            'score':        round(score, 4),
-            'estWaitMin':   est_wait_min,
-        })
-
-    scored.sort(key=lambda x: x['score'])
+    # Score each agency (lõi chấm điểm dùng chung với bộ đánh giá)
+    scored = rank_agencies(nearby, queue_map, radius_km)
     top = scored[:limit]
 
     # Tag đặc biệt cho nearest / least_busy
@@ -704,6 +681,7 @@ def smart_route():
                 'loadLevel':   load_lvl,
                 'estWaitMin':  item['estWaitMin'],
                 'estWaitText': _fmt_dur(item['estWaitMin']),
+                'simulated':   bool(item['queue'].get('simulated', False)),
             },
             'navigation': {
                 'osmUrl':      osm_url,

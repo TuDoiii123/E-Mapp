@@ -355,18 +355,25 @@ def map_overview():
     try:
         from models.public_service import PublicService
         all_services = PublicService.find_all()
-        # Tạo map agency_id → {totalWaiting: 0, ...} cho mọi cơ quan
+        # Tạo map agency_id → mô phỏng theo giờ cho mọi cơ quan; cơ quan có
+        # dữ liệu realtime thật sẽ được ghi đè ở bước đọc PostgreSQL bên dưới
         result: dict[str, dict] = {}
+        try:
+            from services.queue_demo import demo_queue
+        except Exception:
+            demo_queue = None
         for svc in all_services:
             aid = str(svc.get('id', ''))
             if not aid:
                 continue
+            sim = demo_queue(svc) if demo_queue else {'waiting': 0, 'serving': 0, 'loadLevel': 'low'}
             result[aid] = {
                 'agencyId':     aid,
-                'totalWaiting': 0,
-                'totalServing': 0,
-                'loadLevel':    'low',
+                'totalWaiting': sim['waiting'],
+                'totalServing': sim['serving'],
+                'loadLevel':    sim['loadLevel'],
                 'ageSeconds':   0,
+                'simulated':    True,
             }
     except Exception:
         result = {}
@@ -389,6 +396,7 @@ def map_overview():
                 'totalServing': row[2],
                 'loadLevel':    row[3],
                 'ageSeconds':   row[4],
+                'simulated':    False,
             }
     except Exception:
         # Fallback: live scan từ JSON (chậm hơn, chỉ có agencies đang hoạt động)
