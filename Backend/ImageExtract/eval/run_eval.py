@@ -232,7 +232,10 @@ def main():
             results.append(score_one(label, entry, postcorrect))
 
     if not results:
-        print('Chưa có kết quả nào (cache trống và không gọi được API).')
+        print(f'Chưa có kết quả nào cho pipeline "{args.tag}" '
+              f'(cache trống và không gọi được API).')
+        if args.tag != 'v1':
+            print('Gợi ý: kết quả pipeline cũ (trước cải tiến A+B) xem bằng --tag v1')
         return
 
     from report import build_markdown, build_csv

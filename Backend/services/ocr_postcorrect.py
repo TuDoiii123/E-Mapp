@@ -104,7 +104,7 @@ def _match_unit(name: str, levels: list, scope: dict) -> tuple:
     idx = _load_index()
     key = strip_accents(_norm_space(name))
     if not key:
-        return None, None, None
+        return None, None, None, set()
 
     candidates = []  # (level, record)
     for level in levels:

@@ -50,6 +50,18 @@ def _is_doc_format(template_file: str) -> bool:
     return ext == 'doc'
 
 
+def _split_extract_meta(fields):
+    """
+    Tách meta hậu xử lý OCR (_corrections/_warnings từ services/ocr_postcorrect)
+    khỏi dict fields — để UI không render nhầm thành trường dữ liệu và
+    template filler không nhận key rác.
+    """
+    if not isinstance(fields, dict):
+        return fields, None, None
+    fields = dict(fields)
+    return fields, fields.pop('_corrections', None), fields.pop('_warnings', None)
+
+
 # ── POST /api/ai/extract ─────────────────────────────────────────────────────
 
 @ai_bp.route('/extract', methods=['POST'])
@@ -88,12 +100,15 @@ def extract_document():
 
         from services.image_extractor import extract_document as _extract
         fields = _extract(tmp.name)
+        fields, corrections, warnings = _split_extract_meta(fields)
 
         log.info(f'AI extract: {file.filename} → {len(fields) if isinstance(fields, dict) else "?"} fields')
-        return jsonify({
-            'success': True,
-            'data': {'fields': fields}
-        })
+        data = {'fields': fields}
+        if corrections:
+            data['corrections'] = corrections
+        if warnings:
+            data['warnings'] = warnings
+        return jsonify({'success': True, 'data': data})
 
     except EnvironmentError as e:
         # GEMINI_API_KEY không được cấu hình
@@ -257,12 +272,15 @@ def extract_and_fill():
         # Bước 1: Trích xuất fields từ ảnh
         from services.image_extractor import extract_document as _extract
         extracted = _extract(tmp.name)
+        extracted, ef_corrections, ef_warnings = _split_extract_meta(extracted)
 
         if return_fields_only or not template_file:
-            return jsonify({
-                'success': True,
-                'data': {'fields': extracted}
-            })
+            data = {'fields': extracted}
+            if ef_corrections:
+                data['corrections'] = ef_corrections
+            if ef_warnings:
+                data['warnings'] = ef_warnings
+            return jsonify({'success': True, 'data': data})
 
         # Bước 2: Điền vào template
         template_path = _safe_template_path(template_file)
