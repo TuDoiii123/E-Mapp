@@ -164,6 +164,16 @@ def make_find_province(provinces):
     return find
 
 
+# Một số POI OSM có tag name bẩn kiểu 'office_UBND Xã A stories 3'
+# (mapper nhét building-tag vào name) — bóc prefix/suffix rác trước khi dùng
+_OSM_NAME_PREFIX_JUNK = re.compile(r'^\s*office_\s*', re.IGNORECASE)
+_OSM_NAME_SUFFIX_JUNK = re.compile(r'\s*stories\s*\d+\s*$', re.IGNORECASE)
+
+
+def _clean_osm_name(raw: str) -> str:
+    return _OSM_NAME_SUFFIX_JUNK.sub('', _OSM_NAME_PREFIX_JUNK.sub('', raw)).strip()
+
+
 def categorize(name):
     n = strip_dia(name)
     # nl giữ dấu (NFC) để phân biệt 'Sở' với 'số'/'trụ sở' — bỏ dấu đều thành 'so'
@@ -269,7 +279,7 @@ def main():
     rows, seen = [], set()
     for e in gov:
         t = e.get('tags', {})
-        name = t.get('name')
+        name = _clean_osm_name(t.get('name') or '')
         if not name:
             continue
         lat = e.get('lat') or (e.get('center') or {}).get('lat')

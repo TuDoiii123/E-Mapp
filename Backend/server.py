@@ -159,6 +159,23 @@ def _preload_suggest():
 
 threading.Thread(target=_preload_suggest, daemon=True).start()
 
+# ── Warm-up RAG agent in background ──────────────────────────────────────────
+# Nạp sẵn embedding model + chroma + langgraph để câu chat đầu tiên không phải
+# chờ ~1-2 phút (và không dồn cấp phát RAM vào đúng lúc đang phục vụ request).
+# Tắt bằng RAG_WARMUP=0 (máy dev yếu). Không gọi LLM — chỉ dựng graph.
+def _warmup_rag_agent():
+    if os.getenv('RAG_WARMUP', '1') in ('0', 'false', 'False'):
+        return
+    try:
+        t0 = time.monotonic()
+        from routes.rag_routes import _get_agent
+        _get_agent()
+        log.info(f'RAG agent warmed up in {time.monotonic() - t0:.0f}s')
+    except Exception as e:
+        log.warning(f'[RAG warmup] failed (chat vẫn tự nạp khi có request): {e}')
+
+threading.Thread(target=_warmup_rag_agent, daemon=True).start()
+
 # ── Auto-seed procedures nếu bảng trống ──────────────────────────────────────
 def _auto_seed_procedures():
     """Tự động seed procedures nếu chưa có dữ liệu (fresh deployment)."""

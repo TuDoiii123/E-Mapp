@@ -344,6 +344,13 @@ def upsert_counter():
 
 # ── REST: Map overview ────────────────────────────────────────────────────────
 
+# Cache 30s: response giống nhau cho mọi user; tính ~3.4k mô phỏng + query DB
+# mỗi request là lãng phí khi FE poll 30s (số mô phỏng chỉ đổi theo giờ)
+_overview_cache = {'ts': 0.0, 'data': None}
+_overview_lock = threading.Lock()
+_OVERVIEW_TTL = 30.0
+
+
 @queue_bp.route('/map-overview', methods=['GET'])
 def map_overview():
     """
@@ -352,6 +359,11 @@ def map_overview():
     - Bổ sung tất cả agencies từ PublicService (hiển thị 0 nếu chưa có queue).
     - Fallback scan JSON nếu DB không khả dụng.
     """
+    with _overview_lock:
+        if (_overview_cache['data'] is not None
+                and time.monotonic() - _overview_cache['ts'] < _OVERVIEW_TTL):
+            return jsonify({'success': True, 'data': _overview_cache['data']})
+
     try:
         from models.public_service import PublicService
         all_services = PublicService.find_all()
@@ -415,5 +427,9 @@ def map_overview():
                 }
         except Exception as e:
             log.error(f'map_overview fallback error: {e}', exc_info=True)
+
+    with _overview_lock:
+        _overview_cache['ts'] = time.monotonic()
+        _overview_cache['data'] = result
 
     return jsonify({'success': True, 'data': result})
