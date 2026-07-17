@@ -104,6 +104,23 @@ Nhận diện loại giấy tờ 100%; độ trễ TB 6.4s/ảnh (p95 11.2s). �
 kiện khó nhất (tỷ lệ "không phải sửa" rơi 100% → 25%). Lỗi điển hình: nhầm
 số gần giống (8↔9), sai dấu thanh ("Hoằng"→"Hoàng").
 
+## Kết quả pipeline v2 (cải tiến A tiền xử lý + B prompt, 2026-07-17)
+
+19 ảnh cùng mẫu phân tầng, so trực tiếp với v1 (cache version hoá `--tag`):
+
+| Chỉ số | v1 (+ hậu xử lý C) | **v2 (A+B+C)** |
+|---|---|---|
+| Accuracy trường | 94.7% → 96.1% | **99.3%** |
+| CER | 0.0039 | **0.0007** |
+| EM tài liệu | 62.5% | **93.3%** |
+| CCCD/GPLX trên ảnh mờ+tối | 85–87% | **100%** |
+
+Ca đắt giá: ảnh CCCD mờ từng đọc `887917…`/"Hoàng Đông" (v1) → v2 Gemini tự
+đọc đúng `887817…`/"Hoằng Đồng" từ ảnh — tiền xử lý (upscale 2× + unsharp,
+autocontrast) + prompt soi dấu thanh/đọc số từng chữ số xử lý được cả ca
+mơ hồ mà hậu xử lý C phải chịu thua. Lỗi còn lại duy nhất: 28/06→26/06
+trên giấy kết hôn mờ (nhầm 8↔6, chữ nhỏ). Mẫu tiếp tục tích luỹ ~20 ảnh/ngày.
+
 ## Vận hành
 
 ```bash
