@@ -112,14 +112,27 @@ def get_all_appointments():
 
 @appointments_bp.route('/<appt_id>/status', methods=['PATCH'])
 def update_appointment_status_route(appt_id: str):
-    """PATCH /api/appointments/:id/status  — Admin cập nhật trạng thái lịch hẹn."""
-    if getattr(request, 'role', None) != 'admin':
-        return jsonify({'success': False, 'message': 'Forbidden'}), 403
+    """
+    PATCH /api/appointments/:id/status
+    - Admin: đổi sang trạng thái bất kỳ.
+    - Người dân: chỉ được HUỶ (status='cancelled') lịch CỦA CHÍNH MÌNH —
+      trước đây admin-only nên người đặt nhầm không tự huỷ được.
+    """
     try:
         payload    = request.get_json(silent=True) or {}
         new_status = payload.get('status', '').strip()
         if not new_status:
             return jsonify({'success': False, 'message': 'Thiếu trường status'}), 400
+
+        role    = getattr(request, 'role', None)
+        user_id = getattr(request, 'user_id', None)
+        if role != 'admin':
+            if not user_id or new_status != 'cancelled':
+                return jsonify({'success': False, 'message': 'Forbidden'}), 403
+            mine = read_appointments(user_id=user_id)
+            if not any(str(a.get('id')) == str(appt_id) for a in mine):
+                return jsonify({'success': False,
+                                'message': 'Không tìm thấy lịch hẹn của bạn'}), 404
 
         ok, err = update_appointment_status(appt_id, new_status)
         if not ok:
