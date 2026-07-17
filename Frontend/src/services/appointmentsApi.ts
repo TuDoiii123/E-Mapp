@@ -47,4 +47,11 @@ export const appointmentsAPI = {
 
   getUpcoming: () =>
     apiRequest<ApiResponse<{ appointments: Appointment[] }>>('/appointments/upcoming'),
+
+  /** Người dân tự huỷ lịch hẹn của mình (backend chỉ cho status='cancelled' trên lịch của chính chủ) */
+  cancel: (id: string) =>
+    apiRequest<ApiResponse<{ id: string; status: string }>>(`/appointments/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'cancelled' }),
+    }),
 };

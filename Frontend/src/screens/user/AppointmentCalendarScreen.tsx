@@ -85,6 +85,19 @@ export const AppointmentCalendarScreen: React.FC<AppointmentCalendarScreenProps>
     finally { setLoading(false); }
   };
 
+  const [cancelling, setCancelling] = useState(false);
+  const handleCancelAppointment = async (appt: Appointment) => {
+    if (!window.confirm(`Huỷ lịch hẹn ngày ${appt.date} lúc ${appt.time}?`)) return;
+    setCancelling(true);
+    try {
+      await appointmentsAPI.cancel(appt.id);
+      setAppointments(prev => prev.map(a => a.id === appt.id ? { ...a, status: 'cancelled' } : a));
+      setDetailAppt(prev => (prev && prev.id === appt.id ? { ...prev, status: 'cancelled' } : prev));
+    } catch (e: any) {
+      window.alert(e?.message || 'Không huỷ được lịch hẹn. Vui lòng thử lại.');
+    } finally { setCancelling(false); }
+  };
+
   useEffect(() => {
     loadAppointments();
     servicesAPI.getAll(undefined, undefined, undefined, undefined, undefined, 100)
@@ -589,13 +602,22 @@ export const AppointmentCalendarScreen: React.FC<AppointmentCalendarScreenProps>
                 })()}
               </div>
             </div>
-            <div className="px-8 py-5 border-t border-[#ffeced]">
+            <div className="px-8 py-5 border-t border-[#ffeced] flex items-center justify-between gap-3">
               <button
                 onClick={() => { setShowDetail(false); setDetailAppt(null); }}
                 className="px-6 py-3 border border-[#de9ca4] text-[#9f364c] font-bold text-xs uppercase tracking-widest rounded-lg hover:bg-[#ffeced] transition-colors"
               >
                 Đóng
               </button>
+              {['pending', 'confirmed', 'approved'].includes(detailAppt.status || 'pending') && (
+                <button
+                  onClick={() => handleCancelAppointment(detailAppt)}
+                  disabled={cancelling}
+                  className="px-6 py-3 bg-[#8f000d] text-white font-bold text-xs uppercase tracking-widest rounded-lg hover:bg-[#b22222] transition-colors disabled:opacity-60"
+                >
+                  {cancelling ? 'Đang huỷ…' : 'Huỷ lịch hẹn'}
+                </button>
+              )}
             </div>
           </div>
         </div>
