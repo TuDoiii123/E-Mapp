@@ -206,6 +206,20 @@ def validate_output(doc_type: str, predicted: dict) -> dict:
 
 # ── Chấm biểu mẫu trống ──────────────────────────────────────────────────────
 
+# Phần tử PHỤ TRỢ có vẽ thật trên biểu mẫu nhưng nhãn không liệt kê là "trường":
+# ô checkbox Nam/Nữ (option của Giới tính) và khối ký tên cuối trang
+# ("..., ngày ... tháng ... năm ...", "(Ký, ghi rõ họ tên)"). Model đọc ra
+# chúng là ĐÚNG với tờ giấy. CHỈ áp lên trường thừa CHƯA ghép cặp (không ảnh
+# hưởng recall — 'Ngày, tháng, năm sinh' đã ghép với expected thì không bị đụng).
+_AUX_FORM_LABELS = re.compile(
+    r'^(nam|nữ|nu)$'
+    r'|ngày.{0,4}tháng.{0,4}năm'
+    r'|ký.{0,15}họ tên'
+    r'|chữ ký'
+    r'|địa điểm lập'
+)
+
+
 def _extract_predicted_labels(predicted: dict) -> list:
     """Lấy danh sách tên trường Gemini phát hiện được (label ưu tiên, fallback fieldName)."""
     labels = []
@@ -245,7 +259,14 @@ def score_form(expected: dict, predicted: dict) -> dict:
                             'score': round(best_score, 3)})
             remaining = [(i, p) for i, p in remaining if i != best]
 
-    n_exp, n_pred, n_match = len(exp_fields), len(pred_labels), len(matches)
+    # Trường thừa chưa ghép cặp nhưng là phần tử phụ trợ có thật trên giấy
+    # → loại khỏi mẫu số precision (model không "bịa")
+    matched_pred = {m['predicted'] for m in matches}
+    aux_extras = [l for l in pred_labels
+                  if l not in matched_pred and _AUX_FORM_LABELS.search(normalize(l))]
+
+    n_exp, n_match = len(exp_fields), len(matches)
+    n_pred = len(pred_labels) - len(aux_extras)
     recall = n_match / n_exp if n_exp else 0.0
     precision = n_match / n_pred if n_pred else 0.0
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0

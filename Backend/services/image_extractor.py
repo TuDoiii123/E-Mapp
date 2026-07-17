@@ -72,11 +72,14 @@ def _preprocess_image(image_bytes: bytes, mime_type: str) -> tuple:
 
         changed = False
 
-        # Ảnh tối: độ sáng trung bình < 110/255 → kéo tương phản + sáng
+        # Ảnh tối: 2 mức — giấy trắng bị tối chỉ xuống ~120-140 nên autocontrast
+        # từ <145 (kéo lại dải trắng-đen, vô hại với ảnh thường vì cutoff=1);
+        # tối hẳn (<110, ảnh thẻ nền màu) mới tăng sáng thêm
         brightness = ImageStat.Stat(img.convert('L')).mean[0]
-        if brightness < 110:
+        if brightness < 145:
             img = ImageOps.autocontrast(img, cutoff=1)
-            img = ImageEnhance.Brightness(img).enhance(1.15)
+            if brightness < 110:
+                img = ImageEnhance.Brightness(img).enhance(1.15)
             changed = True
 
         # Ảnh nhỏ: phóng to giúp Gemini soi dấu thanh + chữ số
