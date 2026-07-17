@@ -44,7 +44,9 @@ spec:
               value: "5432"
           resources:
             requests: { cpu: "250m", memory: "1Gi" }
-            limits:   { cpu: "2",    memory: "3Gi" }
+            # 3Gi bị OOMKilled khi RAG chat nạp embedding model lần đầu
+            # (2026-07-17, exit 137) — node 10Gi nên nâng 5Gi là an toàn
+            limits:   { cpu: "2",    memory: "5Gi" }
           # App load model torch lúc khởi động → cho thời gian warmup rộng rãi
           startupProbe:
             tcpSocket: { port: 8888 }
