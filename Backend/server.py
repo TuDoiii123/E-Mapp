@@ -392,6 +392,13 @@ def handle_exception(e):
         path   = request.path or ''
     except Exception:
         method = path = ''
+    # abort(400/403/404/...) ném HTTPException — phải giữ NGUYÊN status code của
+    # nó, không nuốt thành 500 (trước đây path traversal → 500 thay vì 400,
+    # mọi abort() trong app đều sai mã trả về)
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        log.warning(f'{e.code} {method} {path}: {e.description}')
+        return jsonify({'success': False, 'message': e.description}), e.code
     log.error(f'Unhandled exception on {method} {path}: {e}', exc_info=True)
     return jsonify({'success': False, 'message': str(e)}), 500
 

@@ -306,7 +306,8 @@ def api_voice_tts():
         return jsonify({'status': 'error', 'message': 'Thiếu text cho TTS'}), 400
     client = _get_tts_client()
     if client is None:
-        return jsonify({'status': 'error', 'message': 'Google TTS chưa được cấu hình'}), 500
+        # Dịch vụ chưa cấu hình ≠ lỗi server — 503 để FE ẩn tính năng đọc giọng
+        return jsonify({'status': 'error', 'message': 'Google TTS chưa được cấu hình'}), 503
     try:
         from google.cloud import texttospeech as g_tts  # type: ignore
         res = client.synthesize_speech(
@@ -323,7 +324,7 @@ def api_voice_tts():
 def api_voice_list_voices():
     client = _get_tts_client()
     if client is None:
-        return jsonify({'success': False, 'message': 'Google TTS chưa được cấu hình'}), 500
+        return jsonify({'success': False, 'message': 'Google TTS chưa được cấu hình'}), 503
     try:
         from google.cloud import texttospeech as g_tts  # type: ignore
         lang = request.args.get('lang') or None
