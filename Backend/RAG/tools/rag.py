@@ -29,13 +29,22 @@ _MIN_COSINE = 0.30
 _HF_MODEL_REPO  = "AITeamVN/Vietnamese_Embedding"
 _HF_TOKENIZER_REPO = "BAAI/bge-m3"
 
-_REQUIRED_MODEL_FILES = {"config.json", "model.safetensors", "modules.json"}
+# Đủ bộ file sentence-transformers cần để load — thiếu 1_Pooling/config.json
+# là Pooling.__init__ nổ 'missing word_embedding_dimension'. Trước đây các
+# file nhỏ có sẵn trong image (commit theo repo) nên chỉ cần tải weights;
+# từ khi mount PVC đè lên thư mục model thì phải tải đủ cả bộ.
+_REQUIRED_MODEL_FILES = {
+    "config.json", "model.safetensors", "modules.json",
+    "config_sentence_transformers.json", "sentence_bert_config.json",
+    "special_tokens_map.json", "tokenizer_config.json",
+    "1_Pooling/config.json",
+}
 _TOKENIZER_FILES      = {"tokenizer.json", "sentencepiece.bpe.model"}
 
 
 def _model_is_ready(path: Path) -> bool:
-    existing = {f.name for f in path.iterdir() if f.is_file()} if path.exists() else set()
-    return _REQUIRED_MODEL_FILES.issubset(existing) and _TOKENIZER_FILES.issubset(existing)
+    return all((path / f).is_file()
+               for f in (_REQUIRED_MODEL_FILES | _TOKENIZER_FILES))
 
 
 def _hf_download(repo_id: str, filename: str, local_dir: Path) -> None:
