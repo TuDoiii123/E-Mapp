@@ -100,6 +100,16 @@ function buildEndpointIcon(label: string, color: string): L.DivIcon {
 const fmtDist = (d?: number | null) =>
   !d ? 'N/A' : d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
 
+/** Haversine km — fallback tính khoảng cách phía client khi backend không trả
+ *  (chế độ Toàn quốc không gửi lat/lng lên server). */
+const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const rad = (deg: number) => deg * (Math.PI / 180);
+  const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 export function MapScreen({ onNavigate }: MapScreenProps) {
   // Map refs
@@ -122,6 +132,14 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   // Location
   const [userLocation,    setUserLocation]    = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
+
+  // Khoảng cách: ưu tiên backend trả; thiếu thì tự tính từ vị trí người dùng.
+  // null = không xác định được (chưa bật định vị) → nơi render tự ẩn.
+  const officeDistance = useCallback((o: { distance?: number | null; latitude?: number | null; longitude?: number | null }): number | null => {
+    if (o.distance != null) return o.distance;
+    if (!userLocation || o.latitude == null || o.longitude == null) return null;
+    return haversineKm(userLocation.lat, userLocation.lng, Number(o.latitude), Number(o.longitude));
+  }, [userLocation]);
 
   // Filters
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -789,10 +807,12 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                         <span className="text-sm font-bold text-gray-700">{selectedOffice.rating.toFixed(1)}</span>
                       </div>
                     )}
-                    <div className="px-3 py-2">
-                      <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">Khoảng cách</p>
-                      <p className="text-sm font-bold text-gray-700">{fmtDist(selectedOffice.distance)}</p>
-                    </div>
+                    {officeDistance(selectedOffice) != null && (
+                      <div className="px-3 py-2">
+                        <p className="text-[10px] text-gray-400 uppercase font-bold mb-1">Khoảng cách</p>
+                        <p className="text-sm font-bold text-gray-700">{fmtDist(officeDistance(selectedOffice))}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -853,8 +873,8 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                                 <p className="text-sm font-bold text-gray-800 truncate leading-tight">{office.name}</p>
                                 <p className="text-xs text-gray-400 truncate mt-0.5">
                                   {office.address}
-                                  {office.distance != null && (
-                                    <span className="ml-1.5 font-semibold text-primary">· {office.distance < 1 ? `${Math.round(office.distance * 1000)}m` : `${office.distance.toFixed(1)}km`}</span>
+                                  {officeDistance(office) != null && (
+                                    <span className="ml-1.5 font-semibold text-primary">· {fmtDist(officeDistance(office))}</span>
                                   )}
                                 </p>
                               </div>
@@ -999,9 +1019,9 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                             <p className={`text-sm font-bold leading-tight ${isSelected ? 'text-blue-700' : 'text-gray-800'}`}>
                               {office.name}
                             </p>
-                            {office.distance != null && (
+                            {officeDistance(office) != null && (
                               <span className="text-[11px] font-extrabold text-primary bg-blue-50 px-2 py-0.5 rounded-full flex-shrink-0">
-                                {fmtDist(office.distance)}
+                                {fmtDist(officeDistance(office))}
                               </span>
                             )}
                           </div>
