@@ -170,7 +170,11 @@ def _warmup_rag_agent():
         t0 = time.monotonic()
         from routes.rag_routes import _get_agent
         _get_agent()
-        log.info(f'RAG agent warmed up in {time.monotonic() - t0:.0f}s')
+        # Nạp cả embedding model (1.2GB) — nếu thiếu sẽ download NGAY LÚC START
+        # thay vì giữa request đầu tiên của người dùng (từng gây chờ ~2 phút)
+        from RAG.tools.rag import load_model
+        load_model()
+        log.info(f'RAG agent + embedding model warmed up in {time.monotonic() - t0:.0f}s')
     except Exception as e:
         log.warning(f'[RAG warmup] failed (chat vẫn tự nạp khi có request): {e}')
 

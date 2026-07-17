@@ -1,0 +1,23 @@
+# PVC lưu embedding model RAG (AITeamVN/Vietnamese_Embedding, ~1.2GB +
+# tokenizer). *.safetensors bị gitignore nên không nằm trong image — không có
+# PVC này, MỖI lần pod restart lại download từ HuggingFace ngay giữa request
+# chat đầu tiên (~2 phút treo + từng góp phần OOM).
+#
+# Áp dụng (cluster demo — KHÔNG apply full backend.yaml, xem k8s/README.md):
+#   kubectl -n emapp apply -f k8s/rag-model-pvc.yaml
+#   kubectl -n emapp patch deploy emapp-backend --type=json -p '[
+#     {"op":"add","path":"/spec/template/spec/volumes/-",
+#      "value":{"name":"rag-model","persistentVolumeClaim":{"claimName":"emapp-rag-model"}}},
+#     {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-",
+#      "value":{"name":"rag-model","mountPath":"/app/RAG/models/Vietnamese_Embedding"}}]'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: emapp-rag-model
+  namespace: emapp
+spec:
+  accessModes: [ ReadWriteOnce ]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 3Gi

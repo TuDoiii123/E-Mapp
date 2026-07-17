@@ -183,15 +183,29 @@ class PublicService:
         if HAS_DB and db is not None:
             try:
                 # Try ds_dichvucong with join to get category info, then fallback to older table
+                # Tra theo id TRƯỚC, tách riêng khỏi tra theo code: cột d.code
+                # không tồn tại trên prod → câu OR cũ nổ SQL mọi lần, làm 404
+                # toàn bộ ~3.3k cơ quan chỉ có trong DB (OSM, xã centroid)
                 try:
-                    sql = text('''
+                    base_sql = '''
                         SELECT d.*, t.id AS theloai_id, t.name AS theloai_name
                         FROM ds_dichvucong d
                         LEFT JOIN ds_theloai t ON d.category_id = t.id
-                        WHERE (d.id::text = :id OR d.code::text = :id) LIMIT 1
-                    ''')
-                    res = db.session.execute(sql, {'id': service_id})
-                    row = res.mappings().first()
+                        WHERE {cond} LIMIT 1
+                    '''
+                    row = db.session.execute(
+                        text(base_sql.format(cond='d.id::text = :id')),
+                        {'id': service_id},
+                    ).mappings().first()
+                    if not row:
+                        try:
+                            row = db.session.execute(
+                                text(base_sql.format(cond='d.code::text = :id')),
+                                {'id': service_id},
+                            ).mappings().first()
+                        except Exception:
+                            db.session.rollback()  # cột code không có — bỏ qua
+                            row = None
                     if row:
                         return _map_db_row_to_service(row)
                 except Exception:
