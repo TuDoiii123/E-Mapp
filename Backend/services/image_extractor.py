@@ -6,6 +6,7 @@ Supports images (jpg/png/webp/heic/heif) and PDF (via PyMuPDF).
 import json
 import os
 import sys
+import time
 
 # Make ImageExtract importable
 _IE_PATH = os.path.join(os.path.dirname(__file__), '..', 'ImageExtract')
@@ -123,14 +124,19 @@ def extract_document(file_path: str) -> dict:
     """
     from prompt import AGENT_MESSAGE
     from services.ocr_postcorrect import postcorrect_document
+    from services.ocr_metrics import log_extraction_metrics
     ext = os.path.splitext(file_path)[1].lower()
+    file_name = os.path.basename(file_path)
+    t0 = time.perf_counter()
 
     if ext == '.pdf':
         pages = _extract_pdf(file_path, AGENT_MESSAGE)
         # Return first page result that parsed successfully
         for page in pages:
             if not page.get('parse_error'):
-                return postcorrect_document(page['data'])
+                data = postcorrect_document(page['data'])
+                log_extraction_metrics(data, time.perf_counter() - t0, file_name)
+                return data
         return {'pages': pages}
 
     mime_type = _IMAGE_MIME.get(ext, 'image/jpeg')
@@ -138,7 +144,9 @@ def extract_document(file_path: str) -> dict:
         image_bytes = f.read()
 
     raw = _call_gemini(image_bytes, mime_type, AGENT_MESSAGE)
-    return postcorrect_document(json.loads(_clean_json(raw)))
+    data = postcorrect_document(json.loads(_clean_json(raw)))
+    log_extraction_metrics(data, time.perf_counter() - t0, file_name)
+    return data
 
 
 def extract_form_template(file_path: str) -> dict:
