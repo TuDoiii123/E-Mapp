@@ -62,6 +62,18 @@ AGENT_MESSAGE = '''As a document observer and extractor, you are tasked with obs
        JSON output, never return one JSON per image. A field printed only on
        one side (e.g. issue date, place of residence on the back of a chip-
        based CCCD) should be filled from whichever image shows it.
+    9. If the document is NOT one of the 3 types with a fixed schema below
+       (citizen ID / driving license / marriage certificate), still extract
+       every clearly visible field, but follow these rules so the output is
+       usable directly in a Vietnamese UI:
+       - Field names (JSON keys) MUST be Vietnamese words in snake_case
+         without diacritics, e.g. "ho_ten", "dia_chi_thuong_tru", "ngay_sinh"
+         — NEVER English camelCase like "fullName" or "currentAddress".
+       - The JSON MUST be FLAT: one level of key → value strings. Do NOT
+         nest objects (no "{"nguoi_nop_don": {"dia_chi": ...}}") — instead
+         prefix the key itself in Vietnamese, e.g. "dia_chi_nguoi_nop_don".
+       - Still include a "type" key naming the document in Vietnamese
+         (e.g. "type": "Giấy đề nghị đăng ký hộ kinh doanh").
 
         For citizen identification card, read the front side and, if a back
         side image is also provided, the back side too (placeOfResidence and
