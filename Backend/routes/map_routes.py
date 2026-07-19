@@ -488,7 +488,7 @@ def directions():
 # ── Smart Route ────────────────────────────────────────────────────────────────
 
 # Logic chấm điểm nằm ở services/smart_route_core.py (dùng chung với bộ eval)
-from services.smart_route_core import rank_agencies, SPEED_KMH as _SPEED_KMH
+from services.smart_route_core import rank_agencies, filter_by_service, SPEED_KMH as _SPEED_KMH
 
 _OSM_MODE = {'driving': 'osrm_car', 'walking': 'osrm_foot', 'cycling': 'osrm_bicycle'}
 
@@ -543,17 +543,8 @@ def smart_route():
         log.error(f'smart_route: load agencies failed: {e}', exc_info=True)
         return _err('Không thể tải danh sách cơ quan', 500)
 
-    # Filter by service keyword
-    if service_id and service_id != 'all':
-        def _match(a: dict) -> bool:
-            haystack = ' '.join([
-                str(a.get('id', '')),
-                str(a.get('categoryId', '')),
-                ' '.join(str(s) for s in a.get('services', [])),
-                str(a.get('name', '')),
-            ]).lower()
-            return service_id in haystack
-        agencies = [a for a in agencies if _match(a)]
+    # Lọc theo thủ tục — bảng từ khóa + bỏ dấu (services/smart_route_core.py)
+    agencies = filter_by_service(agencies, service_id)
 
     if category and category != 'all':
         agencies = [a for a in agencies if a.get('categoryId') == category]

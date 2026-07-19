@@ -18,6 +18,60 @@ MAX_WAIT   = 30.0   # người chờ → coi là "đầy"
 LOAD_SCORE = {'low': 0.0, 'medium': 0.2, 'high': 0.6}
 SPEED_KMH  = {'driving': 30, 'walking': 5, 'cycling': 15}
 
+# ── Lọc theo thủ tục ──────────────────────────────────────────────────────────
+
+import unicodedata
+
+def _norm(s: str) -> str:
+    """Bỏ dấu tiếng Việt + lowercase + gộp ký tự phân cách về 1 dấu cách."""
+    s = str(s).lower().replace('đ', 'd')
+    s = unicodedata.normalize('NFD', s)
+    s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+    return ' '.join(''.join(c if c.isalnum() else ' ' for c in s).split())
+
+
+# Slug thủ tục (frontend gửi lên) → từ khóa đã bỏ dấu để khớp với
+# services/name/categoryId của cơ quan. Dữ liệu cơ quan là tiếng Việt có dấu
+# ("Hộ khẩu", "Khai sinh"...) nên phải so trên dạng chuẩn hoá.
+SERVICE_KEYWORDS = {
+    'cccd':          ['cccd', 'can cuoc', 'dinh danh dien tu'],
+    'ho_khau':       ['ho khau', 'cu tru', 'tam tru', 'thuong tru', 'tam vang'],
+    'khai_sinh':     ['khai sinh', 'ho tich'],
+    'ket_hon':       ['ket hon', 'ho tich'],
+    'dat_dai':       ['dat dai', 'nha o', 'cnqsdd', 'so do', 'quyen su dung dat'],
+    'doanh_nghiep':  ['doanh nghiep', 'kinh doanh', 'dau tu'],
+    'y_te':          ['y te', 'kham chua benh', 'kham benh', 'tiem chung',
+                      'bhyt', 'xet nghiem', 'cap cuu'],
+    'gplx':          ['giay phep lai xe', 'gplx', 'sat hach lai xe'],
+}
+
+
+def filter_by_service(agencies: list, service_id) -> list:
+    """
+    Lọc danh sách cơ quan theo slug thủ tục ('cccd', 'ho_khau'...).
+
+    - 'all' / rỗng / None → trả nguyên danh sách.
+    - Slug có trong SERVICE_KEYWORDS → khớp bất kỳ từ khóa nào.
+    - Slug lạ → coi là văn bản tự do, khớp chuỗi đã bỏ dấu.
+    """
+    if not service_id or str(service_id).strip().lower() == 'all':
+        return agencies
+
+    keywords = SERVICE_KEYWORDS.get(str(service_id).strip().lower())
+    if keywords is None:
+        keywords = [_norm(service_id)]
+
+    def _match(a: dict) -> bool:
+        haystack = _norm(' '.join([
+            str(a.get('id', '')),
+            str(a.get('categoryId', '')),
+            ' '.join(str(s) for s in a.get('services') or []),
+            str(a.get('name', '')),
+        ]))
+        return any(kw in haystack for kw in keywords)
+
+    return [a for a in agencies if _match(a)]
+
 
 def est_wait_min(waiting: int) -> int:
     """Ước tính thời gian chờ: bình quân 5 phút/người, tối thiểu 5 phút."""
