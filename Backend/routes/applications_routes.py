@@ -919,19 +919,24 @@ def upload_document(app_id):
             storage_path  = f'uploads/{filename}',
         )
 
-        # Trích xuất text bất đồng bộ (Gemini)
+        # Trích xuất text bất đồng bộ (Gemini) — thread mới không thừa hưởng
+        # app context của request, mà db.session cần current_app nên phải
+        # tự mở app_context() bằng app object lấy trước khi thread tách ra.
+        flask_app = current_app._get_current_object()
+
         def _extract():
-            try:
-                text_content = process_document(filepath, file.filename)
-                if text_content:
-                    db.session.execute(text('''
-                        UPDATE public.application_documents
-                        SET processed_text = :txt
-                        WHERE id = :id
-                    '''), {'txt': text_content, 'id': doc['id']})
-                    db.session.commit()
-            except Exception as ex:
-                log.error(f'Document extraction failed: {ex}')
+            with flask_app.app_context():
+                try:
+                    text_content = process_document(filepath, file.filename)
+                    if text_content:
+                        db.session.execute(text('''
+                            UPDATE public.application_documents
+                            SET processed_text = :txt
+                            WHERE id = :id
+                        '''), {'txt': text_content, 'id': doc['id']})
+                        db.session.commit()
+                except Exception as ex:
+                    log.error(f'Document extraction failed: {ex}')
 
         t = threading.Thread(target=_extract, daemon=True)
         t.start()
