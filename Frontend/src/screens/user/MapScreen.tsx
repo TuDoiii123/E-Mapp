@@ -43,6 +43,21 @@ const SMART_SERVICES = [
   { id: 'gplx',         label: 'Giấy phép lái xe',  Icon: Car },
 ];
 
+// Thủ tục (Gợi ý AI) → loại cơ quan (chip CATEGORY_CHIPS) — khớp với
+// SERVICE_RULES bên Backend/services/smart_route_core.py để chọn thủ tục là
+// tự lọc luôn danh sách/marker cơ quan theo loại đảm nhận thủ tục đó.
+const SMART_SERVICE_TO_CATEGORY: Record<string, string> = {
+  all:          'all',
+  cccd:         'police',
+  ho_khau:      'police',
+  khai_sinh:    'ubnd',
+  ket_hon:      'ubnd',
+  dat_dai:      'so-nganh',
+  doanh_nghiep: 'so-nganh',
+  y_te:         'health',
+  gplx:         'police',
+};
+
 const LOAD_COLOR: Record<string, string> = { low: '#22c55e', medium: '#f59e0b', high: '#ef4444' };
 const LOAD_BG:    Record<string, string> = { low: 'bg-green-500', medium: 'bg-amber-500', high: 'bg-red-500' };
 const LOAD_TEXT:  Record<string, string> = { low: 'text-green-600', medium: 'text-amber-600', high: 'text-red-600' };
@@ -1076,7 +1091,10 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                   {SMART_SERVICES.map(({ id, label, Icon }) => {
                     const active = smartService === id;
                     return (
-                      <button key={id} onClick={() => setSmartService(id)} aria-pressed={active}
+                      <button key={id} onClick={() => {
+                          setSmartService(id);
+                          setSelectedCategory(SMART_SERVICE_TO_CATEGORY[id] ?? 'all');
+                        }} aria-pressed={active}
                         className={`${id === 'all' ? 'col-span-2' : ''} py-2.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-2 text-left transition-all ${
                           active
                             ? 'bg-primary text-white shadow-md'
