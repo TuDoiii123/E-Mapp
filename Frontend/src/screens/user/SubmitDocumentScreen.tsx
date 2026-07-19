@@ -53,6 +53,44 @@ interface Service {
   legalBasis?: string[];
 }
 
+// Nhãn tiếng Việt cho các trường AI trích xuất (CCCD/GPLX/giấy kết hôn — khớp
+// schema trong Backend/ImageExtract/prompt.py) — tránh hiện thẳng key camelCase
+// (vd 'dateOfBirth') ra UI cho người dùng cuối.
+const AI_FIELD_LABELS: Record<string, string> = {
+  type:              'Loại giấy tờ',
+  no:                'Số giấy tờ',
+  fullName:          'Họ và tên',
+  dateOfBirth:       'Ngày sinh',
+  gender:            'Giới tính',
+  nationality:       'Quốc tịch',
+  placeOfOrigin:     'Quê quán',
+  placeOfResidence:  'Nơi thường trú',
+  address:           'Địa chỉ',
+  class:             'Hạng (GPLX)',
+  husbandName:       'Họ và tên chồng',
+  husbandNation:     'Dân tộc (chồng)',
+  husbandNationality:'Quốc tịch (chồng)',
+  husbandDateOfBirth:'Ngày sinh (chồng)',
+  husbandAddress:    'Nơi thường trú (chồng)',
+  husbandIDNo:       'Số CMND/CCCD/Hộ chiếu (chồng)',
+  wifeName:          'Họ và tên vợ',
+  wifeDateOfBirth:   'Ngày sinh (vợ)',
+  wifeNation:        'Dân tộc (vợ)',
+  wifeNationality:   'Quốc tịch (vợ)',
+  wifeAddress:       'Nơi thường trú (vợ)',
+  wifeIDNo:          'Số CMND/CCCD/Hộ chiếu (vợ)',
+  dateOfMarriage:    'Ngày đăng ký kết hôn',
+  placeOfMarriage:   'Nơi đăng ký kết hôn',
+};
+
+/** Nhãn hiển thị cho 1 trường AI trích xuất — key lạ (không có trong bảng
+ *  trên) thì tách camelCase thành từ có hoa đầu, không hiện nguyên key. */
+function aiFieldLabel(key: string): string {
+  if (AI_FIELD_LABELS[key]) return AI_FIELD_LABELS[key];
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 function procToService(p: ProcedureData): Service {
   return {
     id:         p.id,
@@ -1370,7 +1408,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                   <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                     {Object.entries(aiFields).map(([key, val]) => (
                       <div key={key}>
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{key}</label>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">{aiFieldLabel(key)}</label>
                         <input
                           value={val}
                           onChange={e => setAiFields(prev => prev ? { ...prev, [key]: e.target.value } : prev)}
