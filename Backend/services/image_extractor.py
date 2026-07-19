@@ -100,52 +100,74 @@ def _preprocess_image(image_bytes: bytes, mime_type: str) -> tuple:
         return image_bytes, mime_type
 
 
-def _call_gemini(image_bytes: bytes, mime_type: str, prompt: str) -> str:
+def _call_gemini(images: list, prompt: str) -> str:
+    """
+    images: list các (image_bytes, mime_type) — 1 phần tử khi giấy tờ chỉ có
+    1 mặt, nhiều phần tử khi giấy tờ có nhiều mặt/trang (CCCD mặt trước+sau).
+    Gửi TẤT CẢ ảnh trong CÙNG 1 lần gọi Gemini để model tự kết hợp thông tin
+    — không tốn thêm quota so với gửi 1 ảnh.
+    """
     from google.genai import types
-    image_bytes, mime_type = _preprocess_image(image_bytes, mime_type)
     client = _gemini_client()
+    parts = []
+    for image_bytes, mime_type in images:
+        image_bytes, mime_type = _preprocess_image(image_bytes, mime_type)
+        parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime_type))
     response = client.models.generate_content(
         model='gemini-2.5-flash',
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-            prompt,
-        ]
+        contents=[*parts, prompt],
     )
     return response.text
 
 
+def _load_image(path: str) -> tuple:
+    ext = os.path.splitext(path)[1].lower()
+    mime_type = _IMAGE_MIME.get(ext, 'image/jpeg')
+    with open(path, 'rb') as f:
+        return f.read(), mime_type
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def extract_document(file_path: str) -> dict:
+def extract_document(file_paths) -> dict:
     """
-    Extract structured info from a personal document image or PDF.
+    Extract structured info from personal document image(s) or a PDF.
+
+    file_paths: 1 đường dẫn (str) hoặc list đường dẫn (list[str]) — nhiều ảnh
+    khi giấy tờ có nhiều mặt cần đọc cùng lúc (CCCD/GPLX mặt trước+sau).
     Returns parsed JSON dict (đã qua hậu xử lý sửa địa danh + kiểm chéo CCCD).
     Raises on failure.
     """
     from prompt import AGENT_MESSAGE
     from services.ocr_postcorrect import postcorrect_document
     from services.ocr_metrics import log_extraction_metrics
-    ext = os.path.splitext(file_path)[1].lower()
-    file_name = os.path.basename(file_path)
+
+    paths = [file_paths] if isinstance(file_paths, str) else list(file_paths)
+    if not paths:
+        raise ValueError('Cần ít nhất 1 ảnh/giấy tờ để trích xuất')
+
+    file_label = ', '.join(os.path.basename(p) for p in paths)
     t0 = time.perf_counter()
 
-    if ext == '.pdf':
-        pages = _extract_pdf(file_path, AGENT_MESSAGE)
+    # PDF tự tách nhiều trang (đã là "nhiều ảnh" theo cách riêng) — không trộn
+    # PDF với ảnh rời trong cùng 1 lần gọi.
+    if len(paths) == 1 and os.path.splitext(paths[0])[1].lower() == '.pdf':
+        pages = _extract_pdf(paths[0], AGENT_MESSAGE)
         # Return first page result that parsed successfully
         for page in pages:
             if not page.get('parse_error'):
                 data = postcorrect_document(page['data'])
-                log_extraction_metrics(data, time.perf_counter() - t0, file_name)
+                log_extraction_metrics(data, time.perf_counter() - t0, file_label)
                 return data
         return {'pages': pages}
 
-    mime_type = _IMAGE_MIME.get(ext, 'image/jpeg')
-    with open(file_path, 'rb') as f:
-        image_bytes = f.read()
+    if any(os.path.splitext(p)[1].lower() == '.pdf' for p in paths):
+        raise ValueError('Không trộn PDF với ảnh rời trong cùng 1 lần trích xuất')
 
-    raw = _call_gemini(image_bytes, mime_type, AGENT_MESSAGE)
+    images = [_load_image(p) for p in paths]
+    raw = _call_gemini(images, AGENT_MESSAGE)
     data = postcorrect_document(json.loads(_clean_json(raw)))
-    log_extraction_metrics(data, time.perf_counter() - t0, file_name)
+    log_extraction_metrics(data, time.perf_counter() - t0, file_label)
     return data
 
 
@@ -177,11 +199,7 @@ def extract_form_template(file_path: str) -> dict:
             merged['sections'] = list(dict.fromkeys(all_sections))  # dedupe
         return merged
 
-    mime_type = _IMAGE_MIME.get(ext, 'image/jpeg')
-    with open(file_path, 'rb') as f:
-        image_bytes = f.read()
-
-    raw = _call_gemini(image_bytes, mime_type, FORM_TEMPLATE_MESSAGE)
+    raw = _call_gemini([_load_image(file_path)], FORM_TEMPLATE_MESSAGE)
     return json.loads(_clean_json(raw))
 
 
@@ -203,7 +221,7 @@ def _extract_pdf(file_path: str, prompt: str) -> list:
             image_bytes = pix.tobytes('png')
 
             try:
-                raw = _call_gemini(image_bytes, 'image/png', prompt)
+                raw = _call_gemini([(image_bytes, 'image/png')], prompt)
                 data = json.loads(_clean_json(raw))
                 results.append({'page': page_num + 1, 'data': data})
             except json.JSONDecodeError as e:

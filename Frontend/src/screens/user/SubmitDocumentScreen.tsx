@@ -381,9 +381,9 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
   const handleAiSourcePick = (reqId: string) => aiInputsRef.current[reqId]?.click();
 
   const onAiSourceChange = useCallback(async (req: Requirement, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files ?? []);
     if (e.target) e.target.value = '';
-    if (!file || !req.templateFile) return;
+    if (!files.length || !req.templateFile) return;
 
     setAiExtracting(true);
     setAiError('');
@@ -391,7 +391,9 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
 
     try {
       const form = new FormData();
-      form.append('file', file);
+      // Nhiều ảnh cùng field 'file' (vd mặt trước + mặt sau CCCD) — backend
+      // gộp thông tin từ tất cả trong 1 lần gọi AI.
+      files.forEach(f => form.append('file', f));
       const resp = await fetch(`${API_BASE_URL}/ai/extract`, {
         method: 'POST',
         headers: authHeaders(),
@@ -840,6 +842,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                     {req.templateFile && (
                       <input
                         type="file"
+                        multiple
                         accept="image/*,application/pdf"
                         aria-label={`Ảnh nguồn AI: ${req.docName}`}
                         className="hidden"
@@ -945,7 +948,7 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
                               className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-bold rounded-lg hover:bg-amber-100 transition-colors">
                               <Sparkles className="w-3.5 h-3.5" /> AI Điền mẫu
                             </button>
-                            <span className="text-[10px] text-on-surface-variant">Chụp ảnh CCCD/giấy tờ để AI tự điền</span>
+                            <span className="text-[10px] text-on-surface-variant">Chụp CCCD/giấy tờ để AI tự điền — chọn cả mặt trước & sau nếu cần</span>
                           </div>
                         )}
                         <div className="flex items-center justify-center gap-2 pt-2 text-[11px] text-outline font-medium">
@@ -1348,8 +1351,11 @@ export function SubmitDocumentScreen({ onNavigate }: SubmitDocumentScreenProps) 
               ) : !aiFields ? (
                 /* Step: upload source image */
                 <div className="text-center py-4">
-                  <p className="text-sm text-gray-600 mb-4">
+                  <p className="text-sm text-gray-600 mb-1">
                     Chụp ảnh hoặc tải lên <span className="font-bold">giấy tờ gốc</span> (CCCD, giấy khai sinh, v.v.) để AI trích xuất thông tin và tự điền vào mẫu đơn.
+                  </p>
+                  <p className="text-xs text-gray-400 mb-4">
+                    Giấy tờ có 2 mặt (CCCD, GPLX)? Chọn cùng lúc cả ảnh mặt trước và mặt sau — AI sẽ gộp thông tin từ cả hai.
                   </p>
                   <button
                     onClick={() => handleAiSourcePick(aiModal.req.id)}

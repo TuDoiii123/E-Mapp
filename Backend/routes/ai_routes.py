@@ -64,13 +64,32 @@ def _split_extract_meta(fields):
 
 # ── POST /api/ai/extract ─────────────────────────────────────────────────────
 
+def _save_upload_files(files) -> list:
+    """Lưu 1 hoặc nhiều file upload vào temp, validate định dạng. Raise ValueError nếu sai."""
+    if not files:
+        raise ValueError('Thiếu file')
+    tmp_paths = []
+    for file in files:
+        if not file or not file.filename:
+            raise ValueError('Tên file không hợp lệ')
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in _ALLOWED_EXTRACT_EXTS:
+            raise ValueError(f'Định dạng không hỗ trợ. Chấp nhận: {", ".join(_ALLOWED_EXTRACT_EXTS)}')
+        tmp = tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False)
+        file.save(tmp.name)
+        tmp.close()
+        tmp_paths.append(tmp.name)
+    return tmp_paths
+
+
 @ai_bp.route('/extract', methods=['POST'])
 def extract_document():
     """
     Trích xuất thông tin có cấu trúc từ ảnh/scan giấy tờ.
 
     Request: multipart/form-data
-      file  — ảnh hoặc PDF của giấy tờ (CCCD, GPLX, giấy khai sinh, v.v.)
+      file  — 1 HOẶC NHIỀU ảnh/PDF cùng field 'file' (vd mặt trước + mặt sau
+              CCCD) — model kết hợp thông tin từ tất cả trong 1 lần gọi AI.
 
     Response:
       { "success": true, "data": { "fields": { ... } } }
@@ -79,30 +98,20 @@ def extract_document():
     if err:
         return err
 
-    if 'file' not in request.files:
-        return jsonify({'success': False, 'message': 'Thiếu file'}), 400
-
-    file = request.files['file']
-    if not file.filename:
-        return jsonify({'success': False, 'message': 'Tên file không hợp lệ'}), 400
-
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
-    if ext not in _ALLOWED_EXTRACT_EXTS:
-        return jsonify({
-            'success': False,
-            'message': f'Định dạng không hỗ trợ. Chấp nhận: {", ".join(_ALLOWED_EXTRACT_EXTS)}'
-        }), 400
-
-    tmp = tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False)
+    files = request.files.getlist('file')
     try:
-        file.save(tmp.name)
-        tmp.close()
+        tmp_paths = _save_upload_files(files)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
 
+    try:
         from services.image_extractor import extract_document as _extract
-        fields = _extract(tmp.name)
+        fields = _extract(tmp_paths)
         fields, corrections, warnings = _split_extract_meta(fields)
 
-        log.info(f'AI extract: {file.filename} → {len(fields) if isinstance(fields, dict) else "?"} fields')
+        names = ', '.join(f.filename for f in files)
+        log.info(f'AI extract: {names} ({len(files)} ảnh) → '
+                f'{len(fields) if isinstance(fields, dict) else "?"} fields')
         data = {'fields': fields}
         if corrections:
             data['corrections'] = corrections
@@ -121,10 +130,11 @@ def extract_document():
         log.error(f'AI extract error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': f'Lỗi trích xuất: {str(e)}'}), 500
     finally:
-        try:
-            os.unlink(tmp.name)
-        except Exception:
-            pass
+        for p in tmp_paths:
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
 
 
 # ── POST /api/ai/fill ────────────────────────────────────────────────────────
@@ -244,7 +254,8 @@ def extract_and_fill():
     Tiện ích: Upload ảnh giấy tờ nguồn + tên template → trích xuất + điền → trả về .docx.
 
     Request: multipart/form-data
-      file         — ảnh/PDF giấy tờ nguồn để trích xuất
+      file         — 1 HOẶC NHIỀU ảnh/PDF giấy tờ nguồn cùng field 'file'
+                     (vd mặt trước + mặt sau CCCD)
       templateFile — tên file template cần điền
 
     Response: file .docx đã điền hoặc JSON với fields đã trích xuất
@@ -256,22 +267,16 @@ def extract_and_fill():
     template_file = (request.form.get('templateFile') or '').strip()
     return_fields_only = request.form.get('fieldsOnly', '').lower() == 'true'
 
-    if 'file' not in request.files:
-        return jsonify({'success': False, 'message': 'Thiếu file ảnh nguồn'}), 400
-
-    file = request.files['file']
-    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in (file.filename or '') else ''
-    if ext not in _ALLOWED_EXTRACT_EXTS:
-        return jsonify({'success': False, 'message': 'Định dạng ảnh không hỗ trợ'}), 400
-
-    tmp = tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False)
+    files = request.files.getlist('file')
     try:
-        file.save(tmp.name)
-        tmp.close()
+        tmp_paths = _save_upload_files(files)
+    except ValueError as e:
+        return jsonify({'success': False, 'message': str(e)}), 400
 
+    try:
         # Bước 1: Trích xuất fields từ ảnh
         from services.image_extractor import extract_document as _extract
-        extracted = _extract(tmp.name)
+        extracted = _extract(tmp_paths)
         extracted, ef_corrections, ef_warnings = _split_extract_meta(extracted)
 
         if return_fields_only or not template_file:
@@ -299,7 +304,8 @@ def extract_and_fill():
         stem = os.path.splitext(template_file)[0]
         download_name = f'{stem}_dien.docx'
 
-        log.info(f'extract-and-fill: {file.filename} → {template_file} ({len(flat_fields)} fields)')
+        names = ', '.join(f.filename for f in files)
+        log.info(f'extract-and-fill: {names} → {template_file} ({len(flat_fields)} fields)')
         return send_file(
             filled_bytes,
             mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -314,10 +320,11 @@ def extract_and_fill():
         log.error(f'extract-and-fill error: {e}', exc_info=True)
         return jsonify({'success': False, 'message': str(e)}), 500
     finally:
-        try:
-            os.unlink(tmp.name)
-        except Exception:
-            pass
+        for p in tmp_paths:
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
 
 
 def _flatten_fields(data: dict, prefix: str = '') -> dict[str, str]:

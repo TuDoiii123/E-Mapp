@@ -56,8 +56,17 @@ AGENT_MESSAGE = '''As a document observer and extractor, you are tasked with obs
     7. Place names must be real Vietnamese administrative units (xã/phường,
        huyện/quận, tỉnh/thành phố). If what you read does not look like a real
        Vietnamese place name, re-examine the image before answering.
+    8. You may receive MULTIPLE images for a SINGLE document (e.g. the front
+       and back side of the same citizen ID card, or multiple pages). Treat
+       them as ONE document: merge the information from all images into ONE
+       JSON output, never return one JSON per image. A field printed only on
+       one side (e.g. issue date, place of residence on the back of a chip-
+       based CCCD) should be filled from whichever image shows it.
 
-        For citizen identification card, you need to read front-side, read the following information:
+        For citizen identification card, read the front side and, if a back
+        side image is also provided, the back side too (placeOfResidence and
+        issue date are commonly printed on the back of the new chip-based
+        card) — read the following information:
             {
                 "type": "Căn cước công dân / Citizen Identity Card",
                 "no": Số / No,
