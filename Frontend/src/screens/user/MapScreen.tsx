@@ -5,6 +5,7 @@ import {
   Loader2, AlertCircle, CalendarDays, Navigation, Clock,
   Sparkles, Users, MapPin, Car, PersonStanding, Bike,
   Trophy, Search, X, ArrowLeft, Phone, Globe, Star, Route,
+  LayoutGrid, IdCard, Home, Baby, Heart, Landmark, Briefcase, Stethoscope,
 } from 'lucide-react';
 import { servicesAPI, PublicService } from '../../services/servicesApi';
 import { getMapOverview, AgencyQueueStatus } from '../../services/queueService';
@@ -28,15 +29,15 @@ const CATEGORY_CHIPS = [
 ];
 
 const SMART_SERVICES = [
-  { id: 'all',          label: 'Tất cả thủ tục' },
-  { id: 'cccd',         label: 'CCCD / Căn cước' },
-  { id: 'ho_khau',      label: 'Hộ khẩu / Cư trú' },
-  { id: 'khai_sinh',    label: 'Khai sinh' },
-  { id: 'ket_hon',      label: 'Đăng ký kết hôn' },
-  { id: 'dat_dai',      label: 'Đất đai / Nhà ở' },
-  { id: 'doanh_nghiep', label: 'Doanh nghiệp' },
-  { id: 'y_te',         label: 'Y tế / Khám bệnh' },
-  { id: 'gplx',         label: 'Giấy phép lái xe' },
+  { id: 'all',          label: 'Tất cả thủ tục',    Icon: LayoutGrid },
+  { id: 'cccd',         label: 'CCCD / Căn cước',   Icon: IdCard },
+  { id: 'ho_khau',      label: 'Hộ khẩu / Cư trú',  Icon: Home },
+  { id: 'khai_sinh',    label: 'Khai sinh',          Icon: Baby },
+  { id: 'ket_hon',      label: 'Đăng ký kết hôn',   Icon: Heart },
+  { id: 'dat_dai',      label: 'Đất đai / Nhà ở',   Icon: Landmark },
+  { id: 'doanh_nghiep', label: 'Doanh nghiệp',       Icon: Briefcase },
+  { id: 'y_te',         label: 'Y tế / Khám bệnh',  Icon: Stethoscope },
+  { id: 'gplx',         label: 'Giấy phép lái xe',  Icon: Car },
 ];
 
 const LOAD_COLOR: Record<string, string> = { low: '#22c55e', medium: '#f59e0b', high: '#ef4444' };
@@ -1065,10 +1066,22 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
             <div className="p-5 space-y-4 flex-shrink-0 border-b border-gray-100">
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">Thủ tục cần làm</label>
-                <select value={smartService} onChange={e => setSmartService(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 text-sm font-medium text-gray-800 focus:ring-2 focus:ring-primary outline-none">
-                  {SMART_SERVICES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
+                <div className="grid grid-cols-2 gap-2">
+                  {SMART_SERVICES.map(({ id, label, Icon }) => {
+                    const active = smartService === id;
+                    return (
+                      <button key={id} onClick={() => setSmartService(id)} aria-pressed={active}
+                        className={`${id === 'all' ? 'col-span-2' : ''} py-2.5 px-3 rounded-xl text-[11px] font-bold flex items-center gap-2 text-left transition-all ${
+                          active
+                            ? 'bg-primary text-white shadow-md'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}>
+                        <Icon className={`w-4 h-4 flex-shrink-0 ${active ? 'text-white' : 'text-gray-400'}`} />
+                        <span className="leading-tight">{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               <div>
