@@ -47,12 +47,20 @@ def _guess_doc_type(data: dict) -> Optional[str]:
     Suy loại giấy tờ từ khoá dữ liệu trả về (khớp DOC_KEYS nhiều nhất) —
     không parse chuỗi 'type' vì Gemini trả kèm tên song ngữ không ổn định
     ('Giấy phép lái xe / Driver's License'...).
+
+    'type' KHÔNG tính vào overlap: khoá này có mặt ở CẢ 3 schema (cccd/gplx/
+    marriage), nên giấy tờ NGOÀI danh mục (vd 'Giấy đề nghị đăng ký hộ kinh
+    doanh') mà Gemini chỉ trả về mỗi {'type': ...} sẽ hoà điểm 1 ở cả 3 loại
+    — và luôn bị đoán nhầm thành loại đầu tiên trong dict (cccd) nếu tính cả
+    'type'. Yêu cầu khớp ít nhất 1 trường ĐẶC TRƯNG (ngoài 'type') mới nhận
+    diện, không thì coi là chưa biết.
     """
     if not data:
         return None
     best, best_score = None, 0
     for doc_type, keys in DOC_KEYS.items():
-        overlap = len(set(keys) & set(data.keys()))
+        distinctive = set(keys) - {'type'}
+        overlap = len(distinctive & set(data.keys()))
         if overlap > best_score:
             best, best_score = doc_type, overlap
     return best if best_score else None
