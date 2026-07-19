@@ -122,6 +122,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
   const boundaryLayerRef = useRef<L.GeoJSON | null>(null);
   const stepMarkersRef  = useRef<L.Marker[]>([]);
   const acTimer         = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const smartResultsRef = useRef<HTMLDivElement>(null);
   const loadSeqRef      = useRef(0);
   const [mapReady, setMapReady] = useState(false);
 
@@ -541,6 +542,8 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
       if (res.success) {
         setSmartResults(res.data.recommendations); setSmartSearched(true);
         if (!res.data.recommendations.length) setSmartError(res.data.message ?? 'Không tìm thấy cơ quan phù hợp.');
+        // Bảng điều khiển cao hơn khung nhìn trên màn thấp — cuộn tới kết quả
+        else setTimeout(() => smartResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
       }
     } catch (e: any) { setSmartError(e.message ?? 'Lỗi khi tìm gợi ý.'); }
     finally { setSmartLoading(false); }
@@ -1061,9 +1064,9 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
 
         {/* ════ TAB: GỢI Ý AI ════ */}
         {sidebarTab === 'smart' && (
-          <div className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
             {/* Controls */}
-            <div className="p-5 space-y-4 flex-shrink-0 border-b border-gray-100">
+            <div className="p-5 space-y-4 border-b border-gray-100">
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 block">Thủ tục cần làm</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -1117,7 +1120,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
             </div>
 
             {/* Results */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div ref={smartResultsRef} className="p-4 space-y-3 scroll-mt-2">
               {!smartSearched && !smartLoading && (
                 <div className="flex flex-col items-center py-10 text-center">
                   <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-3">
