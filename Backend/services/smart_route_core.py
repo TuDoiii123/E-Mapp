@@ -30,20 +30,34 @@ def _norm(s: str) -> str:
     return ' '.join(''.join(c if c.isalnum() else ' ' for c in s).split())
 
 
-# Slug thủ tục (frontend gửi lên) → từ khóa đã bỏ dấu để khớp với
-# services/name/categoryId của cơ quan. Dữ liệu cơ quan là tiếng Việt có dấu
-# ("Hộ khẩu", "Khai sinh"...) nên phải so trên dạng chuẩn hoá.
-SERVICE_KEYWORDS = {
-    'cccd':          ['cccd', 'can cuoc', 'dinh danh dien tu'],
-    'ho_khau':       ['ho khau', 'cu tru', 'tam tru', 'thuong tru', 'tam vang'],
-    'khai_sinh':     ['khai sinh', 'ho tich'],
-    'ket_hon':       ['ket hon', 'ho tich'],
-    'dat_dai':       ['dat dai', 'nha o', 'cnqsdd', 'so do', 'quyen su dung dat'],
-    'doanh_nghiep':  ['doanh nghiep', 'kinh doanh', 'dau tu'],
-    'y_te':          ['y te', 'kham chua benh', 'kham benh', 'tiem chung',
-                      'bhyt', 'xet nghiem', 'cap cuu'],
-    'gplx':          ['giay phep lai xe', 'gplx', 'sat hach lai xe'],
+# Slug thủ tục (frontend gửi lên) → từ khóa đã bỏ dấu + loại cơ quan đảm nhận.
+# Dữ liệu cơ quan là tiếng Việt có dấu ("Hộ khẩu", "Khai sinh"...) nên so trên
+# dạng chuẩn hoá; trên prod cột services thường RỖNG (import từ OSM) nên cần
+# fallback theo categoryId (công an làm CCCD/cư trú, UBND làm hộ tịch...).
+SERVICE_RULES = {
+    'cccd':          {'keywords': ['cccd', 'can cuoc', 'dinh danh dien tu'],
+                      'categories': ['police']},
+    'ho_khau':       {'keywords': ['ho khau', 'cu tru', 'tam tru', 'thuong tru', 'tam vang'],
+                      'categories': ['police']},
+    'khai_sinh':     {'keywords': ['khai sinh', 'ho tich', 'tu phap'],
+                      'categories': ['ubnd']},
+    'ket_hon':       {'keywords': ['ket hon', 'ho tich', 'tu phap'],
+                      'categories': ['ubnd']},
+    'dat_dai':       {'keywords': ['dat dai', 'nha o', 'cnqsdd', 'so do',
+                                   'quyen su dung dat', 'dang ky dat dai'],
+                      'categories': []},
+    'doanh_nghiep':  {'keywords': ['doanh nghiep', 'kinh doanh', 'dau tu'],
+                      'categories': []},
+    'y_te':          {'keywords': ['y te', 'kham chua benh', 'kham benh', 'tiem chung',
+                                   'bhyt', 'xet nghiem', 'cap cuu', 'benh vien'],
+                      'categories': ['health']},
+    'gplx':          {'keywords': ['giay phep lai xe', 'gplx', 'sat hach lai xe',
+                                   'giao thong van tai'],
+                      'categories': []},
 }
+
+# Trung tâm phục vụ hành chính công tiếp nhận mọi loại thủ tục
+_UNIVERSAL_CATEGORIES = {'trung-tam'}
 
 
 def filter_by_service(agencies: list, service_id) -> list:
@@ -51,24 +65,35 @@ def filter_by_service(agencies: list, service_id) -> list:
     Lọc danh sách cơ quan theo slug thủ tục ('cccd', 'ho_khau'...).
 
     - 'all' / rỗng / None → trả nguyên danh sách.
-    - Slug có trong SERVICE_KEYWORDS → khớp bất kỳ từ khóa nào.
+    - Slug có trong SERVICE_RULES → khớp từ khóa (theo ranh giới từ) HOẶC
+      loại cơ quan đảm nhận thủ tục đó; trung tâm HCC luôn khớp.
     - Slug lạ → coi là văn bản tự do, khớp chuỗi đã bỏ dấu.
     """
     if not service_id or str(service_id).strip().lower() == 'all':
         return agencies
 
-    keywords = SERVICE_KEYWORDS.get(str(service_id).strip().lower())
-    if keywords is None:
-        keywords = [_norm(service_id)]
+    rule = SERVICE_RULES.get(str(service_id).strip().lower())
+    if rule is None:
+        # Văn bản tự do: khớp đúng chữ người dùng gõ, không suy theo loại cơ quan
+        rule = {'keywords': [_norm(service_id)], 'categories': []}
+        categories = set()
+    else:
+        categories = set(rule['categories']) | _UNIVERSAL_CATEGORIES
+    keywords = rule['keywords']
 
     def _match(a: dict) -> bool:
-        haystack = _norm(' '.join([
+        category = str(a.get('categoryId', ''))
+        if category in categories:
+            return True
+        # Đệm space 2 đầu để khớp theo ranh giới từ — tránh kiểu
+        # 'khen thưởng trung ương' dính nhầm keyword 'thường trú'
+        haystack = ' ' + _norm(' '.join([
             str(a.get('id', '')),
-            str(a.get('categoryId', '')),
+            category,
             ' '.join(str(s) for s in a.get('services') or []),
             str(a.get('name', '')),
-        ]))
-        return any(kw in haystack for kw in keywords)
+        ])) + ' '
+        return any(f' {kw} ' in haystack for kw in keywords)
 
     return [a for a in agencies if _match(a)]
 
