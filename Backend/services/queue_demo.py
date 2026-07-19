@@ -46,6 +46,17 @@ def _always_open() -> bool:
     return os.getenv('DEMO_QUEUE_ALWAYS_OPEN', '1') not in ('0', 'false', 'False')
 
 
+# ~30% cơ quan là "văn phòng vắng" (chọn tất định theo id): hàng chờ luôn thấp
+# cả ngày → gợi ý AI giờ cao điểm vẫn có lựa chọn 'Vắng' để khuyến nghị,
+# thanh tải trên bản đồ có đủ 3 màu thay vì toàn vàng/đỏ.
+QUIET_RATIO = 0.30
+QUIET_MAX_WAITING = 5   # trần người chờ của cơ quan vắng (= ngưỡng 'low')
+
+
+def _is_quiet(agency_id: str) -> bool:
+    return _h(f'{agency_id}|quiet') % 100 < QUIET_RATIO * 100
+
+
 def demo_queue(agency: dict, now: datetime = None) -> dict:
     """
     Sinh trạng thái hàng chờ mô phỏng cho 1 cơ quan tại thời điểm now.
@@ -68,6 +79,10 @@ def demo_queue(agency: dict, now: datetime = None) -> dict:
     # Jitter tất định ±20% theo (cơ quan, ngày, giờ) — mỗi giờ một con số
     jitter = (_h(f'{aid}|{now.date()}|{hour}') % 41 - 20) / 100.0
     waiting = max(0, round(waiting * (1 + jitter)))
+
+    # Văn phòng vắng: nén về mức thấp, vẫn dao động nhẹ theo giờ
+    if _is_quiet(aid):
+        waiting = min(round(waiting * 0.25), QUIET_MAX_WAITING)
 
     serving = max(1, min(6, waiting // 5 + 1)) if waiting > 0 else 0
     # Ngưỡng đồng bộ với QueueService.queue_summary (models/queue.py)
