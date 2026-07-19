@@ -17,6 +17,9 @@ interface MapScreenProps { onNavigate: (screen: string, params?: any) => void; }
 const DEFAULT_LAT  = 21.0285;  // Hà Nội — Hồ Hoàn Kiếm
 const DEFAULT_LNG  = 105.8542;
 const DEFAULT_ZOOM = 12;
+// Mặc định chỉ tải cơ quan quanh vị trí trong bán kính này; muốn xa hơn thì
+// chọn tỉnh (toàn tỉnh) hoặc gõ tìm kiếm (quét toàn bộ DB)
+const NEARBY_RADIUS_KM = 5;
 
 const CATEGORY_CHIPS = [
   { key: 'all',       label: 'Tất cả' },
@@ -102,7 +105,7 @@ const fmtDist = (d?: number | null) =>
   !d ? 'N/A' : d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
 
 /** Haversine km — fallback tính khoảng cách phía client khi backend không trả
- *  (chế độ Toàn quốc không gửi lat/lng lên server). */
+ *  (chế độ xem theo tỉnh không gửi lat/lng lên server). */
 const haversineKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
   const rad = (deg: number) => deg * (Math.PI / 180);
   const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
@@ -423,20 +426,20 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
     const t = setTimeout(loadServices, 250);
     return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCategory, selectedProvince]);
+  }, [selectedCategory, selectedProvince, userLocation]);
 
   const loadServices = async () => {
     // Sequence guard: response cũ về muộn không được đè dữ liệu mode hiện tại
     const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
-      // Không giới hạn bán kính: 'all' = toàn quốc, chọn tỉnh = toàn tỉnh
-      const res = await servicesAPI.getAll(
-        selectedCategory === 'all' ? undefined : selectedCategory,
-        undefined,
-        selectedProvince !== 'all' ? selectedProvince : undefined,
-        undefined, undefined, 5000,
-      );
+      const category = selectedCategory === 'all' ? undefined : selectedCategory;
+      // Mặc định: chỉ cơ quan trong 5km quanh vị trí; chọn tỉnh = toàn tỉnh.
+      // Tìm kiếm không bị giới hạn — handleSearchInput quét toàn bộ DB.
+      const loc = userLocation ?? { lat: DEFAULT_LAT, lng: DEFAULT_LNG };
+      const res = selectedProvince !== 'all'
+        ? await servicesAPI.getAll(category, undefined, selectedProvince, undefined, undefined, 5000)
+        : await servicesAPI.getNearby(loc.lat, loc.lng, NEARBY_RADIUS_KM, category, undefined, 500);
       if (seq === loadSeqRef.current && res.success) setOffices(res.data.services);
     } catch {
       // lỗi mạng: giữ dữ liệu cũ, không treo loading
@@ -923,7 +926,7 @@ export function MapScreen({ onNavigate }: MapScreenProps) {
                         }}
                         className="flex-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-700 focus:border-primary focus:outline-none"
                       >
-                        <option value="all">Toàn quốc</option>
+                        <option value="all">Quanh tôi (5 km)</option>
                         {provinces.map(p => (
                           <option key={p.code} value={p.name}>{p.fullName || p.name}</option>
                         ))}
