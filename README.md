@@ -1,4 +1,4 @@
-# E-Mapp — Dịch vụ công số tỉnh Thanh Hóa
+# E-Mapp — Dịch vụ công số
 
 > Nền tảng dịch vụ hành chính công trực tuyến: nộp hồ sơ, đặt lịch hẹn, lấy số xếp hàng, tra cứu thủ tục, trợ lý AI (chatbot RAG + giọng nói) và bản đồ cơ quan hành chính.
 
